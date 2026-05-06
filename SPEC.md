@@ -107,11 +107,12 @@ reigner/
 │   ├── conventions.py           # default layout: raw/, artifacts/{entity}/{version}/
 │   └── manifest.py              # extraction_meta.json structure
 ├── ingestion/                   # optional helpers — domain code lives outside
-│   ├── pipeline.py              # IngestionPipeline (loaders → transforms → writers → indexers)
+│   ├── pipeline.py              # IngestionPipeline
+│   ├── extractor.py             # LLMExtractor base class
+│   ├── results.py               # ExtractionResult, ExtractionError, TransientError, ValidationError
 │   ├── loaders/                 # PdfLoader, MdLoader, JsonLoader, UrlLoader
-│   ├── transforms/              # base classes; users write LLM extractors here
-│   ├── writers/                 # ArtifactWriter, IndexWriter
-│   └── indexers/                # Bm25Indexer
+│   ├── writers/                 # ArtifactWriter, Bm25IndexWriter
+│   └── transforms/              # base classes for non-LLM transforms
 ├── role/                        # ROLE handling
 │   ├── loader.py                # AGENTS-style cascade: package → user → project → recipe
 │   ├── compose.py               # per-turn dynamic context injection
@@ -538,7 +539,7 @@ class ArtifactSchema:
     def from_yaml(cls, path: str) -> "ArtifactSchema": ...
 ```
 
-The schema is the contract. Both the artifact tools and the ingestion writer reference it. Developers declare a schema or use a default.
+The schema is the contract. Both the artifact tools and the ingestion writer reference it. Developers declare a schema or use a default. **For extraction validation (§8), the schema's `SectionSpec` and `JsonArtifactSpec` types also declare field-level requirements that the `LLMExtractor` validates against.**
 
 ### 7.2 `ArtifactStore` (read-side)
 
@@ -578,35 +579,183 @@ Atomic (write-then-rename), idempotent (keyed on `(entity_id, version, schema_ve
 
 ## 8. The Ingestion System
 
-The thinnest layer in Reigner. Ingestion is mostly domain-specific; we provide the pipeline shape and a few defaults.
+Three layers, with Reigner's involvement decreasing as you go up the stack. Layer A is Reigner's contract. Layer B is user code, scaffolded by Reigner. Layer C is Reigner's runner.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Layer C — IngestionPipeline   (Reigner: runner)                │
+│   concurrency, progress, errors, directory-level idempotency   │
+├────────────────────────────────────────────────────────────────┤
+│ Layer B — LLMExtractor        (user: prompt + preprocessing)   │
+│                               (Reigner: adapters, retry,       │
+│                                validation, cost, idempotency)  │
+├────────────────────────────────────────────────────────────────┤
+│ Layer A — ArtifactSchema      (Reigner: declarative contract)  │
+│   declares the shape of compiled artifacts; see §7.1           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 8.1 Layer A — ArtifactSchema (declarative)
+
+The shape of your compiled artifacts. Declared once. Validates extraction outputs. Tells artifact tools what to expect on disk.
+
+The base `ArtifactSchema` from §7.1 is extended with field-level type info so extraction can be validated:
+
+```python
+from reigner.artifacts import ArtifactSchema, SectionSpec, JsonArtifactSpec
+
+schema = ArtifactSchema(
+    entity_path="{ticker}/{fiscal_year}",
+    sections=[
+        SectionSpec(name="document_summary", required=True, max_chars=2000),
+        SectionSpec(name="sections/business", required=True),
+        SectionSpec(name="sections/risk_factors", required=True),
+        SectionSpec(name="insights/key_risks", required=False),
+    ],
+    json_artifacts=[
+        JsonArtifactSpec(
+            name="metadata.json",
+            fields={
+                "ticker": str,
+                "fiscal_year": int,
+                "filing_date": str,
+                "company_name": str,
+            },
+        ),
+        JsonArtifactSpec(
+            name="metrics.json",
+            fields={
+                "revenue": float,
+                "net_income": float,
+                "research_and_development": float,
+                "total_assets": float,
+            },
+        ),
+    ],
+)
+```
+
+The schema can also be authored as YAML and loaded via `ArtifactSchema.from_yaml(path)`.
+
+### 8.2 Layer B — LLMExtractor (user code, Reigner-scaffolded)
+
+Where domain knowledge lives. The user writes a subclass of `LLMExtractor` that contains the prompt and any preprocessing. Reigner provides everything around it.
+
+```python
+from reigner.ingestion import LLMExtractor, ExtractionResult
+
+class TenKExtractor(LLMExtractor):
+    schema = schema                  # the ArtifactSchema from §8.1
+    model = "gemini-2.0-pro"          # or "anthropic:claude-...", "openai:gpt-..."
+    max_retries = 2
+
+    PROMPT = """
+    You are reading a SEC 10-K annual filing for {company_name} ({ticker})
+    for fiscal year {fiscal_year}.
+
+    Extract the following into structured JSON matching the provided schema.
+    If a value cannot be found, return null. Do not estimate.
+
+    Schema:
+    {schema_as_json_schema}
+    """
+
+    async def extract(self, raw: bytes, meta: dict) -> ExtractionResult:
+        text = await self.preprocess_pdf(raw)
+        response = await self.call_model(
+            prompt=self.PROMPT.format(
+                **meta,
+                schema_as_json_schema=self.schema.to_json_schema(),
+            ),
+            input_text=text,
+            response_format="json",
+        )
+        return ExtractionResult(
+            sections={
+                "document_summary": response["document_summary"],
+                "sections/business": response["business"],
+                "sections/risk_factors": response["risk_factors"],
+            },
+            json_artifacts={
+                "metadata.json": {
+                    "ticker": meta["ticker"],
+                    "fiscal_year": meta["fiscal_year"],
+                    "filing_date": meta["filing_date"],
+                    "company_name": meta["company_name"],
+                },
+                "metrics.json": response["metrics"],
+            },
+        )
+```
+
+**What Reigner provides via `LLMExtractor`:**
+
+- `self.call_model(prompt, input_text, response_format)` — same model adapters as the harness; the user never writes provider-specific code.
+- Retry with exponential backoff on transient errors (rate limits, 5xx).
+- Schema validation of the returned JSON against `self.schema` — required sections and required JSON fields are checked; missing required fields raise `ExtractionError` with a clear message rather than producing a malformed artifact.
+- Token and cost tracking per extraction, surfaced in pipeline metrics.
+- Idempotency keyed on `(source_hash, schema_version, prompt_hash)`. If the prompt changes, re-extraction happens automatically; if it doesn't, the cached extraction is reused.
+- Standard error patterns: `TransientError` (retried), `ExtractionError` (routed to dead-letter), `ValidationError` (routed to dead-letter with the malformed payload preserved).
+- A default `preprocess_pdf` implementation using `pypdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.).
+
+**What the user provides:**
+
+- `PROMPT` — the actual instructions. Irreducibly domain-specific.
+- `extract()` — the orchestration of preprocess → prompt → parse → return.
+- Optionally, an override of `preprocess_pdf` or any other preprocessing.
+
+**What Reigner deliberately does not ship:**
+
+Pre-built extractors for any specific domain. A 10-K extractor, a research paper extractor, a medical guideline extractor, and a legal contract extractor all need fundamentally different prompts and preprocessing. Shipping one would be lying about Reigner's scope. The `LLMExtractor` base class makes writing one cheap (typically ~50 lines including the prompt).
+
+The example in `examples/sec_10k/extractor.py` shows a complete real-world extractor as documentation-by-demonstration, not as a supported component.
+
+### 8.3 Layer C — IngestionPipeline (runner)
+
+The pipeline glues loaders, extractors, and writers together.
 
 ```python
 from reigner.ingestion import IngestionPipeline
 from reigner.ingestion.loaders import PdfLoader
 from reigner.ingestion.writers import ArtifactWriter, Bm25IndexWriter
 
-class TenKExtractor:
-    """Domain-specific — developer writes this."""
-    async def transform(self, raw: bytes, meta: dict) -> ArtifactPayload:
-        ...
-
 pipeline = IngestionPipeline(
-    loaders=[PdfLoader()],
-    transforms=[TenKExtractor(model="gemini-1.5-pro")],
-    writers=[ArtifactWriter(...), Bm25IndexWriter(...)],
+    loaders=[PdfLoader(meta_extractor=parse_filing_metadata)],
+    transforms=[TenKExtractor()],
+    writers=[
+        ArtifactWriter(root="library/artifacts", schema=schema),
+        Bm25IndexWriter(path="search-index/documents.json"),
+    ],
+    concurrency=4,
+    on_error="dead_letter",   # or "raise", "skip"
+    dead_letter_path="library/_dead_letter/",
 )
 
 await pipeline.run("data/raw/10k/")
 ```
 
-Ships with:
+The pipeline handles:
 
-- `PdfLoader`, `MdLoader`, `JsonLoader`, `UrlLoader`.
-- A `Transform` base class with `extract` / `validate` / `retry` hooks.
-- `ArtifactWriter` and `Bm25IndexWriter` as standard sinks.
-- An idempotency layer keyed on `(source, version, schema_version)`.
+- Concurrency across documents (configurable; default 4).
+- Progress reporting via the same event protocol as the agent loop.
+- Idempotency at the directory level: previously-ingested documents matching the current `(source_hash, schema_version, prompt_hash)` key are skipped.
+- Error routing per the `on_error` policy: `raise` (default for development), `dead_letter` (default for production), or `skip`.
+- Final report: count successful, count failed, total tokens, total cost, total wall-clock time.
 
-Explicitly does *not* ship LLM extractors for any specific domain. That's user code.
+### 8.4 What ships with Reigner
+
+- `IngestionPipeline` (the runner).
+- `LLMExtractor` base class with all scaffolding described in §8.2.
+- Loaders: `PdfLoader`, `MdLoader`, `JsonLoader`, `UrlLoader`.
+- Writers: `ArtifactWriter`, `Bm25IndexWriter`.
+- Transform base classes for non-LLM transforms (e.g. deterministic parsers, format converters).
+
+### 8.5 What does not ship with Reigner
+
+- Specific extractors for any domain.
+- Specific PDF parsing strategies beyond a basic default.
+- An OCR pipeline (use a separate library like `unstructured` or `marker` upstream of the pipeline if needed).
+- A document deduplication layer (idempotency is per-source, not cross-source).
 
 ---
 
