@@ -117,8 +117,12 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - Depends on: #1
   - _Unblocks #18 and all subsequent CLI tasks_
 
-- [ ] **[T-18 #18](https://github.com/Construct-Lab/reigner/issues/18)** `feat: CLI skeleton + init command` `S`
-  - `cli/__main__.py` + `cli/init.py`: entry point, `reigner init <name> [--recipe document_qa]`
+- [ ] **[T-18 #18](https://github.com/Construct-Lab/reigner/issues/18)** `feat: CLI skeleton + init command` `M`
+  - `cli/__main__.py` + `cli/init.py`: entry point, `reigner init <name>` with three modes per SPEC §14:
+    - `--guided` (default): interactive Q&A → LLM-generated REIGNER.md + schema.yaml, with confirmation gate before scaffolding `extractors/my_extractor.py`
+    - `--recipe <name>`: verbatim copy of recipe scaffolds (no LLM call)
+    - `--blank`: empty stubs only (offline)
+  - Scaffolds the project layout from SPEC §9.1 (REIGNER.md, reigner.yaml, schema.yaml, extractors/, library/{raw,artifacts}/, search-index/, eval/, .env.example, .gitignore, README.md)
   - Depends on: #17
 
 - [ ] **[T-19 #19](https://github.com/Construct-Lab/reigner/issues/19)** `feat: CLI chat REPL` `M`
@@ -176,8 +180,11 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
 
 All Phase 1 tracks must be stable before these begin.
 
-- [ ] **[T-30 #30](https://github.com/Construct-Lab/reigner/issues/30)** `feat: ROLE cascade loader` `M`
-  - `role/loader.py` + `role/compose.py` + `role/templates/`: recipe → user → project → skills cascade
+- [ ] **[T-30 #30](https://github.com/Construct-Lab/reigner/issues/30)** `feat: REIGNER.md loader + skill composition` `S`
+  - `role/loader.py`: read `./REIGNER.md` from the project root (single file, no cascade per SPEC §9)
+  - `role/compose.py`: append active skill blocks + dynamic per-turn context to the prompt
+  - `role/templates/`: starter REIGNER.md files bundled with each recipe (init-time scaffolds, not runtime sources)
+  - Sized down from M → S now that the cascade is gone
   - Depends on: #17
 
 - [ ] **[T-31 #31](https://github.com/Construct-Lab/reigner/issues/31)** `feat: Skills system + 5 bundled skills` `M`
@@ -186,12 +193,12 @@ All Phase 1 tracks must be stable before these begin.
   - Depends on: #30
 
 - [ ] **[T-32 #32](https://github.com/Construct-Lab/reigner/issues/32)** `feat: document_qa recipe` `L`
-  - `recipes/document_qa/`: wires store, BM25, pseudo-tools, ROLE, skills into a three-line API
+  - `recipes/document_qa/`: bundled REIGNER.md, reigner.yaml, schema.yaml, extractor stub (init-time scaffolds); `recipe.py` wires store, BM25, pseudo-tools, skills into a three-line API
   - Depends on: #8, #9, #10, #31
   - _The integration milestone — if this works end-to-end, the design is sound_
 
 - [ ] **[T-33 #33](https://github.com/Construct-Lab/reigner/issues/33)** `feat: code_navigator recipe` `M`
-  - `recipes/code_navigator/`: FS tools, no schema, exploration ROLE
+  - `recipes/code_navigator/`: bundled REIGNER.md (exploration-oriented), FS tools, no schema
   - Depends on: #11, #30
 
 - [ ] **[T-34 #34](https://github.com/Construct-Lab/reigner/issues/34)** `feat: SEC 10-K example` `L`
