@@ -29,8 +29,9 @@ coverage.xml
 *.swp
 .DS_Store
 
-# Reigner runtime
-.reigner/
-sessions/
-artifacts/
-search-index/
+# Reigner runtime (anchored to project root so they don't match
+# the reigner.artifacts / reigner.sessions package directories)
+/.reigner/
+/sessions/
+/artifacts/
+/search-index/
