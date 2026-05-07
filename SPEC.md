@@ -696,7 +696,7 @@ class TenKExtractor(LLMExtractor):
 - Token and cost tracking per extraction, surfaced in pipeline metrics.
 - Idempotency keyed on `(source_hash, schema_version, prompt_hash)`. If the prompt changes, re-extraction happens automatically; if it doesn't, the cached extraction is reused.
 - Standard error patterns: `TransientError` (retried), `ExtractionError` (routed to dead-letter), `ValidationError` (routed to dead-letter with the malformed payload preserved).
-- A default `preprocess_pdf` implementation using `pypdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.).
+- A default `preprocess_pdf` implementation using `pymupdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.). PyMuPDF is AGPL-3.0; downstream users requiring a permissive license can install `pymupdf-pro` or override `preprocess_pdf` with another loader.
 
 **What the user provides:**
 
