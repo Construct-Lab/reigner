@@ -1,7 +1,7 @@
 # Reigner — v0 Specification
 
 > A Python toolkit for building specialist agents over your own knowledge.
-> Bring your `ROLE.md`, your ingestion, and your domain tools.
+> Bring your `REIGNER.md`, your ingestion, and your domain tools.
 > Reigner brings the loop that doesn't lose its mind, the retrieval that doesn't blow up your context, the sessions you can fork, and the citations that survive into the final answer.
 
 **Status:** Draft v0 — single source of truth for the package design.
@@ -21,7 +21,7 @@ A Python library for building **single-agent, retrieval-shaped, citation-faithfu
 - A bounded, schema-aware retrieval tool surface (`read_artifact_file`, `grep_artifact`, `get_json_field`) plus a 50-line BM25 index.
 - A typed streaming event protocol any UI can drive from.
 - Forkable on-disk sessions you can replay and branch.
-- An ROLE composition system that merges global, project, and recipe-level instruction files.
+- A project-local `REIGNER.md` instruction file scaffolded at init time, with on-demand skill blocks composed in at runtime.
 - One opinionated recipe (`document_qa`) that wires everything together for the ApolloScope-shaped use case, plus a contrast recipe (`code_navigator`) for raw filesystem access.
 - A CLI with `init`, `ingest`, `chat`, `eval`, `inspect`, `serve`.
 - An MCP server export so any Reigner tool is also an MCP-callable tool.
@@ -113,10 +113,10 @@ reigner/
 │   ├── loaders/                 # PdfLoader, MdLoader, JsonLoader, UrlLoader
 │   ├── writers/                 # ArtifactWriter, Bm25IndexWriter
 │   └── transforms/              # base classes for non-LLM transforms
-├── role/                        # ROLE handling
-│   ├── loader.py                # AGENTS-style cascade: package → user → project → recipe
-│   ├── compose.py               # per-turn dynamic context injection
-│   └── templates/               # starter ROLEs for each recipe
+├── role/                        # REIGNER.md handling
+│   ├── loader.py                # reads ./REIGNER.md from the project root
+│   ├── compose.py               # per-turn dynamic context + skill block injection
+│   └── templates/               # starter REIGNER.md files for each recipe (init-time scaffolds)
 ├── skills/                      # composable instruction modules — on-demand loaded
 │   ├── base.py                  # Skill protocol
 │   ├── registry.py              # SkillRegistry, on-demand activation
@@ -125,12 +125,14 @@ reigner/
 │   ├── targeted_retrieval.py
 │   ├── chart_intent.py
 │   └── scratchpad_discipline.py
-├── recipes/                     # plural opinionated wirings
+├── recipes/                     # init-time scaffolds (§9, §14)
 │   ├── document_qa/             # the v0 hero recipe (ApolloScope-shaped)
 │   │   ├── __init__.py
 │   │   ├── recipe.py
-│   │   ├── ROLE.md
-│   │   └── reigner.yaml
+│   │   ├── REIGNER.md           # copied into the user's project at init
+│   │   ├── reigner.yaml         # copied into the user's project at init
+│   │   ├── schema.yaml          # copied into the user's project at init
+│   │   └── extractor_stub.py    # copied to extractors/my_extractor.py at init
 │   └── code_navigator/          # contrast recipe (Flue-shaped, opt-in)
 │       └── ...
 ├── sessions/                    # forkable, branchable, durable
@@ -696,7 +698,7 @@ class TenKExtractor(LLMExtractor):
 - Token and cost tracking per extraction, surfaced in pipeline metrics.
 - Idempotency keyed on `(source_hash, schema_version, prompt_hash)`. If the prompt changes, re-extraction happens automatically; if it doesn't, the cached extraction is reused.
 - Standard error patterns: `TransientError` (retried), `ExtractionError` (routed to dead-letter), `ValidationError` (routed to dead-letter with the malformed payload preserved).
-- A default `preprocess_pdf` implementation using `pypdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.).
+- A default `preprocess_pdf` implementation using `pymupdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.). PyMuPDF is AGPL-3.0; downstream users requiring a permissive license can install `pymupdf-pro` or override `preprocess_pdf` with another loader.
 
 **What the user provides:**
 
@@ -759,30 +761,53 @@ The pipeline handles:
 
 ---
 
-## 9. ROLE composition
+## 9. The instruction file (`REIGNER.md`)
 
-Reigner adopts the AGENTS.md cascade pattern. ROLE files are merged in a fixed order:
+Every Reigner project has one instruction file at its repo root: `./REIGNER.md`. This file is the single runtime source of truth for what the agent is, what it does, and how it behaves. The name follows the AGENTS.md / CLAUDE.md / CURSOR.md convention: discoverable, tool-specific, version-controlled alongside the rest of the user's project.
 
-1. **Recipe defaults** — bundled with the recipe (e.g. `recipes/document_qa/ROLE.md`).
-2. **Package defaults** — `~/.reigner/ROLE.md` if it exists.
-3. **Project root** — `./ROLE.md` if it exists.
-4. **Skill blocks** — on-demand, see Section 10.
+Reigner deliberately **rejects a runtime cascade** across machine-global, project, and recipe layers. The reasoning:
 
-Each level can append, override sections, or inherit. Sections in a ROLE are delimited by `## ` headers; later levels can replace a section by name.
+- **Reigner is a toolbox for shipping per-project agents.** Users build agents to open-source or to ship to clients. Runtime behavior must be reproducible from the contents of the project repo. A machine-global `~/.reigner/REIGNER.md` silently shaping a deployed agent's behavior — present on the dev's laptop, absent in production — is exactly the footgun this design rejects.
+- **Recipes are init-time scaffolds, not runtime sources.** When the user runs `reigner init <name> --recipe document_qa`, the recipe's bundled `REIGNER.md` is *copied into the project verbatim*. After init, the recipe is no longer referenced; the project owns its REIGNER.md. There is no merge, no cascade, no implicit override.
+- **Skills are the only on-demand layer.** Skill instructions (§10) are appended to the prompt when the model invokes the skill. Skills live in the package; they are dynamic by nature because the model is choosing them mid-loop.
+
+The instruction file uses `## ` headers to delimit sections (identity, retrieval grammar, citation rules, etc.). Sections are model-readable prose plus optional YAML front-matter for metadata.
 
 ```yaml
 # reigner.yaml
 role:
-  cascade:
-    - recipe        # document_qa default
-    - user          # ~/.reigner/ROLE.md
-    - project       # ./ROLE.md
+  file: REIGNER.md           # project-relative; defaults to ./REIGNER.md
   skills:
     - citation_strict
     - targeted_retrieval
 ```
 
-Composed ROLE is logged once at session start (visible in `reigner inspect role`). This is critical: opaque ROLEs are the #1 source of "why is my agent doing this?" debugging pain.
+The composed prompt (REIGNER.md + active skill blocks + dynamic per-turn context) is logged once per session and visible via `reigner inspect role`. Opaque instruction sets are the #1 source of "why is my agent doing this?" debugging pain — keeping the source on disk, single-file, and inspectable solves that directly.
+
+### 9.1 What `reigner init` produces
+
+`reigner init <name>` is the make-or-break DX moment (see §14 for the three init modes). Every mode produces the same project layout:
+
+```
+my_app/
+├── REIGNER.md              # the instruction file — generated, copied, or stubbed
+├── reigner.yaml            # config: model, settings, paths
+├── schema.yaml             # ArtifactSchema declaration
+├── extractors/             # user's LLMExtractor subclasses (Layer B per §8.2)
+│   ├── __init__.py
+│   └── my_extractor.py     # commented stub showing the LLMExtractor pattern
+├── library/
+│   ├── raw/                # user drops source documents here
+│   └── artifacts/          # populated by `reigner ingest`
+├── search-index/           # BM25 sidecar lands here
+├── eval/
+│   └── cases.yaml          # one starter case + comments
+├── .env.example            # ANTHROPIC_API_KEY=... etc
+├── .gitignore              # ignores library/artifacts, search-index, .env, .reigner/
+└── README.md               # how to ingest, chat, eval
+```
+
+Compiled artifacts, the search index, and session state are **derived data** and excluded from version control by the scaffolded `.gitignore`. The user's source-of-truth files — `REIGNER.md`, `reigner.yaml`, `schema.yaml`, `extractors/`, `library/raw/` — are committed.
 
 ---
 
@@ -839,7 +864,7 @@ Sessions are **durable, forkable, branchable JSON files on disk**. Inspired by P
 
 ### 11.1 Storage
 
-- Location: `~/.reigner/sessions/` (configurable, override per project to `./.reigner/sessions/`).
+- Location: `./.reigner/sessions/` inside the user's project (configurable). Project-local by default — same reasoning as §9: runtime state belongs to the project, not the machine. The `.gitignore` scaffolded by `reigner init` excludes this directory.
 - One file per session: `{session_id}.jsonl`.
 - One JSON line per event in the protocol.
 - Optional `meta.json` per session: title, parent_id, created, last_updated, total tokens, total cost.
@@ -861,7 +886,7 @@ CLI:
 ```
 reigner session list
 reigner session fork <id> [--at-turn N]
-reigner session replay <id> [--at-turn N] [--with-role ./ROLE.md]
+reigner session replay <id> [--at-turn N] [--with-role ./REIGNER.md]
 reigner session export <id> --to <path>
 reigner session import <path>
 reigner session tree <id>      # show fork tree
@@ -966,7 +991,7 @@ role:
 tools:
   artifacts:
     root: library/artifacts
-    schema: document_qa.default
+    schema: ./schema.yaml          # path to ArtifactSchema YAML scaffolded at init
   search:
     type: bm25
     index_path: search-index/documents.json
@@ -993,8 +1018,27 @@ eval:
 ## 14. CLI (`reigner`)
 
 ```
-reigner init <name> [--recipe document_qa]
-    Scaffold a project: reigner.yaml, ROLE.md, library/, eval/.
+reigner init <name> [--recipe <name> | --blank | --guided]
+    Scaffold a Reigner project. Three modes; default is --guided. All modes
+    produce the same project layout (see §9.1).
+
+    --guided  (default)
+        Interactive Q&A about the user's domain, source documents, question
+        shape, and citation strictness; uses a model to generate REIGNER.md
+        and schema.yaml tailored to the answers. Asks before scaffolding the
+        starter extractors/my_extractor.py — the only generated file that
+        runs code, so it gets an explicit confirmation gate. Requires an
+        API key in the environment; falls back to printing setup instructions
+        and offering --blank if no key is present.
+
+    --recipe <name>
+        Copies the recipe's bundled REIGNER.md, reigner.yaml, schema.yaml,
+        and extractor stub into the project verbatim. No LLM call. For users
+        who know they want a known shape (document_qa, code_navigator).
+
+    --blank
+        Empty stubs only. No LLM call, fully offline. For users who want
+        full manual control or have no API key configured.
 
 reigner ingest [--pipeline <module:obj>] [--source <path>]
     Run an ingestion pipeline; logs progress, idempotent.
@@ -1019,7 +1063,7 @@ reigner serve [--http | --mcp] [--port 8000]
     Run as HTTP server (SSE) or MCP server.
 ```
 
-`reigner init` is the make-or-break DX moment. Within 60 seconds a developer should have a working agent answering questions over a sample corpus.
+`reigner init` is the make-or-break DX moment. Within 60 seconds a developer should have a working agent answering questions over a sample corpus. The --guided default exists because most users start from scratch on their own domain; --recipe is the path for users who already know they want a known shape.
 
 ---
 
@@ -1093,7 +1137,7 @@ This is the recipe that proves the design works. It wires every piece together f
 - An `ArtifactStore` with the six artifact tools.
 - A `Bm25Index` reading from `search-index/documents.json`.
 - The pseudo-tools: `save_note`, `request_clarification`, `escalate_to_oracle`.
-- A bundled `ROLE.md` teaching the targeted-retrieval grammar.
+- A bundled `REIGNER.md` template teaching the targeted-retrieval grammar, copied into the project by `reigner init --recipe document_qa` (§9, §14).
 - The skills: `citation_strict`, `clarify_when_ambiguous`, `targeted_retrieval`.
 - Tuned `reigner.yaml` defaults for retrieval workloads.
 
@@ -1192,12 +1236,14 @@ The release is shippable when all of these are true:
 
 1. **Async-first or sync-first?** The spec assumes async (G11 needs it; streaming is naturally async). Sync wrappers for tests/scripts are easy. Confirm.
 2. **`ArtifactSchema` declarative-only, or also code?** Spec is declarative with YAML support. ApolloScope's was effectively code. Confirm declarative is enough.
-3. **Recipes own `reigner.yaml` or generate it?** Spec has them owning a bundled config that `init` copies into the user's project. Confirm.
+3. **Recipes own `reigner.yaml` or generate it?** ✅ Resolved: recipes generate at init time. The recipe's bundled `REIGNER.md`, `reigner.yaml`, `schema.yaml`, and extractor stub are copied into the user's project verbatim by `reigner init --recipe <name>`. After init the recipe is no longer referenced; the project owns its own files (§9, §14).
 4. **MCP export — schemas MCP-clean from day one?** Yes, with the `@tool` decorator enforcing constraints (no positional-only args, no `**kwargs`, JSON-serializable returns). Costs a little flexibility, gains interop.
 5. **Default model adapter?** Spec assumes Anthropic for the recipe defaults because of prompt caching and tool use quality on retrieval workloads. Confirm or pick OpenAI / Gemini.
 6. **Naming of the guardrails: G1–G11 or descriptive only?** I picked G1–G11 because internal communication needs short identifiers. Public docs should still use names. Confirm.
-7. **Session storage: `~/.reigner/sessions/` or `./.reigner/sessions/`?** Spec defaults to user-global with project override. Confirm.
+7. **Session storage: `~/.reigner/sessions/` or `./.reigner/sessions/`?** ✅ Resolved: project-local at `./.reigner/sessions/`. Same reasoning as §9 — runtime state belongs to the project, not the machine. The `.gitignore` scaffolded by `reigner init` excludes this directory.
 8. **`code_navigator` in v0 or v1?** Spec has it in v0 as a contrast. Could push to v1 if week 6 is tight.
+9. **Runtime instruction cascade?** ✅ Resolved: no cascade. The project's `./REIGNER.md` is the single runtime source of truth. Recipes are init-time scaffolds; there is no `~/.reigner/REIGNER.md`. Skills remain the only on-demand layer (§9).
+10. **`reigner init` default mode?** ✅ Resolved: `--guided` is the default. Most users start from scratch on a domain that no recipe covers. `--recipe` and `--blank` are the explicit alternatives (§14).
 
 ---
 
@@ -1214,7 +1260,7 @@ The release is shippable when all of these are true:
 - **Pseudo-tool** — a tool name the model uses but that's intercepted locally (`save_note`, `escalate_to_oracle`).
 - **Profile** — a named tool subset (`full`, `read_only`, `eval`).
 - **Oracle** — a more capable model invoked for one turn via `escalate_to_oracle`.
-- **Cascade** — the merge order for ROLE files: recipe → user → project → skills.
+- **REIGNER.md** — the project's instruction file at repo root; the single runtime source of truth for the agent (§9).
 
 ---
 
@@ -1229,7 +1275,7 @@ For internal reference only; not in public docs.
 | `library-mcp` tools | `reigner.tools.artifacts` |
 | `analytics-mcp` (NIRF-specific) | User-defined `@tool`s |
 | `agent.yaml` | `reigner.yaml` |
-| ApolloScope's ROLE.md | `recipes/document_qa/ROLE.md` + user/project overrides |
+| ApolloScope's ROLE.md | `recipes/document_qa/REIGNER.md` (template copied into the user's project at init; §9) |
 | `library/artifacts/{nirf_id}/{year}/` | `ArtifactSchema(entity_path="{entity_id}/{version}")` |
 | `documents.json` BM25 sidecar | `tools.search.Bm25Index` |
 | FastAPI gateway | `reigner.server.fastapi_app` |

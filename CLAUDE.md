@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-Reigner is a **pre-implementation** Python library for single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge. The repository currently contains only design documents; no source code exists yet. The authoritative source of truth is `SPEC.md`.
+Reigner is an **early-stage** Python library for single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge. The package skeleton (T-01) is in place — `pyproject.toml`, CI, lint/type/test toolchain, and empty subpackages — but the loop, tools, ingestion, and CLI commands are not yet implemented. The authoritative source of truth is `SPEC.md`; in-flight work and dependencies are tracked in `TASKS.md`.
 
 ## Core Design Documents
 
@@ -28,11 +28,11 @@ Agents never touch raw files. Ingestion compiles raw documents → extracted art
 ### Ingestion Pipeline (`reigner/ingestion/`)
 Three layers: schema contract (what to extract), LLM extractor (does the extraction), pipeline runner (orchestrates loaders/writers). Ingestion is a one-time compilation step, not a live process.
 
-### ROLE Cascade (`reigner/roles/`)
-Instructions merge at runtime in priority order: package defaults → user global (`~/.reigner/`) → project local (`.reigner/`) → recipe-specific. Later layers override earlier ones.
+### Instruction file (`reigner/role/`)
+Each Reigner project has one instruction file at its repo root: `./REIGNER.md`. This is the single runtime source of truth — there is **no cascade** across machine-global / project / recipe layers. The reasoning (SPEC §9): Reigner is a toolbox for shipping per-project agents (open source or to clients), so runtime behavior must be reproducible from the project repo. A machine-global file silently shaping a deployed agent is exactly the footgun this design rejects. Recipes are init-time scaffolds — they generate the project's REIGNER.md and then get out of the way. Skills (loaded on-demand mid-loop) are the only dynamic layer.
 
 ### Sessions (`reigner/sessions/`)
-Sessions are durable JSONL files on disk. They are forkable and replayable, enabling A/B/C comparison of ROLE/tool/model variants without re-running from scratch.
+Sessions are durable JSONL files on disk under `./.reigner/sessions/` (project-local, not machine-global — same reproducibility argument as REIGNER.md). They are forkable and replayable, enabling A/B/C comparison of REIGNER.md / tool / model variants without re-running from scratch.
 
 ### Event Protocol
 All output (CLI, web, MCP) consumes the same typed dataclass events: `StatusEvent`, `ToolCallEvent`, `ToolResultEvent`, `CitationEvent`, etc. Do not add output paths that bypass this protocol.
@@ -41,7 +41,7 @@ All output (CLI, web, MCP) consumes the same typed dataclass events: `StatusEven
 Instruction modules loaded on demand when the model invokes them. Not loaded at startup.
 
 ### Recipes (`reigner/recipes/`)
-Two reference recipes ship with v0: `document_qa` (the hero use case) and `code_navigator` (contrast case). Recipes are composable ROLE + tool profiles.
+Two reference recipes ship with v0: `document_qa` (the hero use case) and `code_navigator` (contrast case). Recipes are **init-time scaffolds**, not runtime sources: their bundled `REIGNER.md`, `reigner.yaml`, `schema.yaml`, and extractor stub are copied verbatim into the user's project by `reigner init --recipe <name>`. After init the recipe is no longer referenced.
 
 ## Development Conventions
 
@@ -57,20 +57,21 @@ Two reference recipes ship with v0: `document_qa` (the hero use case) and `code_
 
 ## Build & Test Commands
 
-No source code exists yet. When implementation begins:
-
 ```bash
-# Install dependencies
-uv sync
+# Install dependencies (including all extras and dev group)
+uv sync --all-extras --group dev
 
-# Run tests
-python -m pytest
+# Lint, format check, type check, tests — what CI runs
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy reigner
+uv run pytest
 
 # Run a single test file
-python -m pytest tests/path/to/test_file.py
+uv run pytest tests/path/to/test_file.py
 
 # CLI entry point
-python -m reigner.cli
+uv run reigner --help
 ```
 
 Testing priorities (per `AGENTS.md`): bounded outputs, citations, sessions, truncation, compaction.
@@ -78,11 +79,11 @@ Testing priorities (per `AGENTS.md`): bounded outputs, citations, sessions, trun
 ## Planned CLI Commands
 
 ```
-reigner init      # initialize a project
+reigner init      # scaffold a project (--guided default, or --recipe / --blank)
 reigner ingest    # compile raw documents into artifacts
 reigner chat      # interactive chat session
 reigner eval      # run eval suite
-reigner inspect   # inspect sessions/artifacts
+reigner inspect   # inspect sessions/artifacts/role/tools
 reigner session   # manage sessions (fork, diff, replay)
 reigner serve     # start MCP/HTTP server
 ```
