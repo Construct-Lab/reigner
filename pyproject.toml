@@ -28,14 +28,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-anthropic = []
-openai = []
-gemini = []
+anthropic = ["anthropic>=0.39"]
+openai = ["openai>=1.40"]
+gemini = ["google-genai>=0.3"]
 server = []
 mcp = []
 ingestion = []
 otel = []
-all = []
+all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3"]
 
 [project.scripts]
 reigner = "reigner.cli.__main__:main"
