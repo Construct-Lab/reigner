@@ -44,11 +44,17 @@ class ToolSpec(Protocol):
     def json_schema(self) -> dict[str, Any]: ...
 
 
+# ModelAdapter is owned by `harness.adapters.base` (T-04). We declare a stub
+# here for typing — the concrete Protocol cannot be imported at module load
+# because `adapters.base` imports `Prompt`/`ToolSpec` from this module. Users
+# should import `ModelAdapter` from `reigner.harness.adapters` for runtime
+# isinstance checks; the stub below is structurally compatible.
 @runtime_checkable
 class ModelAdapter(Protocol):
-    """Minimum surface state needs from an adapter. T-04 will own the full type."""
+    """Adapter surface state needs at the type level. See `harness.adapters`."""
 
     name: str
+    model: str
 
 
 # ---------------------------------------------------------------------------
