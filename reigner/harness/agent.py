@@ -1,18 +1,14 @@
 """Public ``Harness`` and ``Session`` API (SPEC.md §5.1, issue #5).
 
 ``Harness`` is the immutable configured loop — model adapter, tools, role,
-guardrail thresholds. ``Session`` is the mutable per-conversation container
-on top: it owns ``AgentState``, the tool-result cache, and the event log.
+and a :class:`SettingsConfig` carrying every loop-budget knob. ``Session`` is
+the mutable per-conversation container on top: it owns ``AgentState``, the
+tool-result cache, and the event log.
 
-What's intentionally stubbed in T-05:
-
-- ``Harness.from_config`` raises until the config loader (T-26) lands.
-- ``Session.steer`` raises until T-06 wires the steering machinery into the
-  loop. The signature is in place so the public surface matches the issue.
-- ``Session.save`` / ``Session.load`` raise until T-23 builds the JSONL
-  session store.
-- Profile filtering is gated on the tool registry (T-07); only ``"full"`` is
-  accepted today.
+T-17 reshape: the eleven loose budget fields that used to live on ``Harness``
+collapsed into ``settings: SettingsConfig``. ``SettingsConfig`` is now the
+single source of truth for defaults; ``Harness`` reads off it. See
+``docs/t-17-implementation-plan.html``.
 """
 
 from __future__ import annotations
@@ -20,45 +16,94 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Literal
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+from reigner.config import ReignerConfig, SettingsConfig
 from reigner.harness.adapters.base import ModelAdapter
 from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Note, SteeringMode, Turn
+from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
-Profile = Literal["full", "read_only", "eval"]
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass(kw_only=True)
 class Harness:
     """Immutable configured agent. Build once, spawn many sessions.
 
-    The fields here are the knobs the loop reads each iteration. Defaults
-    track SPEC §13. Any field not provided uses the AgentState default.
+    All loop budgets live on :attr:`settings`. Construct a custom
+    :class:`SettingsConfig` and pass it in to override defaults — or pass
+    nothing and ride the defaults from SPEC §13.
     """
 
     adapter: ModelAdapter
+    settings: SettingsConfig = field(default_factory=SettingsConfig)
     tools: list[RunnableTool] = field(default_factory=list)
     role: str = ""
     oracle_adapter: ModelAdapter | None = None
 
-    # Loop budgets — see SPEC §13 / state.AgentState defaults.
-    max_iterations: int = 25
-    context_budget_tokens: int = 100_000
-    max_tool_result_chars: int = 4000
-    tool_result_char_limits: dict[str, int] = field(default_factory=dict)
-    nudge_interval: int = 3
-    max_consecutive_errors: int = 3
-    max_session_notes: int = 20
-    history_keep_recent: int = 3
-    compaction_thresholds: tuple[float, float, float] = (0.80, 0.90, 0.95)
-
     @classmethod
-    def from_config(cls, path: str, tools: list[RunnableTool] | None = None) -> Harness:
-        raise NotImplementedError(
-            "Harness.from_config requires the reigner.yaml loader (later task)"
+    def from_config(
+        cls,
+        path: str | Path,
+        tools: list[RunnableTool] | None = None,
+    ) -> Harness:
+        """Build a :class:`Harness` from a ``reigner.yaml`` file.
+
+        Partial wiring in T-17:
+
+        - Model and oracle adapters are resolved via a lazy provider switch.
+        - ``role.file`` is read from disk if present (resolved relative to the
+          config file). Skill composition belongs to T-30 and is deferred.
+        - ``tools.custom`` dotted paths are imported.
+        - ``tools.artifacts`` and ``tools.search`` raise :class:`ConfigError`
+          with a "requires T-09 / T-10" message — the underlying tool
+          builders don't exist yet.
+        - Plugins (``cfg.plugins``) parse but are not yet wired (T-26).
+        - Sessions / eval sections parse but the runtime that consumes them
+          isn't on Harness yet (T-24, T-28).
+
+        Additional ``tools`` passed in are appended after ``cfg.tools.custom``.
+        """
+        cfg = ReignerConfig.load(path)
+
+        adapter = _build_adapter(cfg.model.provider, cfg.model.name)
+        oracle_adapter = (
+            _build_adapter(cfg.oracle.provider, cfg.oracle.model)
+            if cfg.oracle is not None
+            else None
+        )
+
+        role_text = _load_role(cfg)
+
+        if cfg.tools.artifacts is not None:
+            raise ConfigError(
+                "tools.artifacts requires the ArtifactStore builders (T-09); "
+                "remove the section or wait for T-09 to land."
+            )
+        if cfg.tools.search is not None:
+            raise ConfigError(
+                "tools.search requires the search-index builders (T-10); "
+                "remove the section or wait for T-10 to land."
+            )
+
+        custom_tools: list[RunnableTool] = []
+        for dotted in cfg.tools.custom:
+            obj = import_dotted(dotted)
+            custom_tools.append(obj)  # trusts the user's @tool-decorated callable
+
+        wired_tools: list[RunnableTool] = [*custom_tools, *(tools or [])]
+
+        return cls(
+            adapter=adapter,
+            settings=cfg.settings,
+            tools=wired_tools,
+            role=role_text,
+            oracle_adapter=oracle_adapter,
         )
 
     def session(
@@ -101,19 +146,20 @@ class Session:
         self.id = session_id
         self.parent_id = parent_id
         self._cache = ToolResultCache()
+        s = harness.settings
         self._state = AgentState(
             session_id=session_id,
             role=harness.role,
             tools=list(harness.tools),
             adapter=harness.adapter,
             oracle_adapter=harness.oracle_adapter,
-            max_iterations=harness.max_iterations,
-            context_budget_tokens=harness.context_budget_tokens,
-            max_session_notes=harness.max_session_notes,
-            history_keep_recent=harness.history_keep_recent,
-            nudge_interval=harness.nudge_interval,
-            max_consecutive_errors=harness.max_consecutive_errors,
-            compaction_thresholds=harness.compaction_thresholds,
+            max_iterations=s.max_iterations,
+            context_budget_tokens=s.context_budget_tokens,
+            max_session_notes=s.max_session_notes,
+            history_keep_recent=s.history_keep_recent,
+            nudge_interval=s.nudge_interval,
+            max_consecutive_errors=s.max_consecutive_errors,
+            compaction_thresholds=s.compaction_thresholds,
         )
         for turn in initial_history:
             self._state.append_turn(turn)
@@ -130,12 +176,13 @@ class Session:
         ``max_iterations`` is a per-query budget, not a per-session one.
         """
         self._state.append_turn(Turn(role="user", content=query))
+        s = self.harness.settings
         async for event in run_loop(
             self._state,
             session_id=self.id,
             cache=self._cache,
-            default_char_limit=self.harness.max_tool_result_chars,
-            char_limits=self.harness.tool_result_char_limits,
+            default_char_limit=s.max_tool_result_chars,
+            char_limits=s.tool_result_char_limits,
             seq_start=len(self._events),
         ):
             self._events.append(event)
@@ -205,6 +252,55 @@ class Session:
     @classmethod
     def load(cls, session_id: str) -> Session:
         raise NotImplementedError("session persistence lands with T-23")
+
+
+# ---------------------------------------------------------------------------
+# Helpers — adapter resolution and role-file loading
+# ---------------------------------------------------------------------------
+
+
+def _build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
+    """Resolve a provider literal to a concrete adapter instance.
+
+    Lazy-imports the per-provider module so users only pay for what they use.
+    SDK absence surfaces as a clear :class:`ConfigError` rather than an opaque
+    ``ImportError`` deep in adapter code.
+    """
+    try:
+        if provider == "openai":
+            from reigner.harness.adapters.openai import OpenAIAdapter
+
+            return OpenAIAdapter(model=model)
+        if provider == "anthropic":
+            from reigner.harness.adapters.anthropic import AnthropicAdapter
+
+            return AnthropicAdapter(model=model)
+        if provider == "gemini":
+            from reigner.harness.adapters.gemini import GeminiAdapter
+
+            return GeminiAdapter(model=model)
+    except ImportError as e:
+        raise ConfigError(
+            f"provider {provider!r} requires its optional dependency to be "
+            f"installed (e.g. `uv add reigner[{provider}]`): {e}"
+        ) from e
+
+    raise ConfigError(f"unknown model provider: {provider!r}")
+
+
+def _load_role(cfg: ReignerConfig) -> str:
+    """Read ``cfg.role.file`` from disk, returning ``""`` if it's missing.
+
+    Skill composition (T-30) layers on top of this string later; for T-17 we
+    just slurp the file verbatim so a basic Harness has a usable role.
+    """
+    role_path = cfg.resolve(cfg.role.file)
+    if not role_path.exists():
+        return ""
+    try:
+        return role_path.read_text()
+    except OSError as e:
+        raise ConfigError(f"cannot read role file {role_path}: {e}") from e
 
 
 __all__ = ["Harness", "Profile", "Session"]
