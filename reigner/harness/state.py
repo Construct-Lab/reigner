@@ -181,6 +181,15 @@ class AgentState:
     done: bool = False
     dynamic_context: dict[str, Any] = field(default_factory=dict)
     _consecutive_errors: int = 0
+    error_nudge_injected: bool = False
+    """G4 latch: True once an error nudge has been appended for the current
+    error streak. Cleared by ``record_tool_success``. Read by the loop to
+    distinguish 'nudge and continue' from 'nudge already fired, now bail'."""
+
+    oracle_armed: bool = False
+    """SPEC §5.5: True when ``escalate_to_oracle`` has been invoked and the
+    next iteration should use ``oracle_adapter``. Cleared after one iteration
+    so escalation is strictly single-turn."""
 
     # ------------------------------------------------------------------
     # History / scratchpad mutation
@@ -230,6 +239,7 @@ class AgentState:
 
     def record_tool_success(self) -> None:
         self._consecutive_errors = 0
+        self.error_nudge_injected = False
 
     def consecutive_errors(self) -> int:
         return self._consecutive_errors
