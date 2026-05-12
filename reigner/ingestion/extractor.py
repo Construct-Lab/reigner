@@ -241,7 +241,7 @@ class LLMExtractor(ABC):
         scanned documents — see SPEC §8.2 + §8.5 on the OCR boundary.
         """
         try:
-            import pymupdf  # type: ignore[import-not-found]
+            import pymupdf
         except ImportError as exc:
             raise ImportError(
                 "preprocess_pdf needs pymupdf. Install with "

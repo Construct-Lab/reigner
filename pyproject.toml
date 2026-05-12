@@ -73,6 +73,11 @@ python_version = "3.12"
 strict = true
 files = ["reigner"]
 
+[[tool.mypy.overrides]]
+module = ["pymupdf"]
+follow_imports = "skip"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
