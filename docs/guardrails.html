@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reigner — Guardrails G1–G11 Simulation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #121519;
+    --panel-2: #181c22;
+    --border: #232a33;
+    --text: #d7dee7;
+    --muted: #8a96a4;
+    --accent: #6ee7b7;
+    --accent-2: #7dd3fc;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --oracle: #c084fc;
+    --cached: #34d399;
+    --truncated: #f59e0b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  header {
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 18px;
+    background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .controls { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  button {
+    background: #1f2630; color: var(--text); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button.primary { background: #134e3a; border-color: #1f6b51; color: #d1fae5; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:hover:not(:disabled) { background: #262e38; }
+  button.primary:hover:not(:disabled) { background: #186347; }
+  label.range { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  input[type=range] { accent-color: var(--accent); }
+
+  main {
+    display: grid;
+    grid-template-columns: 360px 1fr 380px;
+    gap: 12px;
+    padding: 12px;
+    height: calc(100vh - 56px);
+  }
+  .col { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .panel h2 {
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin: 0 0 8px 0;
+  }
+  .panel .scroll { overflow-y: auto; flex: 1; }
+
+  /* Guardrails list */
+  .g-list { display: flex; flex-direction: column; gap: 6px; }
+  .g {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    transition: all 0.25s ease;
+    position: relative;
+  }
+  .g .row { display: flex; align-items: center; gap: 8px; }
+  .g .id {
+    font-family: var(--mono); font-size: 11px;
+    background: #0f1419; color: var(--muted);
+    padding: 2px 6px; border-radius: 4px;
+    min-width: 32px; text-align: center;
+  }
+  .g .name { font-weight: 600; font-size: 13px; }
+  .g .blurb { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .g.active {
+    border-color: var(--accent);
+    background: linear-gradient(180deg, #14241d 0%, #0f1a16 100%);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 24px -8px var(--accent);
+  }
+  .g.active .id { background: #064e3b; color: var(--accent); }
+  .g.active .name { color: var(--accent); }
+  .g .pulse {
+    position: absolute; top: 8px; right: 10px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .g.active .pulse { opacity: 1; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(110,231,183,0.7); }
+    50% { box-shadow: 0 0 0 6px rgba(110,231,183,0); }
+  }
+
+  /* Center: loop visualization */
+  .loop {
+    flex: 1;
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 0;
+  }
+  .step-header {
+    display: flex; align-items: center; gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .iter-badge {
+    font-family: var(--mono); font-size: 12px;
+    background: #0f1419; color: var(--accent-2);
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid #1f2937;
+  }
+  .step-title { font-weight: 600; font-size: 14px; }
+  .step-detail { color: var(--muted); font-size: 12px; }
+
+  /* Context meter */
+  .meter-wrap { padding: 8px 0; }
+  .meter-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .meter {
+    flex: 1; height: 14px; border-radius: 7px;
+    background: #0f1419; border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  .meter .fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, #10b981, #34d399 60%, #fbbf24 80%, #f87171 95%);
+    width: 0%; transition: width 0.45s ease;
+  }
+  .meter .marks {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .meter .mark {
+    position: absolute; top: 0; bottom: 0;
+    width: 1px; background: rgba(255,255,255,0.12);
+  }
+  .meter .label-row {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* Prompt blocks */
+  .prompt {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .block {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .block h3 {
+    margin: 0 0 6px 0;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 600;
+  }
+  .block.stable { border-left: 3px solid var(--accent-2); }
+  .block.dynamic { border-left: 3px solid var(--warn); }
+  .block code {
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    display: block; white-space: pre-wrap; line-height: 1.5;
+  }
+
+  /* Tool calls */
+  .tools-region { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+  .tool-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tool {
+    border: 1px solid var(--border); background: var(--panel-2);
+    border-radius: 6px; padding: 8px 10px; min-width: 120px;
+    display: flex; flex-direction: column; gap: 4px;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  .tool .tname { font-family: var(--mono); font-size: 12px; color: var(--accent-2); }
+  .tool .targs { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .tool .tflag {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    align-self: flex-start;
+  }
+  .tool.cached { border-color: var(--cached); }
+  .tool.cached .tflag { background: #064e3b; color: var(--cached); }
+  .tool.truncated { border-color: var(--truncated); }
+  .tool.truncated .tflag { background: #422c0a; color: var(--truncated); }
+  .tool.error { border-color: var(--err); }
+  .tool.error .tflag { background: #4a1313; color: var(--err); }
+  .tool.parallel::after {
+    content: "∥"; position: absolute; right: 8px; top: 6px;
+    color: var(--accent); font-weight: 700; font-size: 14px;
+  }
+
+  /* Notes */
+  .notes { display: flex; flex-direction: column; gap: 4px; }
+  .note {
+    background: #1a1f1c; border: 1px solid #2c3a2f;
+    border-radius: 5px; padding: 6px 8px;
+    font-size: 12px; color: #c7e8d4;
+    display: flex; gap: 8px;
+  }
+  .note .nicon { color: var(--accent); }
+
+  /* Event log */
+  .log { font-family: var(--mono); font-size: 11px; line-height: 1.6; }
+  .log .line { padding: 2px 0; border-bottom: 1px dotted #1c232b; display: flex; gap: 8px; }
+  .log .t { color: var(--muted); }
+  .log .ev-status { color: var(--text); }
+  .log .ev-tool-call { color: var(--accent-2); }
+  .log .ev-tool-result { color: #94a3b8; }
+  .log .ev-compaction { color: var(--warn); }
+  .log .ev-oracle { color: var(--oracle); }
+  .log .ev-nudge { color: #fde68a; }
+  .log .ev-error { color: var(--err); }
+  .log .ev-final { color: var(--accent); font-weight: 700; }
+
+  /* Oracle banner */
+  .oracle-banner {
+    background: linear-gradient(90deg, #2d1a4a, #1a1f2e);
+    border: 1px solid var(--oracle);
+    color: #ddd6fe;
+    padding: 8px 12px; border-radius: 6px;
+    font-size: 12px; display: none; gap: 10px; align-items: center;
+  }
+  .oracle-banner.on { display: flex; }
+  .oracle-banner .dot {
+    width: 10px; height: 10px; background: var(--oracle); border-radius: 50%;
+    box-shadow: 0 0 12px var(--oracle);
+  }
+
+  /* Misc */
+  .legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  .legend span::before { content: "■ "; }
+  .legend .lg-parallel { color: var(--accent); }
+  .legend .lg-cache { color: var(--cached); }
+  .legend .lg-trunc { color: var(--truncated); }
+  .legend .lg-err { color: var(--err); }
+  .legend .lg-oracle { color: var(--oracle); }
+
+  .empty { color: var(--muted); font-size: 12px; font-style: italic; padding: 6px 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Reigner — Guardrails G1–G11</h1>
+  <span class="sub">A scripted simulation of one query through the agent loop.</span>
+  <div class="controls">
+    <label class="range">Speed
+      <input id="speed" type="range" min="200" max="2400" step="100" value="900">
+    </label>
+    <button id="step">Step ▸</button>
+    <button id="play" class="primary">Play ▶</button>
+    <button id="reset">Reset ↺</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: guardrails -->
+  <section class="col">
+    <div class="panel" style="flex: 1;">
+      <h2>The Eleven Guardrails</h2>
+      <div class="scroll">
+        <div class="g-list" id="g-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENTER: loop -->
+  <section class="col">
+    <div class="panel" style="flex: 1;">
+      <h2>Agent Loop — single query trace</h2>
+      <div class="loop">
+        <div class="step-header">
+          <span class="iter-badge" id="iter">iter 0 / 25</span>
+          <span class="step-title" id="step-title">Idle — press Play to start</span>
+          <span class="step-detail" id="step-detail"></span>
+        </div>
+
+        <div class="oracle-banner" id="oracle">
+          <span class="dot"></span>
+          <span><b>Oracle armed</b> — next adapter call uses <code id="oracle-model">claude-opus-4-7</code>, then auto-reverts (SPEC §5.5).</span>
+        </div>
+
+        <div class="meter-wrap">
+          <div class="meter-row">
+            <span>Context pressure</span>
+            <div class="meter">
+              <div class="fill" id="meter-fill"></div>
+              <div class="marks">
+                <div class="mark" style="left:80%"></div>
+                <div class="mark" style="left:90%"></div>
+                <div class="mark" style="left:95%"></div>
+              </div>
+            </div>
+            <span id="meter-pct" style="font-family: var(--mono); min-width: 42px; text-align: right;">0%</span>
+          </div>
+          <div class="meter-row" style="margin-top:2px;">
+            <span style="visibility:hidden">Context pressure</span>
+            <div class="label-row" style="flex:1;">
+              <span>0</span><span>80% G10₁</span><span>90% G10₂</span><span>95% G10₃</span><span>budget</span>
+            </div>
+            <span style="min-width: 42px;"></span>
+          </div>
+        </div>
+
+        <div class="prompt">
+          <div class="block stable">
+            <h3>G1 · Stable prefix (cacheable)</h3>
+            <code id="stable">REIGNER.md + tool schemas
+(byte-identical across iters)</code>
+          </div>
+          <div class="block dynamic">
+            <h3>G6/G7 · Dynamic context (per turn)</h3>
+            <code id="dynamic">iters_remaining=25
+now=…
+answer_id=…</code>
+          </div>
+        </div>
+
+        <div class="tools-region">
+          <h3 style="font-size: 11px; color: var(--muted); margin: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.6px;">Tool calls this iteration</h3>
+          <div class="tool-bar" id="tools"><div class="empty">no calls yet</div></div>
+
+          <h3 style="font-size: 11px; color: var(--muted); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.6px;">G8 · Notes (survive compaction)</h3>
+          <div class="notes" id="notes"><div class="empty">no notes yet</div></div>
+        </div>
+
+        <div class="legend">
+          <span class="lg-parallel">∥ parallel readonly (G11)</span>
+          <span class="lg-cache">cached (G9)</span>
+          <span class="lg-trunc">truncated (G2)</span>
+          <span class="lg-err">errored (G4)</span>
+          <span class="lg-oracle">oracle turn</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: event log -->
+  <section class="col">
+    <div class="panel" style="flex: 1;">
+      <h2>Event stream (T-02 protocol)</h2>
+      <div class="scroll log" id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+// -------------------- Guardrails registry --------------------
+const GUARDRAILS = [
+  { id: "G1",  name: "Stable / Dynamic prompt boundary", blurb: "STABLE preamble (role + tool schemas) is byte-identical across iterations → adapter caches it. DYNAMIC fields refresh per turn." },
+  { id: "G2",  name: "Per-tool result truncation",       blurb: "JSON-boundary aware. Caps each tool result; emits `_truncated`, `_original_keys`, `available_keys` so the model can ask for the rest." },
+  { id: "G3",  name: "Iteration nudges",                  blurb: "Every N iterations, inject a synthetic user turn nudging the agent toward an answer or save_note." },
+  { id: "G4",  name: "Consecutive-error nudge → bail",   blurb: "After K errors in a row: first inject a wrap-up nudge; on the next streak, abort with ErrorEvent." },
+  { id: "G5",  name: "History compaction",               blurb: "Keep last N turns verbatim; replace older turns with a single deterministic summary turn." },
+  { id: "G6",  name: "Dynamic context per turn",         blurb: "Recomputes iters_remaining, now(), answer_id at the top of every iteration." },
+  { id: "G7",  name: "Tool-relevant context injection",  blurb: "Hook (v0 no-op) for surfacing prior notes / citations into the next prompt." },
+  { id: "G8",  name: "Scratchpad survives compaction",   blurb: "save_note entries live on AgentState.notes and are never touched by compaction tiers." },
+  { id: "G9",  name: "Tool result cache",                blurb: "Keyed on (tool_name, args_hash). Readonly-only. Errors not cached. Per-session." },
+  { id: "G10", name: "Progressive compaction tiers",     blurb: "At 80% pressure → keep_recent. At 90% → shrink tool results. At 95% → collapse to last turn." },
+  { id: "G11", name: "Parallel readonly execution",      blurb: "asyncio.gather across calls when EVERY call resolves to a known readonly tool. Otherwise serial." },
+];
+
+const gList = document.getElementById("g-list");
+GUARDRAILS.forEach(g => {
+  const el = document.createElement("div");
+  el.className = "g"; el.id = "g-" + g.id;
+  el.innerHTML = `
+    <div class="row">
+      <span class="id">${g.id}</span>
+      <span class="name">${g.name}</span>
+    </div>
+    <div class="blurb">${g.blurb}</div>
+    <span class="pulse"></span>
+  `;
+  gList.appendChild(el);
+});
+
+// -------------------- Simulation script --------------------
+//
+// Each step is one frame in the run. The script tells the story of:
+//   iter 1: parallel reads, first cache miss, truncation
+//   iter 2: another tool call; cache hit; save_note (G8)
+//   iter 3: iteration nudge (G3) fires
+//   iter 4: tool errors begin
+//   iter 5: error nudge (G4)
+//   iter 6: pressure crosses 80% → tier 1 (G5/G10)
+//   iter 7: pressure crosses 90% → tier 2
+//   iter 8: model calls escalate_to_oracle → arm
+//   iter 9: oracle turn answers; revert
+//   iter 10: final answer
+//
+const SCRIPT = [
+  {
+    iter: 1,
+    title: "Build prompt + parallel reads",
+    detail: "Two readonly tools → asyncio.gather",
+    activate: ["G1","G6","G2","G9","G11"],
+    pressure: 18,
+    log: [
+      ["status", "iter=1 build_prompt → stable cached"],
+      ["tool-call", "read_artifact_file(path='AAPL/2024/metrics.json')"],
+      ["tool-call", "grep_artifact(pattern='research_and_development')"],
+      ["tool-result", "read_artifact_file ← 8412B, truncated=true (cap 4000)"],
+      ["tool-result", "grep_artifact ← 12 matches, cached=false"],
+    ],
+    tools: [
+      { name: "read_artifact_file", args: "path=AAPL/2024/metrics.json", flags: ["parallel","truncated"], flagText: "truncated" },
+      { name: "grep_artifact",      args: "pattern=R&D",                 flags: ["parallel"],             flagText: "miss → put" },
+    ],
+  },
+  {
+    iter: 2,
+    title: "Cache hit + save_note",
+    detail: "Identical read coalesced via G9; G8 records a note",
+    activate: ["G9","G8"],
+    pressure: 28,
+    log: [
+      ["tool-call", "read_artifact_file(path='AAPL/2024/metrics.json')  // repeat"],
+      ["tool-result", "read_artifact_file ← cached=true"],
+      ["tool-call", "save_note(text='AAPL R&D 2024 = $31.4B; cite metrics.json#R&D')"],
+      ["status", "note appended → AgentState.notes[0]"],
+    ],
+    tools: [
+      { name: "read_artifact_file", args: "path=AAPL/2024/metrics.json", flags: ["cached"], flagText: "cache hit" },
+      { name: "save_note",          args: "text=…R&D 2024…",             flags: [],         flagText: "" },
+    ],
+    note: "AAPL R&D 2024 = $31.4B (metrics.json#R&D)",
+  },
+  {
+    iter: 3,
+    title: "Iteration nudge (G3)",
+    detail: "iter % nudge_interval == 0 → synthetic user turn",
+    activate: ["G3"],
+    pressure: 34,
+    log: [
+      ["nudge", "G3 fired → injected user turn: \"Be concise. Use save_note for sub-results.\""],
+      ["tool-call", "get_json_field(path='AAPL/2024/metadata.json', fields=['filing_date'])"],
+      ["tool-result", "get_json_field ← 1 field"],
+    ],
+    tools: [
+      { name: "get_json_field", args: "fields=[filing_date]", flags: [], flagText: "" },
+    ],
+  },
+  {
+    iter: 4,
+    title: "Tool errors begin",
+    detail: "Two consecutive errors — G4 latch counting",
+    activate: ["G4"],
+    pressure: 41,
+    log: [
+      ["tool-call", "fs_read(path='/etc/missing')"],
+      ["tool-result", "fs_read ← FileNotFoundError (not cached)"],
+      ["error", "consecutive_errors=1"],
+      ["tool-call", "fs_read(path='/etc/missing2')"],
+      ["tool-result", "fs_read ← FileNotFoundError"],
+      ["error", "consecutive_errors=2"],
+    ],
+    tools: [
+      { name: "fs_read", args: "path=/etc/missing",  flags: ["error"], flagText: "err" },
+      { name: "fs_read", args: "path=/etc/missing2", flags: ["error"], flagText: "err" },
+    ],
+  },
+  {
+    iter: 5,
+    title: "Error nudge (G4) fires once",
+    detail: "consecutive_errors ≥ max → wrap-up nudge injected (bail on next streak)",
+    activate: ["G4"],
+    pressure: 48,
+    log: [
+      ["error", "consecutive_errors=3"],
+      ["nudge", "G4 fired → \"Stop retrying. Summarise findings or stop.\""],
+      ["status", "error_nudge_injected=true (next streak → abort)"],
+      ["tool-call", "save_note(text='AAPL revenue 2024 = $383.3B; cite metrics.json#revenue')"],
+      ["status", "tool success → consecutive_errors reset; latch cleared"],
+    ],
+    tools: [
+      { name: "save_note", args: "text=…revenue…", flags: [], flagText: "G4 cleared" },
+    ],
+    note: "AAPL revenue 2024 = $383.3B (metrics.json#revenue)",
+  },
+  {
+    iter: 6,
+    title: "Pressure → 82% — tier 1 compaction",
+    detail: "G10 tier 1 = compact_history(keep_recent=3); G8 notes untouched",
+    activate: ["G5","G10"],
+    pressure: 82,
+    pressureAfter: 58,
+    compactionEvent: { level: 1, freed: 2400 },
+    log: [
+      ["status", "context_pressure = 0.82"],
+      ["compaction", "tier 1 → keep last 3 turns, summarise older (G5)"],
+      ["status", "tokens_freed=2400; notes preserved (G8)"],
+    ],
+    tools: [],
+  },
+  {
+    iter: 7,
+    title: "Pressure → 91% — tier 2 compaction",
+    detail: "G10 tier 2 = shrink tool-role contents to one-line stubs",
+    activate: ["G10"],
+    pressure: 91,
+    pressureAfter: 70,
+    compactionEvent: { level: 2, freed: 3100 },
+    log: [
+      ["status", "context_pressure = 0.91"],
+      ["compaction", "tier 2 → tool-role messages → \"[result of read_artifact_file: 12 keys available]\""],
+      ["status", "tokens_freed=3100"],
+    ],
+    tools: [],
+  },
+  {
+    iter: 8,
+    title: "Model calls escalate_to_oracle",
+    detail: "Pseudo-tool intercepted → oracle.arm(state)",
+    activate: ["G1"],
+    armOracle: true,
+    pressure: 74,
+    log: [
+      ["tool-call", "escalate_to_oracle(reason='need to reconcile two conflicting filings')"],
+      ["oracle", "armed → next pick_adapter returns oracle_adapter"],
+      ["tool-result", "{ok: true, armed_for_next_turn: true}"],
+    ],
+    tools: [
+      { name: "escalate_to_oracle", args: "reason=conflict", flags: [], flagText: "armed" },
+    ],
+  },
+  {
+    iter: 9,
+    title: "Oracle turn (single-turn swap)",
+    detail: "pick_adapter() returns oracle adapter → clears latch → reverts after",
+    activate: [],
+    oracleTurn: true,
+    pressure: 78,
+    log: [
+      ["oracle", "adapter swap: claude-sonnet-4-6 → claude-opus-4-7"],
+      ["status", "iter=9 model call (oracle)"],
+      ["status", "oracle_armed cleared — next iter reverts to base adapter"],
+    ],
+    tools: [],
+  },
+  {
+    iter: 10,
+    title: "Final answer",
+    detail: "FinalAnswerEvent — terminal event for this query",
+    activate: [],
+    pressure: 78,
+    log: [
+      ["status", "iter=10 model returned final_answer"],
+      ["final", "FinalAnswer: \"Apple's FY2024 R&D was $31.4B (metrics.json#research_and_development).\""],
+      ["status", "session persisted to ./.reigner/sessions/abc123.jsonl"],
+    ],
+    tools: [],
+  },
+];
+
+// -------------------- Player --------------------
+const state = {
+  idx: 0,
+  playing: false,
+  timer: null,
+  oracleArmed: false,
+  notes: [],
+};
+
+const els = {
+  iter: document.getElementById("iter"),
+  stepTitle: document.getElementById("step-title"),
+  stepDetail: document.getElementById("step-detail"),
+  fill: document.getElementById("meter-fill"),
+  pct: document.getElementById("meter-pct"),
+  tools: document.getElementById("tools"),
+  notes: document.getElementById("notes"),
+  log: document.getElementById("log"),
+  oracle: document.getElementById("oracle"),
+  dynamic: document.getElementById("dynamic"),
+  play: document.getElementById("play"),
+  step: document.getElementById("step"),
+  reset: document.getElementById("reset"),
+  speed: document.getElementById("speed"),
+};
+
+function clearActive() {
+  document.querySelectorAll(".g.active").forEach(e => e.classList.remove("active"));
+}
+function activate(ids) {
+  clearActive();
+  ids.forEach(id => {
+    const el = document.getElementById("g-" + id);
+    if (el) el.classList.add("active");
+  });
+}
+function setPressure(p) {
+  els.fill.style.width = p + "%";
+  els.pct.textContent = p + "%";
+}
+function renderTools(tools) {
+  els.tools.innerHTML = "";
+  if (!tools || tools.length === 0) {
+    els.tools.innerHTML = '<div class="empty">no calls this iteration</div>';
+    return;
+  }
+  tools.forEach(t => {
+    const el = document.createElement("div");
+    el.className = "tool " + (t.flags || []).join(" ");
+    el.innerHTML = `
+      <span class="tname">${t.name}</span>
+      <span class="targs">${t.args}</span>
+      ${t.flagText ? `<span class="tflag">${t.flagText}</span>` : ""}
+    `;
+    els.tools.appendChild(el);
+  });
+}
+function renderNotes() {
+  if (state.notes.length === 0) {
+    els.notes.innerHTML = '<div class="empty">no notes yet</div>';
+    return;
+  }
+  els.notes.innerHTML = "";
+  state.notes.forEach(n => {
+    const el = document.createElement("div");
+    el.className = "note";
+    el.innerHTML = `<span class="nicon">●</span><span>${n}</span>`;
+    els.notes.appendChild(el);
+  });
+}
+function appendLog(kind, text) {
+  const map = {
+    "status": "ev-status",
+    "tool-call": "ev-tool-call",
+    "tool-result": "ev-tool-result",
+    "compaction": "ev-compaction",
+    "oracle": "ev-oracle",
+    "nudge": "ev-nudge",
+    "error": "ev-error",
+    "final": "ev-final",
+  };
+  const tag = `[${kind}]`.padEnd(14, " ");
+  const line = document.createElement("div");
+  line.className = "line";
+  line.innerHTML = `<span class="t">${tag}</span><span class="${map[kind] || ""}">${escapeHtml(text)}</span>`;
+  els.log.appendChild(line);
+  els.log.scrollTop = els.log.scrollHeight;
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function applyStep(step) {
+  els.iter.textContent = `iter ${step.iter} / 25`;
+  els.stepTitle.textContent = step.title;
+  els.stepDetail.textContent = step.detail;
+  els.dynamic.textContent = `iters_remaining=${25 - step.iter}\nnow=2026-05-12T10:0${step.iter}:00Z\nanswer_id=${Math.random().toString(16).slice(2,10)}`;
+  activate(step.activate || []);
+  setPressure(step.pressure);
+
+  renderTools(step.tools);
+
+  step.log.forEach(([kind, text]) => appendLog(kind, text));
+
+  if (step.note) {
+    state.notes.push(step.note);
+    renderNotes();
+  }
+
+  if (step.armOracle) {
+    state.oracleArmed = true;
+    els.oracle.classList.add("on");
+  }
+  if (step.oracleTurn) {
+    // visual emphasis already on; clear after the step
+    setTimeout(() => {
+      els.oracle.classList.remove("on");
+      state.oracleArmed = false;
+    }, parseInt(els.speed.value) * 0.9);
+  }
+
+  if (step.compactionEvent) {
+    // animate pressure drop after a beat
+    setTimeout(() => setPressure(step.pressureAfter), parseInt(els.speed.value) * 0.6);
+  }
+}
+
+function next() {
+  if (state.idx >= SCRIPT.length) {
+    stop();
+    els.stepTitle.textContent = "Done — query complete";
+    els.stepDetail.textContent = "Press Reset to run again.";
+    clearActive();
+    return;
+  }
+  applyStep(SCRIPT[state.idx]);
+  state.idx++;
+}
+
+function play() {
+  if (state.playing) return;
+  state.playing = true;
+  els.play.textContent = "Pause ❚❚";
+  next();
+  state.timer = setInterval(() => {
+    if (state.idx >= SCRIPT.length) { stop(); return; }
+    next();
+  }, parseInt(els.speed.value));
+}
+
+function stop() {
+  state.playing = false;
+  els.play.textContent = "Play ▶";
+  if (state.timer) { clearInterval(state.timer); state.timer = null; }
+}
+
+function reset() {
+  stop();
+  state.idx = 0;
+  state.notes = [];
+  state.oracleArmed = false;
+  els.oracle.classList.remove("on");
+  els.log.innerHTML = "";
+  els.iter.textContent = "iter 0 / 25";
+  els.stepTitle.textContent = "Idle — press Play to start";
+  els.stepDetail.textContent = "";
+  els.dynamic.textContent = "iters_remaining=25\nnow=…\nanswer_id=…";
+  clearActive();
+  setPressure(0);
+  renderTools([]);
+  renderNotes();
+}
+
+els.play.addEventListener("click", () => {
+  if (state.playing) stop(); else play();
+});
+els.step.addEventListener("click", () => {
+  stop();
+  next();
+});
+els.reset.addEventListener("click", reset);
+els.speed.addEventListener("input", () => {
+  if (state.playing) { stop(); play(); }
+});
+
+reset();
+</script>
+</body>
+</html>
