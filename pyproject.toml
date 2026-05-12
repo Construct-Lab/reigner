@@ -33,7 +33,7 @@ openai = ["openai>=1.40"]
 gemini = ["google-genai>=0.3"]
 server = []
 mcp = []
-ingestion = []
+ingestion = ["pymupdf>=1.24"]
 otel = []
 all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3"]
 
@@ -72,6 +72,11 @@ quote-style = "double"
 python_version = "3.12"
 strict = true
 files = ["reigner"]
+
+[[tool.mypy.overrides]]
+module = ["pymupdf"]
+follow_imports = "skip"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
