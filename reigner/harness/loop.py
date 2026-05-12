@@ -5,19 +5,23 @@ a checkpoint where the caller can stop iterating — cancelling the iterator
 cancels the loop. No background tasks, no speculative work; one iteration is
 one model call, visible to the caller via the event stream.
 
-Guardrails owned here (others land in their own modules as later tasks):
+Guardrails wired here (each lives in its own module — see SPEC §5.4):
 
-- G1 — stable/dynamic prompt boundary: ``state.build_prompt`` (already in T-03).
-- G2 — per-tool truncation: ``truncation.truncate_for_tool`` (stub in T-05).
-- G3/G4 — iteration / consecutive-error nudges: stubbed; T-08 will replace the
-  early-stop break with a real injected nudge.
-- G5/G10 — history + progressive compaction: T-08; the loop currently emits no
-  ``CompactionEvent``s rather than emit ones it can't honour.
-- G6/G7 — dynamic context refresh: ``state.refresh_context`` (T-03).
-- G8 — scratchpad: ``save_note`` pseudo-tool branch.
-- G9 — tool-result cache: ``cache.ToolResultCache`` (stub in T-05).
-- G11 — parallel reads: ``asyncio.gather`` when every real call this turn is
-  ``readonly=True``.
+- G1 — stable/dynamic prompt boundary: ``state.build_prompt``.
+- G2 — per-tool truncation: ``truncation.truncate_for_tool``.
+- G3 — iteration nudges: ``nudges.iteration_nudge`` injected each iteration.
+- G4 — consecutive-error nudge: ``nudges.error_nudge`` injected before the
+  loop hard-aborts on repeated failure.
+- G5/G10 — history + progressive compaction: ``compaction.progressive``,
+  emits ``CompactionEvent`` when a tier fires.
+- G6/G7 — dynamic context refresh: ``state.refresh_context``.
+- G8 — scratchpad: ``save_note`` pseudo-tool branch (state survives compaction).
+- G9 — tool-result cache: ``cache.ToolResultCache`` consulted in ``parallel``.
+- G11 — parallel reads: ``parallel.execute_batch`` gathers concurrently when
+  every real call this turn is ``readonly=True``.
+
+Oracle escalation (SPEC §5.5) lives in ``oracle.py``; ``pick_adapter`` is
+called per-iteration so the swap is single-turn.
 
 Pseudo-tools are dispatched inline, hardcoded — not registered through any
 plugin surface — so a reader of this file sees every special case in one place.
@@ -25,7 +29,6 @@ plugin surface — so a reader of this file sees every special case in one place
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import asdict
@@ -39,8 +42,10 @@ from reigner.harness.adapters.base import (
     TransientAdapterError,
 )
 from reigner.harness.cache import ToolResultCache
+from reigner.harness.compaction import progressive
 from reigner.harness.events import (
     ClarificationEvent,
+    CompactionEvent,
     ErrorEvent,
     Event,
     FinalAnswerEvent,
@@ -48,8 +53,12 @@ from reigner.harness.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from reigner.harness.nudges import error_nudge, iteration_nudge
+from reigner.harness.oracle import OracleNotConfigured, pick_adapter
+from reigner.harness.oracle import arm as oracle_arm
+from reigner.harness.parallel import execute_batch, should_parallelize
 from reigner.harness.state import AgentState, ToolSpec, Turn
-from reigner.harness.truncation import truncate_for_tool
+from reigner.harness.truncation import resolve_limit, truncate_for_tool
 from reigner.tools.pseudo import PSEUDO_TOOL_NAMES
 
 
@@ -115,17 +124,28 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         )
         return
 
-    # state.adapter is typed against the structural stub in state.py; the loop
-    # depends on the richer adapters.base.ModelAdapter (which has .call()).
-    adapter: ModelAdapter = state.adapter  # type: ignore[assignment]
-
     while not state.done:
+        # Pick per-iteration so single-turn oracle escalation (SPEC §5.5)
+        # transparently swaps in state.oracle_adapter and reverts after one call.
+        adapter: ModelAdapter = pick_adapter(state)
         state.refresh_context()
 
-        # G5/G10: compaction belongs to T-08. Read pressure here so the hook
-        # surface is in place; do not emit a CompactionEvent until it actually
-        # frees tokens.
-        _ = state.context_pressure()
+        # G5/G10: progressive compaction at 80/90/95% of the token budget.
+        outcome = progressive(state)
+        if outcome.level is not None:
+            yield CompactionEvent(
+                seq=next_seq(),
+                session_id=session_id,
+                turn=state.iterations,
+                level=outcome.level,
+                tokens_freed=outcome.tokens_freed,
+            )
+
+        # G3: inject a strategic nudge every nudge_interval iterations. The
+        # nudge is a synthetic user-role turn the model sees on its next call.
+        nudge = iteration_nudge(state)
+        if nudge is not None:
+            state.append_turn(Turn(role="user", content=nudge))
 
         prompt = state.build_prompt()
 
@@ -191,10 +211,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         # G11: only when every real call is readonly. Pseudo-tools always run
         # serially since some terminate the loop.
         real_calls = [tc for tc in action.tool_calls if tc.name not in PSEUDO_TOOL_NAMES]
-        all_readonly = bool(real_calls) and all(
-            tools_by_name.get(tc.name) is not None and tools_by_name[tc.name].readonly
-            for tc in real_calls
-        )
+        all_readonly = should_parallelize(real_calls, tools_by_name)
 
         # Process every call in original order. Pseudo-tools dispatch inline
         # (and may set state.done); real calls collect into a batch we either
@@ -250,17 +267,25 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         if terminate_after_calls:
             return
 
-        # G4: too many consecutive errors → bail out. T-08 will replace this
-        # with an injected nudge that asks the model to wrap up gracefully.
-        if state.consecutive_errors() >= state.max_consecutive_errors:
-            yield ErrorEvent(
-                seq=next_seq(),
-                session_id=session_id,
-                turn=state.iterations,
-                error=f"aborted: {state.consecutive_errors()} consecutive tool errors",
-                recoverable=False,
-            )
-            return
+        # G4: at the consecutive-error threshold, inject a wrap-up nudge once
+        # and let the model produce a final answer. If errors keep coming
+        # after the nudge, bail with an ErrorEvent.
+        err_msg = error_nudge(state)
+        if err_msg is not None:
+            if not state.error_nudge_injected:
+                state.append_turn(Turn(role="user", content=err_msg))
+                state.error_nudge_injected = True
+            else:
+                yield ErrorEvent(
+                    seq=next_seq(),
+                    session_id=session_id,
+                    turn=state.iterations,
+                    error=(
+                        f"aborted: {state.consecutive_errors()} consecutive tool errors after nudge"
+                    ),
+                    recoverable=False,
+                )
+                return
 
         state.iterations += 1
 
@@ -344,10 +369,16 @@ async def _dispatch_pseudo(
         return
 
     if tc.name == "escalate_to_oracle":
-        # T-05 deferred wiring (see issue #5 brainstorm). Emit the event so
-        # plugins/eval can observe the request, but execute as a no-op.
+        # SPEC §5.5: arm a single-turn oracle swap; pick_adapter consumes the
+        # flag at the top of the next iteration and reverts on the one after.
         from_model = state.adapter.model if state.adapter is not None else "unknown"
-        to_model = state.oracle_adapter.model if state.oracle_adapter is not None else "(deferred)"
+        to_model = state.oracle_adapter.model if state.oracle_adapter is not None else "(none)"
+        try:
+            oracle_arm(state)
+            oracle_result: dict[str, Any] = {"ok": True, "armed_for_next_turn": True}
+        except OracleNotConfigured as exc:
+            oracle_result = {"error": str(exc)}
+            to_model = "(unconfigured)"
         yield OracleEscalationEvent(
             seq=next_seq(),
             session_id=session_id,
@@ -356,7 +387,6 @@ async def _dispatch_pseudo(
             from_model=from_model,
             to_model=to_model,
         )
-        oracle_result: dict[str, Any] = {"ok": True, "note": "oracle escalation deferred"}
         state.append_turn(
             Turn(role="tool", content=_content_for_history(oracle_result), tool_call_id=tc.id)
         )
@@ -376,35 +406,12 @@ async def _dispatch_pseudo(
 
 
 # ---------------------------------------------------------------------------
-# Real tool execution (G9 cache + G11 parallel)
+# Real tool execution
 # ---------------------------------------------------------------------------
-
-
-async def _execute_one(
-    tc: ToolCall,
-    *,
-    tool: RunnableTool | None,
-    cache: ToolResultCache,
-) -> tuple[Any, bool, bool]:
-    """Run one real tool call. Returns ``(raw_result, cache_hit, errored)``.
-
-    Cache hits skip execution entirely. Cache misses store *successful*
-    results only — we don't memoize errors, since the next call may succeed.
-    """
-    if tool is None:
-        return {"error": f"unknown tool: {tc.name}"}, False, True
-
-    if tool.readonly and cache.has(tc.name, tc.args):
-        return cache.get(tc.name, tc.args), True, False
-
-    try:
-        raw = await tool.run(tc.args)
-    except Exception as exc:  # noqa: BLE001 — tool errors get reported to the model
-        return {"error": f"{type(exc).__name__}: {exc}"}, False, True
-
-    if tool.readonly:
-        cache.put(tc.name, tc.args, raw)
-    return raw, False, False
+#
+# Actual execution (G9 cache + G11 gather) lives in parallel.py. This wrapper
+# owns event emission and history mutation so every special case stays in this
+# file.
 
 
 async def _run_real_calls(
@@ -423,8 +430,8 @@ async def _run_real_calls(
 
     Order: every ``ToolCallEvent`` is emitted first (matching the order the
     model issued them), then results are emitted in the same order. When
-    ``parallel`` is True the ``_execute_one`` calls are gathered concurrently
-    but the event stream stays deterministic.
+    ``parallel`` is True the underlying calls are gathered concurrently but
+    the event stream stays deterministic.
     """
     for tc in calls:
         yield ToolCallEvent(
@@ -436,23 +443,21 @@ async def _run_real_calls(
             call_id=tc.id,
         )
 
-    if parallel and len(calls) > 1:
-        results = await asyncio.gather(
-            *(_execute_one(tc, tool=tools_by_name.get(tc.name), cache=cache) for tc in calls)
-        )
-    else:
-        results = []
-        for tc in calls:
-            results.append(await _execute_one(tc, tool=tools_by_name.get(tc.name), cache=cache))
+    results = await execute_batch(
+        calls,
+        tools_by_name=tools_by_name,
+        cache=cache,
+        parallel=parallel,
+    )
 
-    for tc, (raw, cache_hit, errored) in zip(calls, results, strict=True):
-        if errored:
+    for tc, outcome in zip(calls, results, strict=True):
+        if outcome.errored:
             state.record_tool_error()
         else:
             state.record_tool_success()
 
-        limit = char_limits.get(tc.name, default_char_limit)
-        truncated, was_truncated = truncate_for_tool(raw, limit)
+        limit = resolve_limit(tc.name, char_limits, default_char_limit)
+        truncated, was_truncated = truncate_for_tool(outcome.raw, limit)
 
         state.append_turn(
             Turn(
@@ -469,7 +474,7 @@ async def _run_real_calls(
             call_id=tc.id,
             result=truncated,
             truncated=was_truncated,
-            cached=cache_hit,
+            cached=outcome.cache_hit,
         )
 
 
