@@ -50,6 +50,7 @@ from reigner.harness.events import (
 )
 from reigner.harness.state import AgentState, ToolSpec, Turn
 from reigner.harness.truncation import truncate_for_tool
+from reigner.tools.pseudo import PSEUDO_TOOL_NAMES
 
 
 @runtime_checkable
@@ -62,9 +63,6 @@ class RunnableTool(ToolSpec, Protocol):
     """
 
     async def run(self, args: dict[str, Any]) -> Any: ...
-
-
-PSEUDO_TOOL_NAMES = frozenset({"save_note", "request_clarification", "stop", "escalate_to_oracle"})
 
 
 def _content_for_history(value: Any) -> str:
