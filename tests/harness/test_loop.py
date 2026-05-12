@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from reigner.config import SettingsConfig
 from reigner.harness.adapters.base import (
     AdapterError,
     ModelAction,
@@ -97,7 +98,16 @@ def _tool_action(*calls: ToolCall) -> ModelAction:
 
 
 def _harness(*, adapter: FakeAdapter, tools: list[Any], **kw: Any) -> Harness:
-    return Harness(adapter=adapter, tools=tools, role="ROLE", **kw)
+    """Build a Harness with legacy budget kwargs packed into SettingsConfig.
+
+    T-17 collapsed the eleven loose Harness fields into ``settings`` —
+    tests still want the ergonomic ``_harness(..., max_iterations=3)`` form,
+    so this helper splits the kwargs and constructs the settings object.
+    """
+    settings_fields = set(SettingsConfig.model_fields)
+    settings_kw = {k: kw.pop(k) for k in list(kw) if k in settings_fields}
+    settings = SettingsConfig(**settings_kw) if settings_kw else SettingsConfig()
+    return Harness(adapter=adapter, tools=tools, role="ROLE", settings=settings, **kw)
 
 
 async def _drain(session: Any, query: str) -> list[Event]:
@@ -520,9 +530,9 @@ async def test_steer_raises_until_t06() -> None:
         await s.steer("hi")
 
 
-def test_from_config_raises_until_loader_lands() -> None:
-    with pytest.raises(NotImplementedError):
-        Harness.from_config("nope.yaml")
+# NOTE: T-17 landed Harness.from_config — see tests/test_harness_from_config.py
+# for its coverage. This file previously held a placeholder asserting the
+# NotImplementedError stub.
 
 
 def test_non_full_profile_raises() -> None:
