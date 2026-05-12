@@ -33,7 +33,7 @@ openai = ["openai>=1.40"]
 gemini = ["google-genai>=0.3"]
 server = []
 mcp = []
-ingestion = []
+ingestion = ["pymupdf>=1.24"]
 otel = []
 all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3"]
 
