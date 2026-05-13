@@ -56,6 +56,12 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - `truncation.py` (G2), `compaction.py` (G5/G10), `nudges.py` (G3/G4), `cache.py` (G9), `parallel.py` (G11), `oracle.py`
   - Depends on: #5
 
+- [ ] **[T-48 #48](https://github.com/Construct-Lab/reigner/issues/48)** `feat: real-time steering interrupt` `M`
+  - Make `mode="interrupt"` actually preempt the in-flight `adapter.call` (currently identical to `queue` at the loop layer)
+  - Needs streaming adapters (Anthropic first) + cancellation plumbing in `run_loop`; tool batches already dispatched are allowed to finish
+  - Depends on: #4, #5
+  - _Future enhancement — surfaced during T-19 review; SPEC §5.6 / §22 Week 7 scope_
+
 ---
 
 ### Track B — Tool System
@@ -214,7 +220,7 @@ All Phase 1 tracks must be stable before these begin.
 #1 (setup)
 ├── #2 (events) ──────────────── #3 (state) ──┐
 │                                 #4 (adapters) ├── #5 (loop) ── #6 (guardrails)
-│                                              ┘
+│                                              ┘              └── #48 (steering interrupt) ← needs #4 streaming
 ├── #7 (@tool) ── #8  (pseudo-tools)
 │              ── #9  (artifact tools)   ← coordinate interface with #13
 │              ── #10 (BM25)

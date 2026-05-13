@@ -23,6 +23,13 @@ Guardrails wired here (each lives in its own module — see SPEC §5.4):
 Oracle escalation (SPEC §5.5) lives in ``oracle.py``; ``pick_adapter`` is
 called per-iteration so the swap is single-turn.
 
+Steering (SPEC §5.6) is drained at the top of each iteration: queued user
+messages are appended as ``user`` turns so the next ``adapter.call`` sees
+them, and a ``SteeringAcceptedEvent`` is emitted per drained message. The
+iteration boundary *is* the "next tool boundary" §5.6 refers to — by the
+time control reaches the drain point, any prior turn's tool calls have
+already completed.
+
 Pseudo-tools are dispatched inline, hardcoded — not registered through any
 plugin surface — so a reader of this file sees every special case in one place.
 """
@@ -50,6 +57,7 @@ from reigner.harness.events import (
     Event,
     FinalAnswerEvent,
     OracleEscalationEvent,
+    SteeringAcceptedEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
@@ -129,6 +137,21 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         # transparently swaps in state.oracle_adapter and reverts after one call.
         adapter: ModelAdapter = pick_adapter(state)
         state.refresh_context()
+
+        # SPEC §5.6: drain queued steering messages before building the next
+        # prompt so the model sees them on its very next call. Both modes drop
+        # in here — at this point any prior turn's tool calls have already
+        # completed, so "interrupt" and "queue" converge on append-as-user-turn.
+        if state.has_pending_steering():
+            for message, mode in state.consume_steering():
+                state.append_turn(Turn(role="user", content=message))
+                yield SteeringAcceptedEvent(
+                    seq=next_seq(),
+                    session_id=session_id,
+                    turn=state.iterations,
+                    message=message,
+                    mode=mode,
+                )
 
         # G5/G10: progressive compaction at 80/90/95% of the token budget.
         outcome = progressive(state)
