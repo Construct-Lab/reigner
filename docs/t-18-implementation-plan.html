@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T-18 · CLI skeleton + init command</title>
+<style>
+:root {
+  --ivory:#FAF9F5; --slate:#141413; --clay:#D97757; --oat:#E3DACC;
+  --olive:#788C5D; --rust:#B85C3B;
+  --gray-150:#F0EEE6; --gray-300:#D1CFC5; --gray-500:#87867F; --gray-700:#3D3D3A;
+  --white:#FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: var(--sans); background: var(--ivory); color: var(--gray-700);
+  line-height: 1.55; padding: 40px 20px 100px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1120px; margin: 0 auto; }
+
+header.page-head { margin-bottom: 40px; max-width: 820px; }
+.eyebrow {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--gray-500); margin-bottom: 12px;
+}
+h1 {
+  font-family: var(--serif); font-weight: 500; font-size: 34px; line-height: 1.15;
+  color: var(--slate); margin-bottom: 18px; letter-spacing: -0.01em;
+}
+.prompt-box {
+  background: var(--gray-150); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; padding: 16px 20px; font-size: 14.5px; color: var(--gray-700);
+}
+.prompt-box .label {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); display: block; margin-bottom: 6px;
+}
+.prompt-box code { font-family: var(--mono); color: var(--clay); }
+
+section { margin-bottom: 56px; }
+.sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.sec-head .num {
+  font-family: var(--mono); font-size: 12px; background: var(--oat);
+  color: var(--slate); padding: 3px 9px; border-radius: 8px;
+}
+.sec-head h2 {
+  font-family: var(--serif); font-weight: 500; font-size: 24px;
+  color: var(--slate); letter-spacing: -0.01em;
+}
+.sec-intro {
+  font-size: 14.5px; color: var(--gray-500); max-width: 720px; margin-bottom: 24px;
+}
+.sec-intro code { font-family: var(--mono); color: var(--clay); font-size: 13px; }
+
+.summary {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 56px;
+}
+@media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+.summary .cell {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; padding: 16px 18px;
+}
+.summary .k {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 6px;
+}
+.summary .v { font-size: 17px; color: var(--slate); font-weight: 600; }
+.summary .v.accent { color: var(--clay); font-family: var(--mono); font-size: 15px; }
+
+/* terminal mockups */
+.mockup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 800px) { .mockup-grid { grid-template-columns: 1fr; } }
+.term {
+  background: var(--slate); border-radius: 12px; padding: 0; overflow: hidden;
+  border: 1.5px solid var(--gray-300);
+}
+.term .bar {
+  background: #232321; padding: 8px 14px;
+  font-family: var(--mono); font-size: 11px; color: var(--gray-500);
+  display: flex; align-items: center; gap: 8px;
+}
+.term .bar .dots { display: flex; gap: 5px; }
+.term .bar .dots i {
+  width: 9px; height: 9px; border-radius: 50%; background: #4a4a47; display: block;
+}
+.term .body {
+  padding: 14px 16px; font-family: var(--mono); font-size: 12.5px;
+  color: var(--ivory); line-height: 1.55; white-space: pre-wrap;
+}
+.term .prompt { color: var(--olive); }
+.term .cmd { color: var(--ivory); }
+.term .ok { color: var(--olive); }
+.term .err { color: var(--rust); }
+.term .muted { color: var(--gray-500); }
+.term .accent { color: var(--clay); }
+.term .branch { color: #7FB3D5; }
+
+.mockup-caption {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px;
+}
+
+/* tree block */
+.tree {
+  background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px;
+  padding: 18px 20px; font-family: var(--mono); font-size: 13px;
+  color: var(--gray-700); line-height: 1.75; white-space: pre;
+  overflow-x: auto;
+}
+.tree .dir { color: var(--clay); font-weight: 600; }
+.tree .new { color: var(--olive); }
+.tree .note { color: var(--gray-500); }
+
+/* data flow */
+.flow {
+  background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 14px;
+  padding: 24px; overflow-x: auto;
+}
+.flow-steps { display: flex; flex-direction: column; gap: 0; }
+.step {
+  display: grid; grid-template-columns: 28px 1fr; gap: 16px; align-items: flex-start;
+}
+.step .marker {
+  display: flex; flex-direction: column; align-items: center; height: 100%;
+}
+.step .marker .num-d {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--ivory); border: 2px solid var(--clay);
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--clay); display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.step .marker .ln { width: 2px; flex: 1; background: var(--gray-300); margin: 4px 0; min-height: 14px; }
+.step:last-child .marker .ln { display: none; }
+.step .what { padding-bottom: 18px; }
+.step .what .lbl {
+  font-family: var(--mono); font-size: 10.5px; color: var(--clay);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px;
+}
+.step .what .title { color: var(--slate); font-weight: 600; font-size: 14.5px; }
+.step .what .desc { color: var(--gray-500); font-size: 13px; margin-top: 3px; }
+.step .what code { font-family: var(--mono); color: var(--rust); font-size: 12.5px; }
+
+/* code */
+pre {
+  background: var(--slate); color: var(--ivory);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  border-radius: 12px; padding: 18px 20px; overflow-x: auto;
+  margin: 8px 0;
+}
+pre .c { color: var(--gray-500); }
+pre .k { color: var(--clay); }
+pre .s { color: var(--olive); }
+pre .n { color: #7FB3D5; }
+.code-caption {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); margin: 18px 0 4px;
+}
+
+/* file list */
+.files {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; overflow: hidden;
+}
+.files .row {
+  display: grid; grid-template-columns: 1.3fr 2fr; gap: 14px;
+  padding: 12px 16px; border-bottom: 1px solid var(--gray-300); font-size: 13.5px;
+}
+.files .row:last-child { border-bottom: none; }
+.files .row .path { font-family: var(--mono); color: var(--slate); font-weight: 600; font-size: 13px; }
+.files .row .note { color: var(--gray-500); }
+@media (max-width: 600px) {
+  .files .row { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* risk table */
+.risk-table {
+  width: 100%; border-collapse: collapse;
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; overflow: hidden; font-size: 13.5px;
+}
+.risk-table th {
+  text-align: left; padding: 12px 14px; font-family: var(--mono);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--gray-500); background: var(--gray-150);
+  border-bottom: 1px solid var(--gray-300);
+}
+.risk-table td {
+  padding: 12px 14px; border-bottom: 1px solid var(--gray-300);
+  vertical-align: top; color: var(--gray-700);
+}
+.risk-table tr:last-child td { border-bottom: none; }
+.risk-table .what { color: var(--slate); font-weight: 600; }
+.risk-table code { font-family: var(--mono); color: var(--rust); font-size: 12.5px; }
+.sev {
+  display: inline-block; font-family: var(--mono); font-size: 10.5px;
+  font-weight: 600; padding: 3px 8px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.sev.hi { background: #F4D9CC; color: var(--rust); }
+.sev.md { background: var(--oat); color: var(--slate); }
+.sev.lo { background: #E1E8D3; color: var(--olive); }
+@media (max-width: 700px) {
+  .risk-table thead { display: none; }
+  .risk-table tr {
+    display: block; padding: 14px; border-bottom: 1px solid var(--gray-300);
+  }
+  .risk-table tr:last-child { border-bottom: none; }
+  .risk-table td { display: block; padding: 4px 0; border: none; }
+  .risk-table td.what { font-size: 14.5px; margin-bottom: 4px; }
+}
+
+.q-list { display: flex; flex-direction: column; gap: 12px; }
+.q {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-left: 4px solid var(--clay); border-radius: 10px; padding: 14px 16px;
+}
+.q .qhead {
+  font-family: var(--mono); font-size: 11px; color: var(--clay);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;
+}
+.q .qbody { color: var(--slate); font-weight: 500; font-size: 14.5px; margin-bottom: 4px; }
+.q .qbody code { font-family: var(--mono); color: var(--rust); font-size: 13px; }
+.q .qrec { color: var(--gray-500); font-size: 13.5px; }
+
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.tag {
+  font-family: var(--mono); font-size: 11px; background: var(--gray-150);
+  border: 1px solid var(--gray-300); border-radius: 6px; padding: 2px 7px;
+  color: var(--gray-700);
+}
+
+footer { font-size: 12px; color: var(--gray-500); margin-top: 60px; text-align: center; }
+footer code { font-family: var(--mono); color: var(--clay); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">Implementation plan · Reigner</div>
+  <h1>T-18 · CLI skeleton + <code style="font-family:var(--mono);font-size:28px;color:var(--clay);">reigner init</code></h1>
+  <div class="prompt-box">
+    <span class="label">Issue</span>
+    <a href="https://github.com/Construct-Lab/reigner/issues/18" style="color:var(--clay);text-decoration:none;">#18</a> — CLI skeleton + init command. Ship <code>--blank</code> fully working; wire <code>--recipe</code> and <code>--guided</code> as honest stubs pointing at their tracking tasks. Depends on T-17 (config schema, merged). Per SPEC §9.1 / §14.
+  </div>
+</header>
+
+<!-- summary strip -->
+<div class="summary">
+  <div class="cell"><div class="k">Working mode</div><div class="v">--blank</div></div>
+  <div class="cell"><div class="k">Stubbed</div><div class="v accent">--recipe · --guided</div></div>
+  <div class="cell"><div class="k">Templates</div><div class="v">cli/templates/blank/</div></div>
+  <div class="cell"><div class="k">Tests</div><div class="v">Golden + behavior</div></div>
+</div>
+
+<!-- 01 mockups -->
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>Terminal mockups</h2></div>
+  <p class="sec-intro">Four shapes matter: the happy path (<code>--blank</code>), the no-flag error, the collision error, and a stub exit. Each prints actionable text — no silent fall-throughs.</p>
+
+  <div class="mockup-grid">
+
+    <div>
+      <div class="mockup-caption">A · Happy path</div>
+      <div class="term">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div> reigner</div>
+<div class="body"><span class="prompt">$</span> <span class="cmd">reigner init demo --blank</span>
+
+<span class="ok">✓</span> Scaffolded <span class="accent">demo/</span> (blank mode)
+
+  demo/
+  ├── <span class="branch">REIGNER.md</span>
+  ├── <span class="branch">reigner.yaml</span>
+  ├── <span class="branch">schema.yaml</span>
+  ├── <span class="branch">extractors/</span> my_extractor.py
+  ├── <span class="branch">library/</span>   raw/ artifacts/
+  ├── <span class="branch">search-index/</span>
+  ├── <span class="branch">eval/</span>      cases.yaml
+  ├── <span class="branch">.env.example</span>
+  ├── <span class="branch">.gitignore</span>
+  └── <span class="branch">README.md</span>
+
+<span class="muted">Next:</span>
+  cd demo
+  cp .env.example .env  <span class="muted"># add your API key</span>
+  uv run reigner --help</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="mockup-caption">B · No flag → error</div>
+      <div class="term">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div> reigner</div>
+<div class="body"><span class="prompt">$</span> <span class="cmd">reigner init demo</span>
+
+<span class="err">✗ Pick a mode for `reigner init`.</span>
+
+  <span class="accent">--blank</span>     empty stubs only (offline)
+  <span class="accent">--recipe</span>    copy a recipe scaffold  <span class="muted">(not yet — T-32)</span>
+  <span class="accent">--guided</span>    interactive Q&amp;A         <span class="muted">(not yet)</span>
+
+<span class="muted">SPEC §14 makes `--guided` the default once it ships.
+Until then, choose explicitly.</span>
+
+<span class="muted">exit 2</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="mockup-caption">C · Target exists</div>
+      <div class="term">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div> reigner</div>
+<div class="body"><span class="prompt">$</span> <span class="cmd">reigner init demo --blank</span>
+
+<span class="err">✗ ./demo already exists and is non-empty.</span>
+
+  Pass <span class="accent">--force</span> to overwrite scaffold files in place
+  (existing user files are not deleted, only overwritten
+  by name).
+
+<span class="muted">exit 1</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="mockup-caption">D · Stub exit</div>
+      <div class="term">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div> reigner</div>
+<div class="body"><span class="prompt">$</span> <span class="cmd">reigner init demo --recipe document_qa</span>
+
+<span class="err">✗ Recipes are not yet bundled (tracked in T-32).</span>
+
+  For now, use <span class="accent">--blank</span> and adapt by hand:
+    reigner init demo --blank
+
+<span class="muted">exit 1</span>
+
+<span class="prompt">$</span> <span class="cmd">reigner init demo --guided</span>
+
+<span class="err">✗ Guided init is not yet wired.</span>
+
+  For now, use <span class="accent">--blank</span>:
+    reigner init demo --blank
+
+<span class="muted">exit 1</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 02 data flow -->
+<section>
+  <div class="sec-head"><span class="num">02</span><h2>Data flow · what <code>init</code> does</h2></div>
+  <p class="sec-intro">Linear pipeline. Any step can fail loudly — nothing is written until step 5, so an early failure leaves the filesystem untouched.</p>
+
+  <div class="flow">
+    <div class="flow-steps">
+      <div class="step">
+        <div class="marker"><div class="num-d">1</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Parse</div>
+          <div class="title">Typer dispatch · <code>cli/init.py</code></div>
+          <div class="desc">Resolve <code>--blank / --recipe &lt;name&gt; / --guided</code>; assert at most one. Bare invocation falls through to a friendly error.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="marker"><div class="num-d">2</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Validate name</div>
+          <div class="title">Regex <code>^[a-zA-Z_][a-zA-Z0-9_-]*$</code></div>
+          <div class="desc">Keeps the name import-safe for future <code>from &lt;name&gt;.extractors import …</code>. Reject empty, slashes, leading digits.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="marker"><div class="num-d">3</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Mode branch</div>
+          <div class="title">blank → continue · recipe / guided → stub exit</div>
+          <div class="desc">Stubs exit non-zero with their tracking task id. No partial scaffolding happens.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="marker"><div class="num-d">4</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Target check</div>
+          <div class="title">If <code>./&lt;name&gt;</code> exists and is non-empty</div>
+          <div class="desc">Refuse unless <code>--force</code>. With <code>--force</code>, scaffold files overwrite by name only; foreign files are left alone (no <code>rmtree</code>, ever).</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="marker"><div class="num-d">5</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Render</div>
+          <div class="title">Copy <code>cli/templates/blank/</code> via <code>importlib.resources</code></div>
+          <div class="desc">Static files. <code>reigner.yaml</code> is written by <code>ReignerConfig.write_default(target, name)</code> — single source of truth, no duplication.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="marker"><div class="num-d">6</div><div class="ln"></div></div>
+        <div class="what">
+          <div class="lbl">Report</div>
+          <div class="title">Rich tree + 3-line next-steps</div>
+          <div class="desc">One render call to <code>rich.console.Console.print(Tree(...))</code>, then the cd/cp/help block.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 file layout -->
+<section>
+  <div class="sec-head"><span class="num">03</span><h2>Files this PR adds</h2></div>
+  <p class="sec-intro">Five package files and a templates directory. <code>cli/__main__.py</code> shrinks to a registrar; the existing <code>version</code> command moves to <code>_meta.py</code> for symmetry with future commands.</p>
+
+  <div class="files">
+    <div class="row">
+      <div class="path">reigner/cli/__main__.py</div>
+      <div class="note">Build Typer app, call <code>register(app)</code> on each command module. ~15 lines.</div>
+    </div>
+    <div class="row">
+      <div class="path">reigner/cli/_meta.py</div>
+      <div class="note">Existing <code>version</code> command, moved out of <code>__main__</code> for consistency.</div>
+    </div>
+    <div class="row">
+      <div class="path">reigner/cli/init.py</div>
+      <div class="note">The <code>init</code> command: flag parsing, name validation, mode dispatch, scaffold render, success print.</div>
+    </div>
+    <div class="row">
+      <div class="path">reigner/cli/templates/blank/</div>
+      <div class="note">Static template files (REIGNER.md, schema.yaml, extractors/my_extractor.py, eval/cases.yaml, .env.example, .gitignore, README.md). <code>reigner.yaml</code> is <em>not</em> here — it comes from <code>ReignerConfig.write_default</code>.</div>
+    </div>
+    <div class="row">
+      <div class="path">tests/cli/test_init.py</div>
+      <div class="note">Golden-file scaffold test + behavior tests via Typer's <code>CliRunner</code>.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 key code -->
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>Key code</h2></div>
+  <p class="sec-intro">Three small pieces. The mode-flag validation is the only spot worth thinking carefully about — everything else is mechanical.</p>
+
+  <div class="code-caption">reigner/cli/__main__.py · the registrar</div>
+<pre><span class="k">import</span> typer
+<span class="k">from</span> reigner.cli <span class="k">import</span> _meta, init
+
+app = typer.Typer(
+    name=<span class="s">"reigner"</span>,
+    help=<span class="s">"Single-agent, retrieval-shaped agents over compiled knowledge."</span>,
+    no_args_is_help=<span class="n">True</span>,
+)
+
+_meta.register(app)
+init.register(app)
+<span class="c"># T-19+ append more register() calls here.</span>
+
+<span class="k">def</span> main() -&gt; <span class="n">None</span>:
+    app()</pre>
+
+  <div class="code-caption">reigner/cli/init.py · mode dispatch</div>
+<pre><span class="k">import</span> re
+<span class="k">from</span> pathlib <span class="k">import</span> Path
+<span class="k">import</span> typer
+<span class="k">from</span> rich.console <span class="k">import</span> Console
+<span class="k">from</span> rich.tree <span class="k">import</span> Tree
+<span class="k">from</span> reigner.config <span class="k">import</span> ReignerConfig
+
+NAME_RE = re.compile(<span class="s">r"^[a-zA-Z_][a-zA-Z0-9_-]*$"</span>)
+console = Console()
+
+<span class="k">def</span> register(app: typer.Typer) -&gt; <span class="n">None</span>:
+    <span class="c"># Bound at registration time so test runners get a fresh Typer per run.</span>
+    app.command(<span class="s">"init"</span>)(_init)
+
+<span class="k">def</span> _init(
+    name: str = typer.Argument(..., help=<span class="s">"Project name (also the target directory)."</span>),
+    blank: bool = typer.Option(<span class="n">False</span>, <span class="s">"--blank"</span>, help=<span class="s">"Empty stubs only."</span>),
+    recipe: str | <span class="n">None</span> = typer.Option(<span class="n">None</span>, <span class="s">"--recipe"</span>, help=<span class="s">"Copy a recipe scaffold."</span>),
+    guided: bool = typer.Option(<span class="n">False</span>, <span class="s">"--guided"</span>, help=<span class="s">"Interactive Q&amp;A."</span>),
+    force: bool = typer.Option(<span class="n">False</span>, <span class="s">"--force"</span>, help=<span class="s">"Overwrite scaffold files."</span>),
+) -&gt; <span class="n">None</span>:
+    modes = [m <span class="k">for</span> m, v <span class="k">in</span> ((<span class="s">"blank"</span>, blank), (<span class="s">"recipe"</span>, recipe), (<span class="s">"guided"</span>, guided)) <span class="k">if</span> v]
+    <span class="k">if</span> len(modes) &gt; 1:
+        typer.echo(<span class="s">"✗ pass at most one of --blank / --recipe / --guided"</span>, err=<span class="n">True</span>); <span class="k">raise</span> typer.Exit(2)
+    <span class="k">if</span> not modes:
+        _print_mode_help(); <span class="k">raise</span> typer.Exit(2)
+    <span class="k">if</span> not NAME_RE.match(name):
+        typer.echo(<span class="s">f"✗ invalid project name {name!r}; must match [a-zA-Z_][a-zA-Z0-9_-]*"</span>, err=<span class="n">True</span>)
+        <span class="k">raise</span> typer.Exit(2)
+
+    <span class="k">if</span> recipe:
+        typer.echo(<span class="s">f"✗ Recipes are not yet bundled (tracked in T-32). Use --blank for now."</span>, err=<span class="n">True</span>)
+        <span class="k">raise</span> typer.Exit(1)
+    <span class="k">if</span> guided:
+        typer.echo(<span class="s">"✗ Guided init is not yet wired. Use --blank for now."</span>, err=<span class="n">True</span>)
+        <span class="k">raise</span> typer.Exit(1)
+
+    _scaffold_blank(Path(name), force=force)
+    _print_success(Path(name))</pre>
+
+  <div class="code-caption">reigner/cli/init.py · scaffolding</div>
+<pre><span class="k">from</span> importlib.resources <span class="k">import</span> files
+
+<span class="k">def</span> _scaffold_blank(target: Path, *, force: bool) -&gt; <span class="n">None</span>:
+    <span class="k">if</span> target.exists() <span class="k">and</span> any(target.iterdir()) <span class="k">and</span> not force:
+        typer.echo(<span class="s">f"✗ ./{target} already exists and is non-empty. Pass --force to overwrite."</span>, err=<span class="n">True</span>)
+        <span class="k">raise</span> typer.Exit(1)
+
+    target.mkdir(parents=<span class="n">True</span>, exist_ok=<span class="n">True</span>)
+    template_root = files(<span class="s">"reigner.cli.templates"</span>) / <span class="s">"blank"</span>
+    <span class="k">for</span> entry <span class="k">in</span> _walk(template_root):
+        rel = entry.relative_to(template_root)
+        dest = target / rel
+        dest.parent.mkdir(parents=<span class="n">True</span>, exist_ok=<span class="n">True</span>)
+        dest.write_bytes(entry.read_bytes())
+
+    <span class="c"># single source of truth — never duplicated as a template file.</span>
+    ReignerConfig.write_default(target / <span class="s">"reigner.yaml"</span>, name=target.name)</pre>
+</section>
+
+<!-- 05 risks -->
+<section>
+  <div class="sec-head"><span class="num">05</span><h2>Risks</h2></div>
+  <p class="sec-intro">All ranked by what hurts the user the most. The HIGH risks must be addressed in this PR.</p>
+
+  <table class="risk-table">
+    <thead>
+      <tr><th style="width:32%">Risk</th><th style="width:14%">Severity</th><th>Mitigation</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="what"><code>--force</code> destroys user work</td>
+        <td><span class="sev hi">High</span></td>
+        <td>Never <code>rmtree</code>. Overwrite only file paths the scaffold itself owns; foreign files (e.g. the user's edits in <code>library/raw/</code>) are untouched. Test: pre-create a stray file, run with <code>--force</code>, assert it still exists.</td>
+      </tr>
+      <tr>
+        <td class="what">Templates missing from built wheel</td>
+        <td><span class="sev hi">High</span></td>
+        <td>Add <code>tool.hatch.build.targets.wheel.force-include</code> entry (or rely on package-data globs) and add a CI smoke test that runs <code>uv build &amp;&amp; pip install dist/*.whl &amp;&amp; reigner init … --blank</code> in a clean venv.</td>
+      </tr>
+      <tr>
+        <td class="what"><code>reigner.yaml</code> drifts from <code>ReignerConfig</code> schema</td>
+        <td><span class="sev md">Med</span></td>
+        <td>Always emit via <code>ReignerConfig.write_default</code>. Add a test that round-trips the scaffold yaml through <code>ReignerConfig.load</code> with zero <code>extra="forbid"</code> errors. Catches it the moment the schema gains a required field.</td>
+      </tr>
+      <tr>
+        <td class="what">Stub message rots when T-32 lands</td>
+        <td><span class="sev md">Med</span></td>
+        <td>Centralise stub text in one constant per mode. T-32's PR diff will surface the constant; reviewer flips it then.</td>
+      </tr>
+      <tr>
+        <td class="what">Name regex permits names that shadow stdlib (<code>os</code>, <code>sys</code>)</td>
+        <td><span class="sev lo">Low</span></td>
+        <td>Out of scope for blank mode (we don't generate imports of the project name). Revisit when <code>--guided</code> ships and the project name actually becomes a package.</td>
+      </tr>
+      <tr>
+        <td class="what">Windows path separators in golden tests</td>
+        <td><span class="sev lo">Low</span></td>
+        <td>Compare set-of-paths, not strings. <code>Path.relative_to</code> + normalise to POSIX in assertions.</td>
+      </tr>
+      <tr>
+        <td class="what">Rich tree output unstable across versions</td>
+        <td><span class="sev lo">Low</span></td>
+        <td>Don't snapshot stdout. Behavior tests check exit code + file presence; only the file <em>contents</em> are golden-snapshotted.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 06 testing -->
+<section>
+  <div class="sec-head"><span class="num">06</span><h2>Test plan</h2></div>
+  <p class="sec-intro">One file: <code>tests/cli/test_init.py</code>. All tests use Typer's <code>CliRunner</code> with an isolated <code>tmp_path</code>.</p>
+
+  <div class="files">
+    <div class="row">
+      <div class="path">test_blank_scaffolds_all_files</div>
+      <div class="note">Run <code>init demo --blank</code>; assert every path in SPEC §9.1 exists under <code>demo/</code>.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_yaml_round_trips_through_config</div>
+      <div class="note"><code>ReignerConfig.load(tmp/"demo"/"reigner.yaml")</code> succeeds without raising.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_collision_refuses_without_force</div>
+      <div class="note">Pre-create <code>demo/foo.txt</code>; init exits 1 with the collision message.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_force_overwrites_scaffold_keeps_foreign</div>
+      <div class="note">Pre-create <code>demo/REIGNER.md</code> (gets overwritten) AND <code>demo/notes.txt</code> (must survive).</div>
+    </div>
+    <div class="row">
+      <div class="path">test_no_mode_flag_errors</div>
+      <div class="note">Bare <code>init demo</code> exits 2 with all three modes listed.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_recipe_stub_exits_with_t32_message</div>
+      <div class="note">Asserts the exact substring "T-32" so the rot-detector in §05 actually rots.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_guided_stub_exits_cleanly</div>
+      <div class="note">Asserts non-zero exit and the "use --blank for now" hint.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_invalid_names_rejected</div>
+      <div class="note">Parametrised over <code>""</code>, <code>"1abc"</code>, <code>"my/agent"</code>, <code>"my agent"</code>.</div>
+    </div>
+    <div class="row">
+      <div class="path">test_two_mode_flags_rejected</div>
+      <div class="note"><code>--blank --recipe x</code> exits 2.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 07 open questions -->
+<section>
+  <div class="sec-head"><span class="num">07</span><h2>Still-open question</h2></div>
+  <p class="sec-intro">The interview resolved scope, modes, structure, naming, UX, and tests. One small thing is worth flagging before implementation.</p>
+
+  <div class="q-list">
+    <div class="q">
+      <div class="qhead">Q · <code>--force</code> semantics on user-edited scaffold files</div>
+      <div class="qbody">If a user has hand-edited <code>REIGNER.md</code> and re-runs <code>init demo --blank --force</code>, do we silently overwrite or warn?</div>
+      <div class="qrec">Rec: silent overwrite, but print the list of overwritten paths in the success report. The whole point of <code>--force</code> is "I know what I'm doing"; warnings on every file would be noise. We can add a <code>--dry-run</code> flag later if the noise complaint comes up.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  T-18 · CLI skeleton + init · <code>github.com/Construct-Lab/reigner/issues/18</code> · ready to implement
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,6 +1,10 @@
+"""CLI entry point. Each command lives in its own module and self-registers."""
+
+from __future__ import annotations
+
 import typer
 
-import reigner
+from reigner.cli import _meta, init
 
 app = typer.Typer(
     name="reigner",
@@ -8,16 +12,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-
-@app.callback()
-def _root() -> None:
-    """Reigner CLI."""
-
-
-@app.command()
-def version() -> None:
-    """Print the installed reigner version."""
-    typer.echo(reigner.__version__)
+_meta.register(app)
+init.register(app)
+# T-19+ append more register() calls here.
 
 
 def main() -> None:
