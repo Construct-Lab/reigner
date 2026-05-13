@@ -1,0 +1,28 @@
+# schema.yaml — declares the shape of your compiled artifacts.
+#
+# Loaded by ArtifactSchema.from_yaml(). The same declaration is used by
+# the ingestion extractor (to validate its output) and the artifact tools
+# (to know what's on disk).
+#
+# Uncomment and adapt. See SPEC.md §7.1 and §8.1.
+
+# entity_path: "{entity_id}/{version}"
+#
+# sections:
+#   - name: document_summary
+#     required: true
+#     max_chars: 2000
+#   - name: sections/overview
+#     required: true
+#   - name: insights/key_points
+#     required: false
+#
+# json_artifacts:
+#   - name: metadata.json
+#     fields:
+#       entity_id: str
+#       version: str
+#       title: str
+#   - name: metrics.json
+#     fields:
+#       # add your numeric fields here
