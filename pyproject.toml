@@ -25,6 +25,7 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.0",
     "tiktoken>=0.7",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]

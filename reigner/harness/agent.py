@@ -244,7 +244,14 @@ class Session:
     # Stubs — land in later tasks
     # ------------------------------------------------------------------
     async def steer(self, message: str, mode: SteeringMode = "interrupt") -> None:
-        raise NotImplementedError("steering wiring lands with T-06")
+        """Enqueue a user steering message; consumed at the next loop boundary.
+
+        SPEC §5.6. The wrapper is intentionally minimal: it delegates to
+        ``AgentState.enqueue_steering`` so the loop's consumption point
+        (``has_pending_steering`` / ``consume_steering`` — wired in T-06)
+        stays the single source of truth.
+        """
+        self._state.enqueue_steering(message, mode)
 
     def save(self) -> None:
         raise NotImplementedError("session persistence lands with T-23")

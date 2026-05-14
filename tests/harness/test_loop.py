@@ -523,11 +523,38 @@ def test_steer_save_load_raise_until_their_tasks_land() -> None:
 
 
 @pytest.mark.asyncio
-async def test_steer_raises_until_t06() -> None:
+async def test_steer_enqueues_onto_state() -> None:
     adapter = FakeAdapter(actions=[_final("x")])
     s = _harness(adapter=adapter, tools=[]).session()
-    with pytest.raises(NotImplementedError):
-        await s.steer("hi")
+    await s.steer("hi")
+    assert s._state.pending_steering == [("hi", "interrupt")]
+
+
+@pytest.mark.asyncio
+async def test_loop_drains_pending_steering_into_next_prompt() -> None:
+    """SPEC §5.6: queued steering lands as a user turn before the next model call."""
+    from reigner.harness.events import SteeringAcceptedEvent
+
+    adapter = FakeAdapter(actions=[_final("ok")])
+    s = _harness(adapter=adapter, tools=[]).session()
+
+    await s.steer("focus on section 3", "queue")
+    await s.steer("and cite sources", "interrupt")
+
+    events = await _drain(s, "original question")
+
+    steering_events = [e for e in events if isinstance(e, SteeringAcceptedEvent)]
+    assert [(e.message, e.mode) for e in steering_events] == [
+        ("focus on section 3", "queue"),
+        ("and cite sources", "interrupt"),
+    ]
+    # Queue is empty after the drain.
+    assert s._state.pending_steering == []
+    # Both messages reached the prompt the model saw.
+    last_prompt = adapter.calls[-1]
+    contents = [t.content for t in last_prompt.messages]
+    assert "focus on section 3" in contents
+    assert "and cite sources" in contents
 
 
 # NOTE: T-17 landed Harness.from_config — see tests/test_harness_from_config.py
