@@ -34,9 +34,9 @@ openai = ["openai>=1.40"]
 gemini = ["google-genai>=0.3"]
 server = []
 mcp = []
-ingestion = ["pymupdf>=1.24"]
+ingestion = ["pymupdf>=1.24", "httpx>=0.27"]
 otel = []
-all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3"]
+all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3", "pymupdf>=1.24", "httpx>=0.27"]
 
 [project.scripts]
 reigner = "reigner.cli.__main__:main"

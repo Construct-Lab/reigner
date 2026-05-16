@@ -1106,7 +1106,9 @@ dependencies = [
 all = [
     { name = "anthropic" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "openai" },
+    { name = "pymupdf" },
 ]
 anthropic = [
     { name = "anthropic" },
@@ -1115,6 +1117,7 @@ gemini = [
     { name = "google-genai" },
 ]
 ingestion = [
+    { name = "httpx" },
     { name = "pymupdf" },
 ]
 openai = [
@@ -1137,10 +1140,13 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.39" },
     { name = "google-genai", marker = "extra == 'all'", specifier = ">=0.3" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=0.3" },
+    { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'ingestion'", specifier = ">=0.27" },
     { name = "openai", marker = "extra == 'all'", specifier = ">=1.40" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40" },
     { name = "prompt-toolkit", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
+    { name = "pymupdf", marker = "extra == 'all'", specifier = ">=1.24" },
     { name = "pymupdf", marker = "extra == 'ingestion'", specifier = ">=1.24" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0" },
