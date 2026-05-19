@@ -17,6 +17,7 @@ EXPECTED_PATHS = {
     "schema.yaml",
     "extractors/__init__.py",
     "extractors/my_extractor.py",
+    "extractors/pipeline.py",
     "library/raw",
     "library/artifacts",
     "search-index",
