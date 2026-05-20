@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bm25Index — code walkthrough</title>
+<style>
+:root {
+  --bg: #f5f0e1;
+  --paper: #fbf8ec;
+  --paper-soft: #f1ead5;
+  --ink: #1a2e1f;
+  --ink-soft: #5a6b5a;
+  --accent: #b4541a;
+  --rule: #d8cfb4;
+  --tag-bg: #ece5d0;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 17px;
+  line-height: 1.55;
+}
+.page { max-width: 820px; margin: 0 auto; padding: 40px 24px 96px; }
+.eyebrow {
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+h1 {
+  font-size: 40px; line-height: 1.15;
+  margin: 6px 0 20px; font-weight: 600;
+  letter-spacing: -0.01em;
+}
+h2 { font-size: 26px; margin: 0; font-weight: 600; letter-spacing: -0.005em; }
+h3 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+h4 { font-size: 14px; margin: 16px 0 6px; font-weight: 600;
+     font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.04em;
+     text-transform: uppercase; color: var(--ink-soft); }
+p { margin: 8px 0; }
+code {
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 0.92em;
+}
+
+.prompt-box {
+  background: var(--paper-soft);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 20px 0 36px;
+}
+.prompt-box .plabel {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 6px;
+}
+.prompt-box p { margin: 0; font-size: 16px; }
+
+.bubbles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; margin: 24px 0 56px;
+}
+.bubble {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.bubble .label {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.bubble .value {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 16px; margin-top: 4px; color: var(--ink);
+}
+
+.section-head {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 48px 0 18px;
+}
+.section-num {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; padding: 3px 8px;
+  background: var(--tag-bg); border-radius: 4px;
+  color: var(--ink-soft);
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 14px 0;
+}
+
+.code {
+  background: #1a2e1f;
+  color: #e8e0c8;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 13px; line-height: 1.55;
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.code .kw { color: #c89b6e; }
+.code .cm { color: #8a9b8a; font-style: italic; }
+.code .st { color: #d7c08a; }
+.code .nm { color: #f1ead5; }
+
+.flow {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 16px 0;
+}
+.flow svg { width: 100%; height: auto; display: block; }
+.node { fill: var(--paper); stroke: var(--ink); stroke-width: 2.5; }
+.node-new { fill: var(--paper); stroke: var(--accent); stroke-width: 2.5; }
+.node-label { font-family: ui-monospace, Menlo, monospace;
+              font-size: 12px; fill: var(--ink); }
+.node-sub { font-family: ui-monospace, Menlo, monospace;
+            font-size: 10px; fill: var(--ink-soft); }
+.stroke-solid { stroke: var(--ink); stroke-width: 1.8; fill: none; }
+.stroke-dash { stroke: var(--ink); stroke-width: 1.8; fill: none;
+               stroke-dasharray: 5 4; }
+.edge-label { font-family: ui-monospace, Menlo, monospace;
+              font-size: 10px; fill: var(--ink-soft); }
+.legend {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px; color: var(--ink-soft); margin-top: 10px;
+}
+
+table.calc {
+  width: 100%; border-collapse: collapse;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  margin: 10px 0;
+}
+table.calc th, table.calc td {
+  border: 1px solid var(--rule);
+  padding: 6px 10px; text-align: left;
+}
+table.calc th {
+  background: var(--tag-bg); color: var(--ink-soft);
+  font-weight: normal; font-size: 11px;
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.formula {
+  background: #fff; border: 1px solid var(--rule);
+  border-radius: 6px; padding: 12px 14px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px; margin: 10px 0;
+}
+.formula .label {
+  font-size: 10px; color: var(--ink-soft);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.winner {
+  background: #2d5938; color: #f1ead5;
+  padding: 2px 6px; border-radius: 3px;
+}
+.aside {
+  border-left: 3px solid var(--accent);
+  padding: 8px 14px; margin: 12px 0;
+  background: var(--paper-soft); border-radius: 0 6px 6px 0;
+  font-size: 15px;
+}
+.tag {
+  display: inline-block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  background: var(--tag-bg);
+  padding: 2px 8px; border-radius: 4px;
+  margin: 2px 4px 2px 0;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="eyebrow">reigner · retrieval internals</div>
+<h1>Bm25Index — what each part does, with a worked example</h1>
+
+<div class="prompt-box">
+  <div class="plabel">Prompt</div>
+  <p>Walk me through the BM25 implementation in <code>reigner/tools/search/bm25.py</code>. I want to see what each method does, how the inverted index gets built, and how a real query scores against a real corpus — numbers and all.</p>
+</div>
+
+<div class="bubbles">
+  <div class="bubble"><div class="label">k1</div><div class="value">1.5</div></div>
+  <div class="bubble"><div class="label">b</div><div class="value">0.75</div></div>
+  <div class="bubble"><div class="label">top_k cap</div><div class="value">20</div></div>
+  <div class="bubble"><div class="label">default top_k</div><div class="value">5</div></div>
+  <div class="bubble"><div class="label">snippet radius</div><div class="value">120 ch</div></div>
+  <div class="bubble"><div class="label">tokenizer</div><div class="value">\w+ lower</div></div>
+</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">01</span><h2>The shape of the thing</h2></div>
+
+<p><code>Bm25Index</code> is a one-class wrapper around a JSON file (the
+<em>sidecar</em>) that <code>Bm25IndexWriter</code> dropped on disk during
+ingestion. The constructor loads the file once, walks every entry, and
+builds an in-memory <strong>inverted index</strong>. After that, the three
+tool functions returned by <code>tools()</code> just consult the in-memory
+tables — no further disk reads.</p>
+
+<div class="flow">
+<svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg">
+  <!-- sidecar -->
+  <rect class="node" x="20" y="140" width="140" height="60" rx="4"/>
+  <text class="node-label" x="90" y="168" text-anchor="middle">documents.json</text>
+  <text class="node-sub" x="90" y="186" text-anchor="middle">search-index/</text>
+
+  <!-- _load_entries -->
+  <rect class="node" x="200" y="140" width="140" height="60" rx="4"/>
+  <text class="node-label" x="270" y="168" text-anchor="middle">_load_entries</text>
+  <text class="node-sub" x="270" y="186" text-anchor="middle">json.loads</text>
+
+  <!-- _build -->
+  <rect class="node" x="380" y="140" width="140" height="60" rx="4"/>
+  <text class="node-label" x="450" y="168" text-anchor="middle">_build</text>
+  <text class="node-sub" x="450" y="186" text-anchor="middle">tf · df · doc_len</text>
+
+  <!-- in-memory tables -->
+  <rect class="node" x="560" y="40" width="180" height="60" rx="4"/>
+  <text class="node-label" x="650" y="68" text-anchor="middle">self._tf, ._df</text>
+  <text class="node-sub" x="650" y="86" text-anchor="middle">inverted index</text>
+
+  <rect class="node" x="560" y="120" width="180" height="60" rx="4"/>
+  <text class="node-label" x="650" y="148" text-anchor="middle">self._doc_len</text>
+  <text class="node-sub" x="650" y="166" text-anchor="middle">_avgdl, _N</text>
+
+  <rect class="node" x="560" y="200" width="180" height="60" rx="4"/>
+  <text class="node-label" x="650" y="228" text-anchor="middle">self._entries</text>
+  <text class="node-sub" x="650" y="246" text-anchor="middle">raw rows kept</text>
+
+  <!-- arrows -->
+  <path class="stroke-solid" d="M160 170 L 200 170" marker-end="url(#arrow)"/>
+  <path class="stroke-solid" d="M340 170 L 380 170" marker-end="url(#arrow)"/>
+  <path class="stroke-solid" d="M520 170 L 540 170 L 540 70 L 560 70" marker-end="url(#arrow)"/>
+  <path class="stroke-solid" d="M520 170 L 560 150" marker-end="url(#arrow)"/>
+  <path class="stroke-solid" d="M520 170 L 540 170 L 540 230 L 560 230" marker-end="url(#arrow)"/>
+
+  <!-- tools row -->
+  <rect class="node-new" x="20" y="260" width="220" height="60" rx="4"/>
+  <text class="node-label" x="130" y="288" text-anchor="middle">tools()</text>
+  <text class="node-sub" x="130" y="306" text-anchor="middle">bm25_search · filtered · section</text>
+
+  <path class="stroke-dash" d="M650 260 L 650 270 L 240 290" marker-end="url(#arrow)"/>
+  <text class="edge-label" x="440" y="282">reads in-memory tables on each call</text>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#1a2e1f"/>
+    </marker>
+  </defs>
+</svg>
+<div class="legend">Solid = called once during <code>__init__</code>. Dashed = called per query. Terracotta border = the public surface (everything else is private).</div>
+</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">02</span><h2>The corpus we'll use throughout</h2></div>
+
+<p>Three tiny "documents" — enough to make every term frequency, document
+frequency, and length normalization visible by hand.</p>
+
+<div class="card">
+<table class="calc">
+<thead><tr><th>id</th><th>text</th><th>tokens after <code>_tokenize</code></th><th>dl</th></tr></thead>
+<tbody>
+<tr><td>doc-a</td><td>apple apple banana</td><td>[apple, apple, banana]</td><td>3</td></tr>
+<tr><td>doc-b</td><td>banana banana banana cherry</td><td>[banana, banana, banana, cherry]</td><td>4</td></tr>
+<tr><td>doc-c</td><td>apple cherry date</td><td>[apple, cherry, date]</td><td>3</td></tr>
+</tbody>
+</table>
+<p style="font-family: ui-monospace, Menlo, monospace; font-size: 13px;">
+N = 3 &nbsp;·&nbsp; total_len = 10 &nbsp;·&nbsp; <strong>avgdl = 10 / 3 ≈ 3.333</strong>
+</p>
+</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">03</span><h2>Tokenization — the foundation</h2></div>
+
+<p>Every other step is downstream of <code>_tokenize</code>. It's deliberately
+boring: lowercase, then <code>\w+</code> Unicode word runs. No stemming, no
+stopwords, no synonyms. The reason is fidelity — tokens correspond to exact
+substrings, so snippets and citations always quote the source verbatim.</p>
+
+<pre class="code"><span class="cm"># reigner/tools/search/bm25.py:34, 38</span>
+<span class="nm">_TOKEN_RE</span> = re.compile(<span class="st">r"\w+"</span>, re.UNICODE)
+
+<span class="kw">def</span> _tokenize(text: str) -> list[str]:
+    <span class="kw">return</span> [m.group(<span class="nm">0</span>).lower() <span class="kw">for</span> m <span class="kw">in</span> _TOKEN_RE.finditer(text)]</pre>
+
+<div class="aside">Punctuation and whitespace become separators for free. <code>"R&amp;D — $30B"</code> → <code>["r", "d", "30b"]</code>. That's a known limitation — see Future scope.</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">04</span><h2>_build — assembling the inverted index</h2></div>
+
+<p>One pass over every entry. For each one, count token frequencies (<em>tf</em>),
+bump the document frequency (<em>df</em>) for every distinct token seen,
+record the document length (<em>dl</em>), and sum lengths to compute
+<em>avgdl</em>.</p>
+
+<pre class="code"><span class="cm"># reigner/tools/search/bm25.py:123</span>
+<span class="kw">def</span> _build(self) -> <span class="kw">None</span>:
+    total_len = <span class="nm">0</span>
+    <span class="kw">for</span> entry <span class="kw">in</span> self._entries:
+        tokens = _tokenize(entry.get(<span class="st">"text"</span>, <span class="st">""</span>) <span class="kw">or</span> <span class="st">""</span>)
+        self._doc_tokens.append(tokens)
+        tf: dict[str, int] = {}
+        <span class="kw">for</span> tok <span class="kw">in</span> tokens:
+            tf[tok] = tf.get(tok, <span class="nm">0</span>) + <span class="nm">1</span>
+        self._tf.append(tf)
+        self._doc_len.append(len(tokens))
+        total_len += len(tokens)
+        <span class="kw">for</span> tok <span class="kw">in</span> tf:           <span class="cm"># df = doc-level, not token-level</span>
+            self._df[tok] = self._df.get(tok, <span class="nm">0</span>) + <span class="nm">1</span>
+    self._avgdl = (total_len / self._N) <span class="kw">if</span> self._N <span class="kw">else</span> <span class="nm">0.0</span></pre>
+
+<h4>What the tables look like after _build</h4>
+
+<div class="card">
+<h4 style="margin-top:0">self._tf  (per-doc term frequency)</h4>
+<table class="calc">
+<thead><tr><th>doc</th><th>apple</th><th>banana</th><th>cherry</th><th>date</th></tr></thead>
+<tbody>
+<tr><td>doc-a</td><td>2</td><td>1</td><td>—</td><td>—</td></tr>
+<tr><td>doc-b</td><td>—</td><td>3</td><td>1</td><td>—</td></tr>
+<tr><td>doc-c</td><td>1</td><td>—</td><td>1</td><td>1</td></tr>
+</tbody>
+</table>
+
+<h4>self._df  (in how many docs does this token appear at least once?)</h4>
+<table class="calc">
+<thead><tr><th>apple</th><th>banana</th><th>cherry</th><th>date</th></tr></thead>
+<tbody><tr><td>2</td><td>2</td><td>2</td><td>1</td></tr></tbody>
+</table>
+
+<h4>self._doc_len = [3, 4, 3]   ·   self._avgdl ≈ 3.333</h4>
+</div>
+
+<div class="aside"><strong>Why df is per-document, not per-token.</strong> The inner
+loop iterates <code>for tok in tf</code> — the unique tokens — not over the
+flat token list. Repeated occurrences in one doc count once towards df. That's
+the standard BM25 definition; <em>idf</em> measures rarity across documents,
+not within them.</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">05</span><h2>_score_doc — the actual BM25 formula</h2></div>
+
+<div class="formula">
+<div class="label">BM25 — Robertson/Sparck-Jones with Lucene's idf smoothing</div>
+score(q, d) = Σ<sub>t∈q</sub> &nbsp; idf(t) · ( tf(t,d) · (k1+1) ) / ( tf(t,d) + k1 · (1 − b + b · dl / avgdl) )<br><br>
+idf(t) = ln( 1 + (N − df(t) + 0.5) / (df(t) + 0.5) )
+</div>
+
+<p>Each term contributes <em>only if it appears in the doc</em> (<code>term_freq == 0</code>
+short-circuits). The denominator's length normalization shrinks the contribution
+when <code>dl &gt; avgdl</code> — i.e. long docs don't win by being long.</p>
+
+<pre class="code"><span class="cm"># reigner/tools/search/bm25.py:138</span>
+<span class="kw">def</span> _score_doc(self, query_tokens: list[str], doc_idx: int) -> float:
+    <span class="kw">if</span> self._avgdl == <span class="nm">0.0</span>:
+        <span class="kw">return</span> <span class="nm">0.0</span>
+    dl = self._doc_len[doc_idx]
+    tf = self._tf[doc_idx]
+    score = <span class="nm">0.0</span>
+    <span class="kw">for</span> term <span class="kw">in</span> query_tokens:
+        df = self._df.get(term, <span class="nm">0</span>)
+        <span class="kw">if</span> df == <span class="nm">0</span>: <span class="kw">continue</span>            <span class="cm"># term not in corpus</span>
+        term_freq = tf.get(term, <span class="nm">0</span>)
+        <span class="kw">if</span> term_freq == <span class="nm">0</span>: <span class="kw">continue</span>     <span class="cm"># term not in this doc</span>
+        idf  = math.log(<span class="nm">1</span> + (self._N - df + <span class="nm">0.5</span>) / (df + <span class="nm">0.5</span>))
+        norm = term_freq * (_K1 + <span class="nm">1</span>) / (term_freq + _K1 * (<span class="nm">1</span> - _B + _B * dl / self._avgdl))
+        score += idf * norm
+    <span class="kw">return</span> score</pre>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">06</span><h2>A real query, scored by hand</h2></div>
+
+<p>Query: <code>"apple cherry"</code> → tokens <code>[apple, cherry]</code>.
+We score each doc. Because both query terms have df = 2 and N = 3, the idf
+is the same for both:</p>
+
+<div class="formula">
+idf(apple) = idf(cherry) = ln( 1 + (3 − 2 + 0.5) / (2 + 0.5) ) = ln(1.6) ≈ <strong>0.4700</strong>
+</div>
+
+<h4>doc-a (dl=3, tf[apple]=2, tf[cherry]=0)</h4>
+<div class="formula">
+norm(apple) = 2·2.5 / (2 + 1.5·(0.25 + 0.75·3/3.333))<br>
+&nbsp;&nbsp;&nbsp;&nbsp; = 5 / (2 + 1.5·0.925) = 5 / 3.3875 ≈ <strong>1.4760</strong><br>
+apple → 0.4700 · 1.4760 ≈ <strong>0.6937</strong><br>
+cherry → tf=0, skipped<br>
+<strong>score(doc-a) ≈ 0.6937</strong>
+</div>
+
+<h4>doc-b (dl=4, tf[apple]=0, tf[cherry]=1)</h4>
+<div class="formula">
+norm(cherry) = 1·2.5 / (1 + 1.5·(0.25 + 0.75·4/3.333))<br>
+&nbsp;&nbsp;&nbsp;&nbsp; = 2.5 / (1 + 1.5·1.15) = 2.5 / 2.725 ≈ <strong>0.9174</strong><br>
+cherry → 0.4700 · 0.9174 ≈ <strong>0.4312</strong><br>
+<strong>score(doc-b) ≈ 0.4312</strong>
+</div>
+
+<h4>doc-c (dl=3, tf[apple]=1, tf[cherry]=1)</h4>
+<div class="formula">
+norm(apple) = norm(cherry) = 1·2.5 / (1 + 1.5·0.925) = 2.5 / 2.3875 ≈ <strong>1.0471</strong><br>
+apple → 0.4700 · 1.0471 ≈ 0.4921<br>
+cherry → 0.4700 · 1.0471 ≈ 0.4921<br>
+<strong>score(doc-c) ≈ 0.9842</strong> &nbsp; <span class="winner">winner</span>
+</div>
+
+<div class="aside"><strong>The intuition.</strong> doc-c wins because it covers
+<em>both</em> query terms even though each appears only once. doc-a has high
+<em>tf</em> for "apple" but contributes nothing for "cherry". doc-b matches
+only "cherry" and gets length-penalized (dl &gt; avgdl). BM25's saturating
+<em>tf</em> curve — that's the <code>tf·(k1+1)/(tf+...)</code> shape — is what
+keeps doc-a from running away on raw repetition.</div>
+
+<h4>Final ranking</h4>
+<table class="calc">
+<thead><tr><th>rank</th><th>id</th><th>score</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>doc-c</td><td>0.9842</td></tr>
+<tr><td>2</td><td>doc-a</td><td>0.6937</td></tr>
+<tr><td>3</td><td>doc-b</td><td>0.4312</td></tr>
+</tbody>
+</table>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">07</span><h2>_search_text — the orchestrator</h2></div>
+
+<p>This is what <code>bm25_search</code> actually calls. It glues the pieces
+together: validate filters, tokenize, score every (filtered) doc, sort,
+truncate, format.</p>
+
+<pre class="code"><span class="cm"># reigner/tools/search/bm25.py:167 — abridged</span>
+<span class="kw">def</span> _search_text(self, query, raw_filters, top_k):
+    <span class="kw">if not</span> self._entries:
+        <span class="kw">return</span> _empty_result(note=_MISSING_INDEX_NOTE)   <span class="cm"># 1</span>
+    filter_ = parse_filters(raw_filters)                  <span class="cm"># 2</span>
+    tokens  = _tokenize(query)
+    <span class="kw">if not</span> tokens:
+        <span class="kw">return</span> _empty_result()                          <span class="cm"># 3</span>
+    scored = []
+    <span class="kw">for</span> idx, entry <span class="kw">in</span> enumerate(self._entries):
+        <span class="kw">if</span> filter_ <span class="kw">and not</span> matches(entry[<span class="st">"identifiers"</span>], filter_):
+            <span class="kw">continue</span>                                       <span class="cm"># 4</span>
+        score = self._score_doc(tokens, idx)
+        <span class="kw">if</span> score &gt; <span class="nm">0.0</span>: scored.append((score, idx))     <span class="cm"># 5</span>
+    scored.sort(key=<span class="kw">lambda</span> p: (-p[<span class="nm">0</span>], self._entries[p[<span class="nm">1</span>]][<span class="st">"id"</span>]))  <span class="cm"># 6</span>
+    hits = [self._format_hit(...) <span class="kw">for</span> score, idx <span class="kw">in</span> scored[:top_k]]
+    <span class="kw">return</span> {<span class="st">"hits"</span>: hits,
+            <span class="st">"total_matches"</span>: len(scored),
+            <span class="st">"has_more"</span>: len(scored) &gt; top_k,           <span class="cm"># 7</span>
+            <span class="st">"truncated"</span>: <span class="kw">False</span>}</pre>
+
+<ol style="font-family: ui-monospace, Menlo, monospace; font-size: 13px;">
+<li><strong>Missing index guard.</strong> Empty entry list → return an empty
+result <em>plus a note</em>. The model sees "index not built; run
+<code>reigner ingest</code>" and can react.</li>
+<li><strong>Filter parsing.</strong> Coerces &amp; validates the filter dict
+(see <code>filters.py</code>). Throws on malformed input.</li>
+<li><strong>Empty query.</strong> Whitespace-only or tokenizes to nothing →
+empty result, no note. The public tool function rejects whitespace queries
+earlier with <code>ValueError</code>.</li>
+<li><strong>Filter short-circuits scoring.</strong> Non-matching docs never
+hit <code>_score_doc</code>, which matters at scale.</li>
+<li><strong>Score &gt; 0 keeps a doc.</strong> Zero-score docs are dropped:
+no query term matched.</li>
+<li><strong>Stable sort.</strong> Primary: score descending. Tiebreaker:
+id ascending — deterministic ordering even when BM25 ties.</li>
+<li><strong>has_more / total_matches.</strong> The self-describing fields
+that let an agent know there's more to fetch (PRINCIPLES.md §2).</li>
+</ol>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">08</span><h2>The other two tools</h2></div>
+
+<h4>_search_filtered — no scoring, just enumeration</h4>
+<p>When the agent already knows what it's looking for (e.g. "give me every
+AAPL 10-K from 2022–2024"), scoring is wasted work. <code>filtered_search</code>
+returns matching entries sorted by id ascending, with a snippet but a
+<code>score: 0.0</code>.</p>
+
+<h4>_search_section — per-call mini-index over one section</h4>
+<p>The sidecar stores each entry's <code>sections</code> dict
+(<code>{"document_summary": "...", "risk_factors": "..."}</code>). When the
+agent calls <code>section_search(query, section_name)</code>, the method
+builds a <em>fresh</em> inverted index <strong>just for that section</strong>
+across all docs, then scores against it. N, avgdl, df — all recomputed from
+the section corpus, not the whole-doc corpus. That's why a frequent term
+inside <code>risk_factors</code> still has meaningful idf if it's rare
+across other docs' <code>risk_factors</code> sections.</p>
+
+<div class="aside"><strong>Legacy fallback.</strong> Old sidecars (written
+before sections were stored) don't have a <code>sections</code> key.
+<code>section_search</code> notices, returns no hits, and includes a
+<code>note</code> telling the user to re-run <code>reigner ingest</code> —
+never raises.</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">09</span><h2>_snippet — quoting the source faithfully</h2></div>
+
+<p>For every hit, <code>_snippet</code> finds the <em>earliest</em> matched
+query token in the text, then expands ±120 characters around it, snapping
+out to the nearest non-alphanumeric boundary so we don't slice a word in
+half. Ellipses (<code>…</code>) mark truncation on either side.</p>
+
+<div class="card">
+<p style="margin:0 0 8px;"><strong>Example.</strong> Text:
+<code>"Risk factors for the fiscal year: ongoing litigation in the EU
+materially affects forward guidance. See note 14."</code><br>
+Query tokens: <code>[litigation]</code></p>
+<p style="margin:0; font-family: ui-monospace, Menlo, monospace; font-size: 13px;">
+earliest match → "litigation" at index 39<br>
+window → [max(0, 39-120) … min(len, 39+120)] = [0, 159] → whole string fits<br>
+result → "Risk factors for the fiscal year: ongoing litigation in the EU materially affects forward guidance. See note 14."
+</p>
+</div>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">10</span><h2>Degenerate inputs, by design</h2></div>
+
+<p>Every "thing that could go wrong with the sidecar" resolves to
+<em>empty result + note</em>, never an exception. The model treats the note
+as a signal to call a different tool or ask the user.</p>
+
+<table class="calc">
+<thead><tr><th>condition</th><th>behavior</th></tr></thead>
+<tbody>
+<tr><td>path doesn't exist</td><td>empty hits, note: "index not built; run `reigner ingest`"</td></tr>
+<tr><td>file is corrupt JSON</td><td>same note (json.JSONDecodeError caught)</td></tr>
+<tr><td>JSON is not a list</td><td>same note</td></tr>
+<tr><td>list is empty</td><td>same note</td></tr>
+<tr><td>entry has no <code>"id"</code></td><td>skipped silently during load</td></tr>
+<tr><td><code>avgdl == 0</code> (every doc empty)</td><td><code>_score_doc</code> returns 0 — no hits</td></tr>
+<tr><td>query is whitespace</td><td>public tool raises <code>ValueError</code></td></tr>
+<tr><td>section_name not present in any entry</td><td>empty + note pointing to ingest</td></tr>
+</tbody>
+</table>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">11</span><h2>What the agent actually sees</h2></div>
+
+<p>The <code>@tool(readonly=True, cache=True)</code> decorator wraps each
+closure. <code>readonly</code> means the harness can call it speculatively
+without confirmation; <code>cache</code> means identical (query, filters,
+top_k) tuples are deduped under G9 — handy when an agent re-issues the same
+search across reasoning steps.</p>
+
+<pre class="code"><span class="cm"># Returned shape — same for all three tools</span>
+{
+  <span class="st">"hits"</span>: [
+    {
+      <span class="st">"id"</span>: <span class="st">"AAPL/2024"</span>,
+      <span class="st">"score"</span>: <span class="nm">0.984</span>,
+      <span class="st">"identifiers"</span>: {<span class="st">"ticker"</span>: <span class="st">"AAPL"</span>, <span class="st">"year"</span>: <span class="st">"2024"</span>},
+      <span class="st">"source"</span>: <span class="st">"raw/AAPL/2024.pdf"</span>,
+      <span class="st">"snippet"</span>: <span class="st">"…research and development expenses were thirty…"</span>
+    }
+  ],
+  <span class="st">"total_matches"</span>: <span class="nm">12</span>,        <span class="cm"># before top_k truncation</span>
+  <span class="st">"has_more"</span>: <span class="kw">True</span>,            <span class="cm"># total &gt; len(hits)</span>
+  <span class="st">"truncated"</span>: <span class="kw">False</span>,          <span class="cm"># reserved for snippet truncation</span>
+  <span class="st">"note"</span>: <span class="st">"..."</span>                <span class="cm"># only present in degenerate cases</span>
+}</pre>
+
+<!-- ====================================================== -->
+
+<div class="section-head"><span class="section-num">12</span><h2>Things worth knowing for later</h2></div>
+
+<div class="card">
+<h3>The whole index is in memory</h3>
+<p>One process load. For tens of thousands of compiled docs this is fine; for
+millions, the in-memory dict-of-dicts becomes the bottleneck before BM25
+math does. The <code>SearchIndex</code> Protocol is the escape hatch — swap
+in a SQLite-FTS or vector backend without touching the harness.</p>
+</div>
+
+<div class="card">
+<h3>Section search rebuilds its index on every call</h3>
+<p>Deliberate. <code>section_search</code> is the rarer of the three tools,
+and per-section corpora are small. The alternative — pre-building a per-section
+inverted index for every section name at startup — wastes memory when most
+queries don't use it. If profiling shows section_search dominating, cache
+per-section indexes lazily.</p>
+</div>
+
+<div class="card">
+<h3>Tokenizer fidelity vs. recall</h3>
+<p>Strict <code>\w+</code> lowercase keeps snippets honest but loses on
+"R&amp;D" → ["r", "d"] and Unicode-normalization edge cases. Adding stemming
+or stopwords would help recall but break the substring-fidelity guarantee
+that snippets and citations depend on. Any change here is a Principle-level
+decision, not a tuning knob.</p>
+</div>
+
+</div>
+</body>
+</html>

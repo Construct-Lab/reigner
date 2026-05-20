@@ -1,9 +1,18 @@
-"""Bm25IndexWriter — minimal JSON-sidecar dump that T-10 will read.
+"""Bm25IndexWriter — JSON-sidecar dump consumed by Bm25Index.
 
-T-16 ships the on-disk format only: a JSON list of per-entity entries with
-identifiers, source path, and concatenated section text. T-10 (BM25 search
-tools) builds the actual inverted index over this same file. The format is
-stable so both sides can ship independently.
+Each entry has the shape::
+
+    {
+      "id":          "<sorted-identifier-values joined by '/'>",
+      "identifiers": {"<key>": "<value>", ...},
+      "text":        "<all sections concatenated by \\n\\n>",
+      "sections":    {"<section-name>": "<section-text>", ...},
+      "source":      "<raw source path or URL>",
+    }
+
+``text`` powers ``bm25_search`` (whole-document scoring); ``sections`` powers
+``section_search`` (per-section scoring). Both fields are populated by the
+writer so the reader can ship without re-deriving section boundaries.
 
 Writes are atomic (write-to-tmp then ``Path.replace``) and concurrency-safe
 via an asyncio lock — multiple pipeline workers can update the same sidecar
@@ -69,5 +78,6 @@ def _build_entry(
         "id": entity_id,
         "identifiers": dict(identifiers),
         "text": text,
+        "sections": dict(result.sections),
         "source": str(source),
     }

@@ -29,6 +29,7 @@ async def test_writes_atomic_json_list(tmp_path: Path) -> None:
     assert entry["id"] == "2024/AAPL"  # sorted by identifier key
     assert entry["identifiers"] == {"ticker": "AAPL", "fiscal_year": "2024"}
     assert entry["text"] == "apple"
+    assert entry["sections"] == {"document_summary": "apple"}
     assert entry["source"] == "data/raw/AAPL_2024.pdf"
     # tmp file cleaned up
     assert not (tmp_path / "idx.json.tmp").exists()
@@ -45,6 +46,10 @@ async def test_concatenates_sections_with_blank_lines(tmp_path: Path) -> None:
     entry = json.loads((tmp_path / "idx.json").read_text())[0]
     assert "summary" in entry["text"] and "risks" in entry["text"]
     assert "\n\n" in entry["text"]
+    assert entry["sections"] == {
+        "document_summary": "summary",
+        "sections/risks": "risks",
+    }
 
 
 async def test_upsert_replaces_existing_entry(tmp_path: Path) -> None:
