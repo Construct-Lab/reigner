@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>BM25 search tools — Implementation plan</title>
+        <style>
+            :root {
+                --bg: #f5f0e1;
+                --paper: #fbf8ec;
+                --paper-soft: #f1ead5;
+                --ink: #1a2e1f;
+                --ink-soft: #5a6b5a;
+                --accent: #b4541a;
+                --rule: #d8cfb4;
+                --dash: #b9b29a;
+                --tag-bg: #ece5d0;
+                --op-add: #2d5938;
+                --op-mod: #856104;
+                --op-del: #8a3320;
+            }
+            * { box-sizing: border-box; }
+            html, body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--ink);
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px;
+                line-height: 1.55;
+            }
+            .page { max-width: 820px; margin: 0 auto; padding: 40px 24px 96px; }
+
+            .eyebrow {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            h1 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 40px; line-height: 1.15;
+                margin: 6px 0 20px; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.01em;
+            }
+            h2 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 26px; margin: 0; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.005em;
+            }
+            h3 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px; margin: 0 0 4px; font-weight: 600; color: var(--ink);
+            }
+            p { margin: 8px 0; }
+            code {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 0.92em;
+            }
+
+            .prompt-box {
+                background: var(--paper-soft);
+                border: 1px solid var(--rule);
+                border-radius: 10px;
+                padding: 16px 18px;
+                margin: 20px 0 36px;
+            }
+            .prompt-box .plabel {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--accent);
+                margin-bottom: 6px;
+            }
+            .prompt-box p { margin: 0; color: var(--ink); font-size: 16px; }
+
+            .bubbles {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px; margin: 24px 0 56px;
+            }
+            .bubble {
+                background: #fff;
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px;
+            }
+            .bubble .label {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 10px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            .bubble .value {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 18px; font-weight: 500;
+                margin-top: 4px; color: var(--ink);
+            }
+
+            section { margin: 56px 0; }
+            .section-head {
+                display: flex; align-items: center; gap: 12px;
+                margin-bottom: 6px;
+            }
+            .section-num {
+                font-family: ui-monospace, Menlo, monospace;
+                color: var(--ink-soft);
+                font-size: 11px; letter-spacing: 0.08em;
+                background: var(--tag-bg);
+                border-radius: 4px; padding: 2px 7px;
+            }
+            section > p:first-of-type { color: var(--ink-soft); margin: 4px 0 24px; }
+
+            .timeline { margin-top: 8px; }
+            .milestone {
+                display: grid;
+                grid-template-columns: 130px 28px 1fr;
+                gap: 14px;
+                padding-bottom: 28px;
+                position: relative;
+            }
+            .milestone .when {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; letter-spacing: 0.04em;
+                color: var(--ink-soft); padding-top: 4px;
+                text-align: right;
+            }
+            .milestone .rail {
+                position: relative;
+                display: flex; justify-content: center;
+            }
+            .milestone .rail::before {
+                content: ""; position: absolute;
+                top: 0; bottom: -28px; left: 50%;
+                width: 1px; background: var(--rule);
+                transform: translateX(-0.5px);
+            }
+            .milestone:last-child .rail::before { bottom: 0; }
+            .milestone .dot {
+                position: relative; z-index: 1;
+                width: 11px; height: 11px; border-radius: 50%;
+                margin-top: 8px;
+                background: var(--op-add);
+                border: 2px solid var(--op-add);
+            }
+            .milestone.upcoming .dot {
+                background: var(--bg);
+                border: 2px solid var(--accent);
+            }
+            .milestone .body { padding-top: 2px; }
+            .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+            .tag {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px;
+                background: var(--tag-bg);
+                border: 1px solid var(--rule);
+                padding: 2px 8px; border-radius: 4px;
+                color: var(--ink);
+            }
+
+            .flow {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 22px;
+                overflow-x: auto;
+            }
+            .flow svg { width: 100%; height: auto; display: block; }
+            .legend {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin-top: 12px;
+            }
+
+            .mock {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 20px; margin: 16px 0;
+            }
+            .mock h3 { margin-bottom: 12px; }
+            .repl {
+                background: #faf6e6;
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px;
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12.5px;
+                color: var(--ink);
+                line-height: 1.6;
+                white-space: pre-wrap;
+            }
+            .repl .muted { color: var(--ink-soft); }
+            .repl .tool  { color: var(--accent); }
+
+            .files { display: grid; grid-template-columns: 1fr; gap: 0; }
+            .file-row {
+                display: grid;
+                grid-template-columns: 80px 1fr;
+                gap: 12px; align-items: baseline;
+                border-bottom: 1px dashed var(--dash);
+                padding: 10px 0;
+            }
+            .file-op {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .op-add { color: var(--op-add); }
+            .op-mod { color: var(--op-mod); }
+            .op-del { color: var(--op-del); }
+            .file-path {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 14px; color: var(--ink);
+            }
+            .file-note {
+                color: var(--ink-soft);
+                font-size: 14px; margin-top: 3px; display: block;
+            }
+
+            pre.code {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px; overflow-x: auto;
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 13px; line-height: 1.55;
+                color: var(--ink);
+                white-space: pre;
+            }
+            .code-caption {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin: 18px 0 6px;
+            }
+            .kw { color: var(--accent); }
+            .fn { color: #2d5938; }
+            .str { color: #856104; }
+
+            .future-item {
+                border-top: 1px solid var(--rule);
+                padding: 16px 0;
+            }
+            .future-item:last-child { border-bottom: 1px solid var(--rule); }
+            .future-item .meta {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.04em;
+                color: var(--ink-soft); margin-top: 6px;
+            }
+
+            .node { fill: var(--paper); stroke: var(--ink); stroke-width: 2.5; }
+            .node-new { fill: var(--paper); stroke: var(--accent); stroke-width: 2.5; }
+            .node-label { font-family: ui-monospace, Menlo, monospace; font-size: 12px; fill: var(--ink); }
+            .node-sub { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+            .stroke-solid { stroke: var(--ink); stroke-width: 2; fill: none; }
+            .stroke-dash { stroke: var(--ink); stroke-width: 2; fill: none; stroke-dasharray: 6 5; }
+            .edge-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+
+            @media (max-width: 640px) {
+                .milestone { grid-template-columns: 90px 22px 1fr; gap: 10px; }
+                h1 { font-size: 32px; }
+                h2 { font-size: 22px; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <div class="eyebrow">Implementation plan · Reigner · T-10</div>
+            <h1>BM25 search tools</h1>
+
+            <div class="prompt-box">
+                <div class="plabel">Prompt</div>
+                <p>Implement the default search surface over the BM25 JSON sidecar index, plus a pluggable <code>SearchIndex</code> protocol so vector and SQL backends can be swapped in later. Three tools land: <code>bm25_search</code>, <code>filtered_search</code>, <code>section_search</code>. Reconcile with T-16's existing <code>Bm25IndexWriter</code>, which today flattens every section into a single text blob — incompatible with section-level scoring.</p>
+            </div>
+
+            <!-- 2. HIGHLIGHT BUBBLES -->
+            <div class="bubbles">
+                <div class="bubble">
+                    <div class="label">Effort</div>
+                    <div class="value">~1.5 days</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files added</div>
+                    <div class="value">4</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files updated</div>
+                    <div class="value">2</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">New tools</div>
+                    <div class="value">3 @tool</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">External deps</div>
+                    <div class="value">none</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Sidecar bump</div>
+                    <div class="value">+ sections</div>
+                </div>
+            </div>
+
+            <!-- 3. MILESTONES -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">01</span>
+                    <h2>Milestones</h2>
+                </div>
+                <p>Three slices, all on one branch. Each slice is independently testable; the PR ships them bundled because they only make sense together.</p>
+
+                <div class="timeline">
+                    <div class="milestone">
+                        <div class="when">Slice 1</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Sidecar schema bump + writer change</h3>
+                            <p>Extend <code>Bm25IndexWriter._build_entry</code> to persist <code>sections: dict[str, str]</code> alongside the concatenated <code>text</code>. Tolerate old entries on read. Update the format docstring at the top of <code>writers/bm25.py</code>.</p>
+                            <div class="tags">
+                                <span class="tag">reigner/ingestion/writers/bm25.py</span>
+                                <span class="tag">tests/ingestion/writers/test_bm25.py</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 2</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Protocol + filters + BM25 scoring core</h3>
+                            <p><code>SearchIndex</code> Protocol (single <code>tools()</code> method). <code>filters.py</code> with <code>parse_filters</code> + <code>matches</code>. <code>Bm25Index</code> class that loads the sidecar in <code>__init__</code>, builds an inverted index, scores queries with classic BM25 (k1=1.5, b=0.75). No tools wired yet — pure scoring is unit-testable on its own.</p>
+                            <div class="tags">
+                                <span class="tag">tools/search/base.py</span>
+                                <span class="tag">tools/search/filters.py</span>
+                                <span class="tag">tools/search/bm25.py</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 3</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Three @tool surfaces + snippet generator</h3>
+                            <p>Bind <code>bm25_search</code>, <code>filtered_search</code>, <code>section_search</code> as <code>@tool(readonly=True)</code> closures returned by <code>Bm25Index.tools()</code>. Snippet helper produces ~240-char windows around the earliest matched token. Degraded-state path returns <code>{hits: [], note: "index not built; run `reigner ingest`"}</code> instead of raising.</p>
+                            <div class="tags">
+                                <span class="tag">tools/search/bm25.py</span>
+                                <span class="tag">tests/tools/search/</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. DATA FLOW -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">02</span>
+                    <h2>Data flow</h2>
+                </div>
+                <p>Two distinct paths share the sidecar file: ingestion (write, one-time) and agent runtime (read, hot). Solid edges are sync method calls; dashed edges are the agent's tool invocations dispatched by the loop.</p>
+
+                <div class="flow">
+                    <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" aria-label="BM25 search tools data flow">
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,0 L10,5 L0,10 z" fill="#1a2e1f" />
+                            </marker>
+                        </defs>
+
+                        <!-- WRITE PATH (top row) -->
+                        <text class="node-sub" x="20" y="30">Write path · ingestion (one-time)</text>
+
+                        <rect class="node" x="20" y="50" width="160" height="58" />
+                        <text class="node-label" x="100" y="78" text-anchor="middle">IngestionPipeline</text>
+                        <text class="node-sub" x="100" y="94" text-anchor="middle">ingestion/pipeline.py</text>
+
+                        <rect class="node" x="280" y="50" width="180" height="58" />
+                        <text class="node-label" x="370" y="78" text-anchor="middle">Bm25IndexWriter (updated)</text>
+                        <text class="node-sub" x="370" y="94" text-anchor="middle">ingestion/writers/bm25.py</text>
+
+                        <rect class="node" x="560" y="50" width="180" height="58" />
+                        <text class="node-label" x="650" y="74" text-anchor="middle">documents.json</text>
+                        <text class="node-sub" x="650" y="90" text-anchor="middle">search-index/ (sidecar)</text>
+                        <text class="node-sub" x="650" y="102" text-anchor="middle">{id, identifiers, text, sections, source}</text>
+
+                        <path class="stroke-solid" d="M180 79 L280 79" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="230" y="72" text-anchor="middle">write(entity, result)</text>
+
+                        <path class="stroke-solid" d="M460 79 L560 79" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="510" y="72" text-anchor="middle">atomic replace</text>
+
+                        <!-- divider line -->
+                        <line x1="20" y1="160" x2="740" y2="160" stroke="#d8cfb4" stroke-dasharray="3 4" />
+
+                        <!-- READ PATH -->
+                        <text class="node-sub" x="20" y="184">Read path · agent runtime</text>
+
+                        <!-- Harness loop -->
+                        <rect class="node" x="20" y="210" width="160" height="58" />
+                        <text class="node-label" x="100" y="238" text-anchor="middle">Harness loop</text>
+                        <text class="node-sub" x="100" y="254" text-anchor="middle">harness/loop.py</text>
+
+                        <!-- ToolRegistry -->
+                        <rect class="node" x="280" y="210" width="160" height="58" />
+                        <text class="node-label" x="360" y="238" text-anchor="middle">ToolRegistry</text>
+                        <text class="node-sub" x="360" y="254" text-anchor="middle">tools/registry.py</text>
+
+                        <!-- Bm25Index (NEW) -->
+                        <rect class="node-new" x="540" y="210" width="200" height="58" />
+                        <text class="node-label" x="640" y="238" text-anchor="middle">Bm25Index.tools()</text>
+                        <text class="node-sub" x="640" y="254" text-anchor="middle">tools/search/bm25.py · NEW</text>
+
+                        <path class="stroke-dash" d="M180 239 L280 239" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="230" y="232" text-anchor="middle">dispatch</text>
+
+                        <path class="stroke-solid" d="M440 239 L540 239" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="490" y="232" text-anchor="middle">register</text>
+
+                        <!-- Three tools -->
+                        <rect class="node-new" x="540" y="300" width="200" height="40" />
+                        <text class="node-label" x="640" y="324" text-anchor="middle">bm25_search</text>
+
+                        <rect class="node-new" x="540" y="350" width="200" height="40" />
+                        <text class="node-label" x="640" y="374" text-anchor="middle">filtered_search</text>
+
+                        <rect class="node-new" x="540" y="400" width="200" height="40" />
+                        <text class="node-label" x="640" y="424" text-anchor="middle">section_search</text>
+
+                        <path class="stroke-solid" d="M640 268 L640 300" marker-end="url(#arrow)" />
+
+                        <!-- Filters module (NEW) -->
+                        <rect class="node-new" x="280" y="350" width="200" height="58" />
+                        <text class="node-label" x="380" y="378" text-anchor="middle">parse_filters · matches</text>
+                        <text class="node-sub" x="380" y="394" text-anchor="middle">tools/search/filters.py · NEW</text>
+
+                        <path class="stroke-solid" d="M540 370 L480 370" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="510" y="362" text-anchor="middle">apply</text>
+
+                        <!-- Sidecar (read) -->
+                        <rect class="node" x="20" y="350" width="180" height="58" />
+                        <text class="node-label" x="110" y="378" text-anchor="middle">documents.json</text>
+                        <text class="node-sub" x="110" y="394" text-anchor="middle">search-index/ (read once at init)</text>
+
+                        <path class="stroke-solid" d="M200 379 L540 320" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="370" y="335" text-anchor="middle">load + build inverted index</text>
+
+                        <!-- SearchIndex protocol box -->
+                        <rect class="node-new" x="20" y="420" width="200" height="34" />
+                        <text class="node-label" x="120" y="442" text-anchor="middle">SearchIndex (Protocol)</text>
+                    </svg>
+                </div>
+                <div class="legend">
+                    Solid = synchronous call. Dashed = harness tool dispatch (one of G11's parallel reads). Terracotta border = new module landing in this PR.
+                </div>
+            </section>
+
+            <!-- 5. MOCKUP -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">03</span>
+                    <h2>What the agent sees</h2>
+                </div>
+                <p>No UI surface — the only consumer is the model via the tool channel. Showing the JSON return shape so the reviewer can spot self-description fields (per PRINCIPLES §2).</p>
+
+                <div class="mock">
+                    <h3>A · bm25_search hit shape</h3>
+<div class="repl"><span class="muted">// model call</span>
+<span class="tool">bm25_search</span>(query=<span class="muted">"R&amp;D expenses"</span>, filters={<span class="muted">"entity_id"</span>: <span class="muted">"AAPL"</span>, <span class="muted">"year"</span>: [<span class="muted">"2023"</span>, <span class="muted">"2024"</span>]}, top_k=5)
+
+<span class="muted">// result</span>
+{
+  <span class="muted">"hits"</span>: [
+    {
+      <span class="muted">"id"</span>: <span class="muted">"AAPL/2024"</span>,
+      <span class="muted">"score"</span>: 7.42,
+      <span class="muted">"identifiers"</span>: {<span class="muted">"entity_id"</span>: <span class="muted">"AAPL"</span>, <span class="muted">"year"</span>: <span class="muted">"2024"</span>},
+      <span class="muted">"source"</span>: <span class="muted">"raw/AAPL/2024.pdf"</span>,
+      <span class="muted">"snippet"</span>: <span class="muted">"...research and development expenses were $31.4B in fiscal 2024, up from..."</span>
+    },
+    ...4 more
+  ],
+  <span class="muted">"total_matches"</span>: 12,
+  <span class="muted">"has_more"</span>: true,
+  <span class="muted">"truncated"</span>: false
+}</div>
+                </div>
+
+                <div class="mock">
+                    <h3>B · degraded state (sidecar missing)</h3>
+<div class="repl"><span class="tool">bm25_search</span>(query=<span class="muted">"anything"</span>)
+
+{
+  <span class="muted">"hits"</span>: [],
+  <span class="muted">"total_matches"</span>: 0,
+  <span class="muted">"has_more"</span>: false,
+  <span class="muted">"truncated"</span>: false,
+  <span class="muted">"note"</span>: <span class="muted">"index not built; run `reigner ingest`"</span>
+}</div>
+                </div>
+            </section>
+
+            <!-- 6. FILES -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">04</span>
+                    <h2>Files</h2>
+                </div>
+                <p>Four new files in <code>reigner/tools/search/</code>, two existing files touched.</p>
+
+                <div class="files">
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/tools/search/__init__.py</span>
+                            <span class="file-note">Public surface: <code>Bm25Index</code>, <code>SearchIndex</code>. Mirrors the import path in SPEC §4 line 179.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/tools/search/base.py</span>
+                            <span class="file-note">The <code>SearchIndex</code> Protocol. Single method: <code>tools() -&gt; list[Callable]</code>. ~10 lines including docstring.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/tools/search/filters.py</span>
+                            <span class="file-note"><code>Filter</code> type alias, <code>parse_filters</code>, <code>matches(entry, filter)</code>. Exact-match per key, scalar or list-as-OR, multi-key AND.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/tools/search/bm25.py</span>
+                            <span class="file-note"><code>Bm25Index</code> class. Eager sidecar load + inverted-index build in <code>__init__</code>. ~50-line BM25 scorer. Three closures decorated with <code>@tool(readonly=True)</code> returned by <code>tools()</code>. Snippet generator.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/ingestion/writers/bm25.py</span>
+                            <span class="file-note">Add <code>"sections": dict(result.sections)</code> to the persisted entry. Update the format docstring at file top. Existing <code>text</code> field stays (used by <code>bm25_search</code>).</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/tools/__init__.py</span>
+                            <span class="file-note">Re-export <code>search</code> submodule if convenient. Optional; may stay untouched if SPEC's <code>from reigner.tools.search import Bm25Index</code> works via package layout alone.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/tools/search/test_bm25.py</span>
+                            <span class="file-note">Hand-computed BM25 scores on a 3-doc fixture; top_k cap + <code>has_more</code> assertions; section_search isolation; degenerate-sidecar paths (missing file, empty list, corrupt JSON, entry without <code>sections</code> key).</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/tools/search/test_filters.py</span>
+                            <span class="file-note">Scalar match, list-OR, multi-key AND, missing key returns no-match, type-coerced scalars.</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. KEY CODE -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">05</span>
+                    <h2>Key code</h2>
+                </div>
+                <p>The three snippets that are easy to get subtly wrong if left to the reader's imagination.</p>
+
+                <div class="code-caption">reigner/tools/search/base.py — the Protocol is tiny on purpose</div>
+<pre class="code">from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, runtime_checkable
+
+ToolCallable = Callable[..., Awaitable[dict[str, Any]]]
+
+@runtime_checkable
+class SearchIndex(Protocol):
+    """Pluggable retrieval backend. v0 ships Bm25Index; future
+    contributors can plug vector / SQL / hybrid backends by
+    implementing this single method.
+
+    Backends own their own tool names — a vector backend may expose
+    `vector_search(query, namespace, top_k)`, not `bm25_search`.
+    """
+    def tools(self) -&gt; list[ToolCallable]: ...
+</pre>
+
+                <div class="code-caption">reigner/tools/search/bm25.py — the scoring loop (the part most likely to drift from textbook BM25)</div>
+<pre class="code">def _score(self, query_tokens: list[str], doc_id: str) -&gt; float:
+    # Classic BM25: sum over query terms of IDF * tf_norm
+    k1, b = 1.5, 0.75
+    dl = self._doc_len[doc_id]
+    avgdl = self._avgdl
+    score = 0.0
+    for term in query_tokens:
+        df = self._df.get(term, 0)
+        if df == 0:
+            continue
+        idf = math.log(1 + (self._N - df + 0.5) / (df + 0.5))
+        tf = self._tf[doc_id].get(term, 0)
+        score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl))
+    return score
+</pre>
+
+                <div class="code-caption">reigner/tools/search/bm25.py — tools() returns @tool-decorated closures so each call captures `self`</div>
+<pre class="code">def tools(self) -&gt; list[ToolCallable]:
+    index = self  # closure capture
+
+    @tool(readonly=True, cache=True)
+    async def bm25_search(
+        query: str,
+        filters: dict[str, str | list[str]] | None = None,
+        top_k: int = 5,
+    ) -&gt; dict:
+        """BM25 search over the compiled corpus."""
+        if not query.strip():
+            raise ValueError("query must be non-empty")
+        return index._search_text(query, filters, min(top_k, 20))
+
+    @tool(readonly=True, cache=True)
+    async def filtered_search(
+        filters: dict[str, str | list[str]],
+        top_k: int = 5,
+    ) -&gt; dict:
+        """Return entries matching filters, sorted by id."""
+        return index._search_filtered(filters, min(top_k, 20))
+
+    @tool(readonly=True, cache=True)
+    async def section_search(
+        query: str, section_name: str, top_k: int = 5,
+    ) -&gt; dict:
+        """BM25 scored against one named section only."""
+        if not query.strip():
+            raise ValueError("query must be non-empty")
+        return index._search_section(query, section_name, min(top_k, 20))
+
+    return [bm25_search, filtered_search, section_search]
+</pre>
+
+                <div class="code-caption">reigner/ingestion/writers/bm25.py — the one-line writer reconciliation</div>
+<pre class="code"># before
+return {"id": entity_id, "identifiers": dict(identifiers),
+        "text": text, "source": str(source)}
+
+# after — add per-section dict so section_search can score it
+return {"id": entity_id, "identifiers": dict(identifiers),
+        "text": text,
+        "sections": dict(result.sections),  # NEW
+        "source": str(source)}
+</pre>
+            </section>
+
+            <!-- 8. FUTURE SCOPE -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">06</span>
+                    <h2>Future scope</h2>
+                </div>
+                <p>Deliberate omissions, assumptions to revisit, and the natural follow-ons.</p>
+
+                <div class="future-item">
+                    <h3>Vector / SQL backends</h3>
+                    <p>SPEC §3 and §19 explicitly defer these. The <code>SearchIndex</code> protocol is shaped to accept them later without renegotiation — a vector backend ships its own tool names via <code>tools()</code>. No code in this PR; only the contract.</p>
+                    <div class="meta">Decide with · contributors · post-v0</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Citation/provenance fields on hits</h3>
+                    <p>T-12 will turn tool results into <code>CitationEvent</code>. This PR returns <code>id</code>, <code>source</code>, and <code>snippet</code> — enough for T-12 to construct citations without coupling to T-12's not-yet-final shape. If T-12 lands and needs more (e.g. byte offsets), revisit.</p>
+                    <div class="meta">Decide with · T-12 author · when T-12 starts</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Snippet quality</h3>
+                    <p>v1 ships a ~240-char window around the earliest matched token, word-boundary snapped. No highlighting markers, no multi-window concat. Acceptable for v0 because the model can always read the full artifact via <code>read_artifact_file</code> (T-09). Revisit if eval cases show citation-locating regressions.</p>
+                    <div class="meta">Decide with · eval results from T-29</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Index reload at runtime</h3>
+                    <p>Eager load in <code>__init__</code>; index is immutable for the life of the <code>Bm25Index</code> object. Matches SPEC's "ingestion is a one-time compilation step." If users want hot-reload, they reconstruct the harness. A <code>reload()</code> method is cheap to add later if needed.</p>
+                    <div class="meta">Decide with · user feedback · post-v0</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Filter operators (range, contains, regex)</h3>
+                    <p>v1 supports exact match + list-OR only. Operators (<code>year__gte</code>, <code>entity_id__in</code>) are out of scope — they expand the parsing surface and the docs without an attested use case. Easy to add to <code>filters.py</code> when one shows up.</p>
+                    <div class="meta">Decide with · first recipe needing it</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Assumption: <code>identifiers</code> values are strings</h3>
+                    <p>The writer stores <code>identifiers: dict[str, str]</code> and the filter language compares strings. If a future recipe sets numeric or date identifiers, we'll need either string coercion in the filter matcher or a typed filter language. Flagged here so reviewers can push back.</p>
+                    <div class="meta">Assumption · revisit if eval recipes break</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Performance ceiling</h3>
+                    <p>Pure-Python BM25, full inverted index in memory, no compression. Fine for the SEC 10-K reference corpus (≤ a few thousand entries, ≤ a few hundred MB text). For larger corpora, the natural next step is a contributed Tantivy / Lucene backend behind <code>SearchIndex</code> — not a rewrite of <code>Bm25Index</code>.</p>
+                    <div class="meta">Decide with · first user hitting it</div>
+                </div>
+            </section>
+        </div>
+    </body>
+</html>
