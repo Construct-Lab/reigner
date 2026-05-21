@@ -36,7 +36,7 @@ git cliff --tag "v$VERSION" -o CHANGELOG.md
 
 git add pyproject.toml uv.lock CHANGELOG.md
 git commit -m "chore: release v$VERSION"
-git tag "v$VERSION"
+git tag -a "v$VERSION" -m "v$VERSION"
 
 echo ""
 echo "Version bumped to $VERSION and tagged v$VERSION."
