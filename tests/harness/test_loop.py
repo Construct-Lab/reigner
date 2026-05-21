@@ -107,7 +107,39 @@ def _harness(*, adapter: FakeAdapter, tools: list[Any], **kw: Any) -> Harness:
     settings_fields = set(SettingsConfig.model_fields)
     settings_kw = {k: kw.pop(k) for k in list(kw) if k in settings_fields}
     settings = SettingsConfig(**settings_kw) if settings_kw else SettingsConfig()
-    return Harness(adapter=adapter, tools=tools, role="ROLE", settings=settings, **kw)
+    from reigner.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    for t in tools:
+        registry.register(_as_spec(t))
+    return Harness(adapter=adapter, registry=registry, role="ROLE", settings=settings, **kw)
+
+
+def _as_spec(t: Any) -> Any:
+    """Adapt a test double (RecordingTool / GatheredTool / …) to a ToolSpec.
+
+    Test doubles expose ``.name``, ``.schema`` (or ``.json_schema()``), and an
+    async ``.run(args)``. We synthesise a ToolSpec whose ``.func`` forwards
+    kwargs back into ``.run(args)`` so the registry treats it like any other
+    registered tool.
+    """
+    from reigner.tools.base import ToolSpec
+
+    schema = t.json_schema() if hasattr(t, "json_schema") else getattr(t, "schema", {})
+
+    async def _forward(**kwargs: Any) -> Any:
+        return await t.run(kwargs)
+
+    return ToolSpec(
+        name=t.name,
+        description=getattr(t, "description", ""),
+        readonly=getattr(t, "readonly", True),
+        pseudo=False,
+        cache=False,
+        truncate_chars=None,
+        func=_forward,
+        schema=schema,
+    )
 
 
 async def _drain(session: Any, query: str) -> list[Event]:
@@ -562,11 +594,13 @@ async def test_loop_drains_pending_steering_into_next_prompt() -> None:
 # NotImplementedError stub.
 
 
-def test_non_full_profile_raises() -> None:
+def test_non_full_profile_builds_session() -> None:
+    """`profile="read_only"` and `profile="eval"` now route through the
+    registry instead of raising NotImplementedError."""
     adapter = FakeAdapter(actions=[_final("x")])
     h = _harness(adapter=adapter, tools=[])
-    with pytest.raises(NotImplementedError):
-        h.session(profile="read_only")
+    assert h.session(profile="read_only").profile == "read_only"
+    assert h.session(profile="eval").profile == "eval"
 
 
 # --------------------------------------------------------------------------

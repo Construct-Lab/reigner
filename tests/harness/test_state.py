@@ -2,21 +2,35 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from reigner.harness.state import AgentState, Turn
+from reigner.tools.base import ToolSpec
+from reigner.tools.registry import ToolRegistry
 
 
-@dataclass
-class _FakeTool:
-    name: str
-    description: str
-    readonly: bool
-    schema: dict[str, Any]
+async def _noop(**_: Any) -> dict[str, Any]:
+    return {}
 
-    def json_schema(self) -> dict[str, Any]:
-        return self.schema
+
+def _fake_tool(name: str, description: str, schema: dict[str, Any]) -> ToolSpec:
+    return ToolSpec(
+        name=name,
+        description=description,
+        readonly=True,
+        pseudo=False,
+        cache=False,
+        truncate_chars=None,
+        func=_noop,
+        schema=schema,
+    )
+
+
+def _registry_with(*specs: ToolSpec) -> ToolRegistry:
+    reg = ToolRegistry()
+    for s in specs:
+        reg.register(s)
+    return reg
 
 
 def _make_state(**overrides: Any) -> AgentState:
@@ -103,8 +117,8 @@ def test_refresh_context_changes_answer_id_each_call() -> None:
 
 
 def test_build_prompt_separates_stable_and_dynamic() -> None:
-    tool = _FakeTool("get_x", "fetches x", True, {"type": "object"})
-    s = _make_state(tools=[tool])
+    tool = _fake_tool("get_x", "fetches x", {"type": "object"})
+    s = _make_state(registry=_registry_with(tool))
     s.append_turn(Turn(role="user", content="hello"))
     s.refresh_context()
 
@@ -117,8 +131,8 @@ def test_build_prompt_separates_stable_and_dynamic() -> None:
 
 
 def test_stable_text_byte_identical_across_iterations() -> None:
-    tool = _FakeTool("t", "d", True, {"k": 1})
-    s = _make_state(tools=[tool])
+    tool = _fake_tool("t", "d", {"k": 1})
+    s = _make_state(registry=_registry_with(tool))
     first = s.build_prompt().stable
     s.append_turn(Turn(role="user", content="anything"))
     s.iterations = 4

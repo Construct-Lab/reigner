@@ -65,19 +65,27 @@ from reigner.harness.nudges import error_nudge, iteration_nudge
 from reigner.harness.oracle import OracleNotConfigured, pick_adapter
 from reigner.harness.oracle import arm as oracle_arm
 from reigner.harness.parallel import execute_batch, should_parallelize
-from reigner.harness.state import AgentState, ToolSpec, Turn
+from reigner.harness.state import AgentState, Turn
 from reigner.harness.truncation import resolve_limit, truncate_for_tool
 from reigner.tools.pseudo import PSEUDO_TOOL_NAMES
 
 
 @runtime_checkable
-class RunnableTool(ToolSpec, Protocol):
-    """Loop-side tool contract: a ToolSpec that can be invoked.
+class RunnableTool(Protocol):
+    """Loop-side tool contract: anything with a name and an awaitable ``run``.
 
-    T-07's ``tools/base.py`` will own the canonical ``Tool`` type. We declare
-    the minimum runtime surface here so the loop can stay decoupled from the
-    full tool registry that lands later.
+    Concretely satisfied by ``RunnableToolAdapter`` (which wraps a ToolSpec).
+    The loop never indexes adapters by anything other than name + ``.run()``,
+    so this Protocol is intentionally thin. ``name``/``readonly`` are declared
+    as ``@property`` so adapters whose attributes are read-only descriptors
+    structurally match.
     """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def readonly(self) -> bool: ...
 
     async def run(self, args: dict[str, Any]) -> Any: ...
 
@@ -106,9 +114,12 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
     ``ClarificationEvent``, or ``ErrorEvent``.
     """
     char_limits = char_limits or {}
-    tools_by_name: dict[str, RunnableTool] = {
-        t.name: t for t in state.tools if isinstance(t, RunnableTool)
-    }
+    # Profile is fixed for the session's lifetime; one filter call gives us
+    # both the adapter list passed to the model and the dispatch map. Pseudo
+    # tools never enter `tools_by_name` because real-vs-pseudo branching
+    # happens later via `PSEUDO_TOOL_NAMES`.
+    runnables = state.registry.for_profile(state.profile)
+    tools_by_name: dict[str, RunnableTool] = {a.name: a for a in runnables}
 
     # Per-call iteration counter (max_iterations is a per-query budget).
     state.iterations = 0
@@ -173,7 +184,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         prompt = state.build_prompt()
 
         try:
-            action: ModelAction = await adapter.call(prompt, list(state.tools))
+            action: ModelAction = await adapter.call(prompt, [a.spec for a in runnables])
         except AdapterError as exc:
             recoverable = isinstance(exc, TransientAdapterError)
             state.record_tool_error()

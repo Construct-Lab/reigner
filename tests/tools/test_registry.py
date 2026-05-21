@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from reigner.tools.base import ToolSpec, tool
+from reigner.tools.base import RunnableToolAdapter, ToolSpec, to_runnable, tool
 from reigner.tools.registry import ToolRegistrationError, ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -75,6 +75,24 @@ def test_register_rejects_non_decorated_function() -> None:
     reg = ToolRegistry()
     with pytest.raises(ToolRegistrationError, match="not a @tool-decorated function"):
         reg.register(plain)
+
+
+def test_register_runnable_tool_adapter() -> None:
+    """Adapters from ArtifactStore.tools() / Bm25Index.tools() register cleanly."""
+    reg = ToolRegistry()
+    adapter = to_runnable(read_a)
+    spec = reg.register(adapter)
+    assert isinstance(spec, ToolSpec)
+    assert reg.get("read_a") is adapter.spec
+
+
+def test_for_profile_returns_runnable_adapters() -> None:
+    """The loop needs `.run(args)`; for_profile() yields runnables, not specs."""
+    reg = _populated_registry()
+    items = reg.for_profile("full")
+    assert items, "expected non-empty profile output"
+    assert all(isinstance(a, RunnableToolAdapter) for a in items)
+    assert all(callable(a.run) for a in items)
 
 
 def test_register_raises_on_name_collision() -> None:

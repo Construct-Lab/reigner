@@ -36,7 +36,6 @@ def make_session() -> Callable[..., Session]:
         adapter = FakeAdapter(actions=list(actions or [_final("hello world")]))
         harness = Harness(
             adapter=adapter,
-            tools=[],
             role="TEST",
             settings=SettingsConfig(),
         )

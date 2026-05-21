@@ -29,7 +29,7 @@ def test_from_config_builds_harness(tmp_path: Path) -> None:
     assert h.adapter.model == "gpt-4o"
     assert h.settings.max_iterations == 25
     assert h.role == ""
-    assert h.tools == []
+    assert len(h.registry) == 0
 
 
 def test_from_config_loads_role_file(tmp_path: Path) -> None:
@@ -62,7 +62,7 @@ def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
         MINIMAL + "tools:\n  artifacts:\n    root: library/artifacts\n    schema: ./schema.yaml\n"
     )
     h = Harness.from_config(_write(tmp_path, body))
-    names = {t.name for t in h.tools}
+    names = {t.name for t in h.registry}
     assert names == {
         "read_artifact_file",
         "grep_artifact",
@@ -71,7 +71,7 @@ def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
         "list_versions",
         "get_section",
     }
-    assert all(t.readonly for t in h.tools)
+    assert all(t.readonly for t in h.registry)
 
 
 def test_from_config_artifacts_missing_schema_raises_config_error(tmp_path: Path) -> None:
@@ -90,13 +90,12 @@ def test_from_config_search_unknown_type_raises_config_error(tmp_path: Path) -> 
 
 
 def test_from_config_custom_tools_imported(tmp_path: Path) -> None:
-    # Reach for an importable callable in the reigner package — we don't need
-    # it to actually be a @tool, just to prove dotted-path resolution worked.
-    body = MINIMAL + "tools:\n  custom:\n    - reigner.types:import_dotted\n"
+    # Resolve a real @tool-decorated callable from a sibling test module —
+    # the registry rejects non-decorated callables, so this probes both the
+    # dotted-path resolution and that the result is a valid tool.
+    body = MINIMAL + "tools:\n  custom:\n    - tests.fixtures.custom_tool:my_custom_tool\n"
     h = Harness.from_config(_write(tmp_path, body))
-    from reigner.types import import_dotted
-
-    assert h.tools == [import_dotted]
+    assert "my_custom_tool" in h.registry
 
 
 def test_from_config_settings_threaded_through(tmp_path: Path) -> None:
@@ -107,8 +106,12 @@ def test_from_config_settings_threaded_through(tmp_path: Path) -> None:
 
 
 def test_from_config_extra_tools_appended(tmp_path: Path) -> None:
-    def my_tool() -> None:
-        pass
+    from reigner.tools.base import tool
 
-    h = Harness.from_config(_write(tmp_path, MINIMAL), tools=[my_tool])  # type: ignore[list-item]
-    assert h.tools == [my_tool]
+    @tool(readonly=True)
+    async def my_extra(x: int) -> dict:
+        """An extra tool injected by the caller."""
+        return {"x": x}
+
+    h = Harness.from_config(_write(tmp_path, MINIMAL), tools=[my_extra])
+    assert "my_extra" in h.registry

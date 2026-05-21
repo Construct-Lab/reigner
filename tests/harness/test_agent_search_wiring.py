@@ -36,20 +36,20 @@ SEARCH_SECTION = "tools:\n  search:\n    type: bm25\n    index_path: idx.json\n"
 def test_from_config_wires_three_search_tools(tmp_path: Path) -> None:
     _write_index(tmp_path, [])
     h = Harness.from_config(_write_yaml(tmp_path, MINIMAL + SEARCH_SECTION))
-    names = {t.name for t in h.tools}
+    names = {t.name for t in h.registry}
     assert names == {"bm25_search", "filtered_search", "section_search"}
 
 
 def test_search_tools_are_readonly(tmp_path: Path) -> None:
     _write_index(tmp_path, [])
     h = Harness.from_config(_write_yaml(tmp_path, MINIMAL + SEARCH_SECTION))
-    assert all(t.readonly is True for t in h.tools)
+    assert all(t.readonly is True for t in h.registry)
 
 
 def test_search_tools_are_cacheable(tmp_path: Path) -> None:
     _write_index(tmp_path, [])
     h = Harness.from_config(_write_yaml(tmp_path, MINIMAL + SEARCH_SECTION))
-    assert all(t.cache is True for t in h.tools)
+    assert all(t.cache is True for t in h.registry)
 
 
 def test_artifacts_and_search_compose_without_collision(tmp_path: Path) -> None:
@@ -66,9 +66,9 @@ def test_artifacts_and_search_compose_without_collision(tmp_path: Path) -> None:
         + "  search:\n    type: bm25\n    index_path: idx.json\n"
     )
     h = Harness.from_config(_write_yaml(tmp_path, body))
-    names = {t.name for t in h.tools}
+    names = {t.name for t in h.registry}
     # Six artifact tools + three search tools — no name collisions.
-    assert len(h.tools) == 9
+    assert len(h.registry) == 9
     assert {"bm25_search", "filtered_search", "section_search"} <= names
     assert {"read_artifact_file", "grep_artifact", "list_documents"} <= names
 
@@ -88,7 +88,7 @@ def test_search_tools_invocable_through_session(tmp_path: Path) -> None:
         ],
     )
     h = Harness.from_config(_write_yaml(tmp_path, MINIMAL + SEARCH_SECTION))
-    tools_by_name = {t.name: t for t in h.tools}
+    tools_by_name = {t.name: t for t in h.registry}
     assert "bm25_search" in tools_by_name
 
 
@@ -106,7 +106,7 @@ async def test_search_tool_run_invokes_underlying_index(tmp_path: Path) -> None:
         ],
     )
     h = Harness.from_config(_write_yaml(tmp_path, MINIMAL + SEARCH_SECTION))
-    tools_by_name = {t.name: t for t in h.tools}
+    tools_by_name = {a.name: a for a in h.registry.for_profile("full")}
     result = await tools_by_name["bm25_search"].run({"query": "apple"})
     assert result["hits"][0]["id"] == "doc-a"
     assert result["total_matches"] == 1
@@ -120,7 +120,7 @@ def test_from_config_missing_index_file_does_not_raise(tmp_path: Path) -> None:
     """
     body = MINIMAL + "tools:\n  search:\n    type: bm25\n    index_path: missing.json\n"
     h = Harness.from_config(_write_yaml(tmp_path, body))
-    assert len(h.tools) == 3
+    assert len(h.registry) == 3
 
 
 def test_from_config_unknown_search_type_raises(tmp_path: Path) -> None:

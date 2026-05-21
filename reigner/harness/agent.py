@@ -25,6 +25,7 @@ from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Note, SteeringMode, Turn
+from reigner.tools.registry import ToolRegistry
 from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ class Harness:
 
     adapter: ModelAdapter
     settings: SettingsConfig = field(default_factory=SettingsConfig)
-    tools: list[RunnableTool] = field(default_factory=list)
+    registry: ToolRegistry = field(default_factory=ToolRegistry)
     role: str = ""
     oracle_adapter: ModelAdapter | None = None
 
@@ -70,7 +71,7 @@ class Harness:
 
         Tool wiring order: ``[artifact tools, search tools, custom tools, *(tools or [])]``.
         Names must be unique across sources — collisions raise
-        :class:`ConfigError`.
+        :class:`ToolRegistrationError` from the registry.
         """
         cfg = ReignerConfig.load(path)
 
@@ -96,18 +97,17 @@ class Harness:
             obj = import_dotted(dotted)
             custom_tools.append(obj)  # trusts the user's @tool-decorated callable
 
-        wired_tools: list[RunnableTool] = [
-            *artifact_tools,
-            *search_tools,
-            *custom_tools,
-            *(tools or []),
-        ]
-        _check_tool_name_collisions(wired_tools)
+        registry = ToolRegistry()
+        for t in (*artifact_tools, *search_tools, *custom_tools, *(tools or [])):
+            # `RunnableTool` is structurally a `@tool`-decorated callable or a
+            # `RunnableToolAdapter`; both are accepted by `register()`. Cast
+            # at the boundary so mypy sees the union the registry expects.
+            registry.register(t)  # type: ignore[arg-type]
 
         return cls(
             adapter=adapter,
             settings=cfg.settings,
-            tools=wired_tools,
+            registry=registry,
             role=role_text,
             oracle_adapter=oracle_adapter,
         )
@@ -120,12 +120,6 @@ class Harness:
         session_id: str | None = None,
         profile: Profile = "full",
     ) -> Session:
-        if profile != "full":
-            # Profile filtering depends on tool metadata that lands with T-07.
-            raise NotImplementedError(
-                f"profile {profile!r} requires the tool registry (T-07); "
-                "only 'full' is supported today"
-            )
         # `state` is reserved for user-attached metadata (e.g. {"user_id": "u1"}
         # per SPEC §4); persisted alongside the session by T-23.
         _ = state
@@ -134,6 +128,7 @@ class Harness:
             session_id=session_id or uuid.uuid4().hex,
             parent_id=None,
             initial_history=list(history or []),
+            profile=profile,
         )
 
 
@@ -147,16 +142,19 @@ class Session:
         session_id: str,
         parent_id: str | None,
         initial_history: list[Turn],
+        profile: Profile = "full",
     ) -> None:
         self.harness = harness
         self.id = session_id
         self.parent_id = parent_id
+        self.profile: Profile = profile
         self._cache = ToolResultCache()
         s = harness.settings
         self._state = AgentState(
             session_id=session_id,
             role=harness.role,
-            tools=list(harness.tools),
+            registry=harness.registry,
+            profile=profile,
             adapter=harness.adapter,
             oracle_adapter=harness.oracle_adapter,
             max_iterations=s.max_iterations,
@@ -244,6 +242,7 @@ class Session:
             session_id=uuid.uuid4().hex,
             parent_id=self.id,
             initial_history=history,
+            profile=self.profile,
         )
 
     # ------------------------------------------------------------------
@@ -314,8 +313,7 @@ def _build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     except (OSError, ValueError) as exc:
         raise ConfigError(f"tools.artifacts: cannot load schema {schema_path}: {exc}") from exc
     store = ArtifactStore(root, schema)
-    # `RunnableToolAdapter` satisfies `RunnableTool` structurally (Protocol).
-    return list(store.tools())  # type: ignore[arg-type]
+    return list(store.tools())
 
 
 def _build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
@@ -334,19 +332,7 @@ def _build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
         index = Bm25Index(index_path)
     else:
         raise ConfigError(f"tools.search.type={kind!r} is not supported (known: 'bm25')")
-    return list(index.tools())  # type: ignore[arg-type]
-
-
-def _check_tool_name_collisions(tools: list[RunnableTool]) -> None:
-    seen: dict[str, int] = {}
-    for t in tools:
-        name = getattr(t, "name", None)
-        if not isinstance(name, str):
-            continue
-        seen[name] = seen.get(name, 0) + 1
-    dupes = sorted(n for n, c in seen.items() if c > 1)
-    if dupes:
-        raise ConfigError(f"duplicate tool name(s) across artifacts/search/custom/extra: {dupes}")
+    return list(index.tools())
 
 
 def _load_role(cfg: ReignerConfig) -> str:

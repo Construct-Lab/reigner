@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from typing import Any, Literal
 
-from reigner.tools.base import ToolSpec
+from reigner.tools.base import RunnableToolAdapter, ToolSpec
 
 Profile = Literal["full", "read_only", "eval"]
 
@@ -44,14 +44,23 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._specs: dict[str, ToolSpec] = {}
 
-    def register(self, func_or_spec: Callable[..., Any] | ToolSpec) -> ToolSpec:
-        """Register a decorated function or a bare ToolSpec. Returns the spec.
+    def register(
+        self, func_or_spec: Callable[..., Any] | ToolSpec | RunnableToolAdapter
+    ) -> ToolSpec:
+        """Register a decorated function, a bare ToolSpec, or a RunnableToolAdapter.
+
+        Returns the underlying spec.
 
         Raises ToolRegistrationError on:
             - a function without `__reigner_spec__` (forgot @tool)
             - a name already present in the registry
         """
-        spec = func_or_spec if isinstance(func_or_spec, ToolSpec) else _spec_of(func_or_spec)
+        if isinstance(func_or_spec, ToolSpec):
+            spec = func_or_spec
+        elif isinstance(func_or_spec, RunnableToolAdapter):
+            spec = func_or_spec.spec
+        else:
+            spec = _spec_of(func_or_spec)
         if spec.name in self._specs:
             raise ToolRegistrationError(
                 f"tool {spec.name!r} is already registered — names must be unique."
@@ -71,26 +80,31 @@ class ToolRegistry:
         """
         return [spec.json_schema() for spec in self._specs.values()]
 
-    def for_profile(self, profile: Profile) -> list[ToolSpec]:
-        """Return the tool subset visible under `profile` (SPEC §6.3).
+    def for_profile(self, profile: Profile) -> list[RunnableToolAdapter]:
+        """Return the tool subset visible under `profile` (SPEC §6.3) as adapters.
 
         full       — every registered tool.
         read_only  — readonly tools plus pseudo-tools.
         eval       — readonly tools plus pseudo-tools except `escalate_to_oracle`
                      and `request_clarification` (both defeat determinism).
+
+        Adapters are constructed fresh on each call; with ~10 tools per harness
+        the allocation cost is negligible. The loop wants `.run(args)`, so this
+        is the call site that hands out runnables.
         """
         if profile == "full":
-            return list(self._specs.values())
-        if profile == "read_only":
-            return [s for s in self._specs.values() if s.readonly or s.pseudo]
-        if profile == "eval":
-            return [
+            specs: list[ToolSpec] = list(self._specs.values())
+        elif profile == "read_only":
+            specs = [s for s in self._specs.values() if s.readonly or s.pseudo]
+        elif profile == "eval":
+            specs = [
                 s
                 for s in self._specs.values()
-                if (s.readonly and s.name not in _EVAL_EXCLUDED)
-                or (s.pseudo and s.name not in _EVAL_EXCLUDED)
+                if (s.readonly or s.pseudo) and s.name not in _EVAL_EXCLUDED
             ]
-        raise ValueError(f"unknown profile: {profile!r}")
+        else:
+            raise ValueError(f"unknown profile: {profile!r}")
+        return [RunnableToolAdapter(spec=s) for s in specs]
 
     def __contains__(self, name: object) -> bool:
         return isinstance(name, str) and name in self._specs
