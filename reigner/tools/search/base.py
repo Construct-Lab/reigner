@@ -5,8 +5,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
+from reigner.tools.base import RunnableToolAdapter
+
 ToolCallable = Callable[..., Awaitable[dict[str, Any]]]
-"""An async tool function decorated with `@tool` from `reigner.tools.base`."""
+"""An async tool function decorated with `@tool` from `reigner.tools.base`.
+
+Kept as a public alias for backend authors who want to type the raw closures
+before adapting them. The Protocol's ``tools()`` returns adapted instances.
+"""
 
 
 @runtime_checkable
@@ -29,8 +35,8 @@ class SearchIndex(Protocol):
 
     __reigner_backend__: ClassVar[Literal["search"]]
 
-    def tools(self) -> list[ToolCallable]:
-        """Return the tool callables this backend contributes."""
+    def tools(self) -> list[RunnableToolAdapter]:
+        """Return the loop-ready tool adapters this backend contributes."""
         ...
 
 

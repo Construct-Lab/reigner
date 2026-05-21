@@ -89,8 +89,7 @@ def test_tools_satisfy_runnable_tool_protocol(store: ArtifactStore) -> None:
 def test_tools_wrap_a_real_tool_spec(store: ArtifactStore) -> None:
     for t in store.tools():
         # The underlying spec from the @tool decorator must be present
-        spec = t._spec  # noqa: SLF001
-        assert isinstance(spec, ToolSpec)
+        assert isinstance(t.spec, ToolSpec)
 
 
 def test_store_with_no_root_dir(tmp_path: Path, schema: ArtifactSchema) -> None:

@@ -60,14 +60,15 @@ class Harness:
         - ``role.file`` is read from disk if present (resolved relative to the
           config file). Skill composition belongs to T-30 and is deferred.
         - ``tools.custom`` dotted paths are imported.
-        - ``tools.artifacts`` is wired to a real :class:`ArtifactStore` (T-09);
+        - ``tools.artifacts`` is wired to a real :class:`ArtifactStore`;
           the six SPEC §6.4 read tools are appended to ``wired_tools``.
-        - ``tools.search`` still raises :class:`ConfigError` (T-10).
-        - Plugins (``cfg.plugins``) parse but are not yet wired (T-26).
+        - ``tools.search`` is wired to the configured :class:`SearchIndex`
+          backend (``type: "bm25"`` is the only one known today).
+        - Plugins (``cfg.plugins``) parse but are not yet wired.
         - Sessions / eval sections parse but the runtime that consumes them
-          isn't on Harness yet (T-24, T-28).
+          isn't on Harness yet.
 
-        Tool wiring order: ``[artifact tools, custom tools, *(tools or [])]``.
+        Tool wiring order: ``[artifact tools, search tools, custom tools, *(tools or [])]``.
         Names must be unique across sources — collisions raise
         :class:`ConfigError`.
         """
@@ -85,18 +86,22 @@ class Harness:
         artifact_tools: list[RunnableTool] = []
         if cfg.tools.artifacts is not None:
             artifact_tools = _build_artifact_tools(cfg)
+
+        search_tools: list[RunnableTool] = []
         if cfg.tools.search is not None:
-            raise ConfigError(
-                "tools.search requires the search-index builders (T-10); "
-                "remove the section or wait for T-10 to land."
-            )
+            search_tools = _build_search_tools(cfg)
 
         custom_tools: list[RunnableTool] = []
         for dotted in cfg.tools.custom:
             obj = import_dotted(dotted)
             custom_tools.append(obj)  # trusts the user's @tool-decorated callable
 
-        wired_tools: list[RunnableTool] = [*artifact_tools, *custom_tools, *(tools or [])]
+        wired_tools: list[RunnableTool] = [
+            *artifact_tools,
+            *search_tools,
+            *custom_tools,
+            *(tools or []),
+        ]
         _check_tool_name_collisions(wired_tools)
 
         return cls(
@@ -309,8 +314,27 @@ def _build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     except (OSError, ValueError) as exc:
         raise ConfigError(f"tools.artifacts: cannot load schema {schema_path}: {exc}") from exc
     store = ArtifactStore(root, schema)
-    # `_ArtifactTool` satisfies `RunnableTool` structurally (Protocol).
+    # `RunnableToolAdapter` satisfies `RunnableTool` structurally (Protocol).
     return list(store.tools())  # type: ignore[arg-type]
+
+
+def _build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
+    """Resolve ``tools.search`` to a built ``SearchIndex``'s tool list.
+
+    Dispatches on ``cfg.tools.search.type``. Only ``"bm25"`` is known today;
+    unknown values raise :class:`ConfigError` rather than silently no-op so
+    typos surface at config-load time.
+    """
+    assert cfg.tools.search is not None
+    index_path = cfg.resolve(cfg.tools.search.index_path)
+    kind = cfg.tools.search.type
+    if kind == "bm25":
+        from reigner.tools.search import Bm25Index
+
+        index = Bm25Index(index_path)
+    else:
+        raise ConfigError(f"tools.search.type={kind!r} is not supported (known: 'bm25')")
+    return list(index.tools())  # type: ignore[arg-type]
 
 
 def _check_tool_name_collisions(tools: list[RunnableTool]) -> None:
@@ -322,7 +346,7 @@ def _check_tool_name_collisions(tools: list[RunnableTool]) -> None:
         seen[name] = seen.get(name, 0) + 1
     dupes = sorted(n for n, c in seen.items() if c > 1)
     if dupes:
-        raise ConfigError(f"duplicate tool name(s) across artifacts/custom/extra: {dupes}")
+        raise ConfigError(f"duplicate tool name(s) across artifacts/search/custom/extra: {dupes}")
 
 
 def _load_role(cfg: ReignerConfig) -> str:

@@ -174,9 +174,68 @@ def _build_args_schema(func: Callable[..., Any]) -> dict[str, Any]:
     return schema
 
 
+@dataclass(frozen=True)
+class RunnableToolAdapter:
+    """Lifts a ``@tool``-decorated function into the loop's RunnableTool Protocol.
+
+    The decorator returns the bare function with ``__reigner_spec__`` attached;
+    the loop reads flat ``.name`` / ``.readonly`` / ``.json_schema()`` and calls
+    ``.run(args)``. This adapter is the single bridge for every tool collection
+    (artifacts, search, future domain tools) so they don't each invent their own.
+    """
+
+    spec: ToolSpec
+
+    @property
+    def name(self) -> str:
+        return self.spec.name
+
+    @property
+    def description(self) -> str:
+        return self.spec.description
+
+    @property
+    def readonly(self) -> bool:
+        return self.spec.readonly
+
+    @property
+    def pseudo(self) -> bool:
+        return self.spec.pseudo
+
+    @property
+    def cache(self) -> bool:
+        return self.spec.cache
+
+    @property
+    def truncate_chars(self) -> int | None:
+        return self.spec.truncate_chars
+
+    def json_schema(self) -> dict[str, Any]:
+        return self.spec.json_schema()
+
+    async def run(self, args: dict[str, Any]) -> Any:
+        return await self.spec.func(**args)
+
+
+def to_runnable(func: Callable[..., Awaitable[Any]]) -> RunnableToolAdapter:
+    """Wrap a ``@tool``-decorated callable as a ``RunnableToolAdapter``.
+
+    Raises ``ToolDefinitionError`` if ``func`` lacks ``__reigner_spec__`` — the
+    marker the ``@tool`` decorator attaches at decoration time.
+    """
+    spec = getattr(func, "__reigner_spec__", None)
+    if not isinstance(spec, ToolSpec):
+        raise ToolDefinitionError(
+            f"{getattr(func, '__name__', func)!r} is not a @tool-decorated callable"
+        )
+    return RunnableToolAdapter(spec=spec)
+
+
 __all__ = [
+    "RunnableToolAdapter",
     "ToolDefinitionError",
     "ToolResult",
     "ToolSpec",
+    "to_runnable",
     "tool",
 ]

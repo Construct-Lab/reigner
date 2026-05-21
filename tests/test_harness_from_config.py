@@ -82,9 +82,10 @@ def test_from_config_artifacts_missing_schema_raises_config_error(tmp_path: Path
         Harness.from_config(_write(tmp_path, body))
 
 
-def test_from_config_search_raises_with_helpful_message(tmp_path: Path) -> None:
-    body = MINIMAL + "tools:\n  search:\n    type: bm25\n    index_path: idx.json\n"
-    with pytest.raises(ConfigError, match="T-10"):
+def test_from_config_search_unknown_type_raises_config_error(tmp_path: Path) -> None:
+    (tmp_path / "idx.json").write_text("[]")
+    body = MINIMAL + "tools:\n  search:\n    type: vector\n    index_path: idx.json\n"
+    with pytest.raises(ConfigError, match="not supported"):
         Harness.from_config(_write(tmp_path, body))
 
 
