@@ -20,31 +20,23 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from reigner.tools.base import ToolSpec
+from reigner.tools.registry import ToolRegistry
+from reigner.types import Profile
+
 TurnRole = Literal["user", "assistant", "tool"]
 SteeringMode = Literal["interrupt", "queue"]
 
 
 # ---------------------------------------------------------------------------
-# Forward-dependency Protocol stubs.
+# Forward-dependency Protocol stub.
 #
-# T-04 (`harness/adapters/`) provides concrete ModelAdapter implementations and
-# T-07 (`tools/base.py`) provides the real ToolSpec. We declare minimal shapes
-# here so state.py is self-contained and testable without those modules.
+# `harness.adapters.base` provides the concrete ModelAdapter; we declare a
+# minimal Protocol here so state.py stays self-contained and testable.
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class ToolSpec(Protocol):
-    """Minimum surface state needs from a tool. T-07 will own the full type."""
-
-    name: str
-    description: str
-    readonly: bool
-
-    def json_schema(self) -> dict[str, Any]: ...
-
-
-# ModelAdapter is owned by `harness.adapters.base` (T-04). We declare a stub
+# ModelAdapter is owned by `harness.adapters.base`. We declare a stub
 # here for typing — the concrete Protocol cannot be imported at module load
 # because `adapters.base` imports `Prompt`/`ToolSpec` from this module. Users
 # should import `ModelAdapter` from `reigner.harness.adapters` for runtime
@@ -157,7 +149,14 @@ class AgentState:
     role: str
     """Composed REIGNER.md text + active skill blocks. T-30/T-31 produce it."""
 
-    tools: list[ToolSpec] = field(default_factory=list)
+    registry: ToolRegistry = field(default_factory=ToolRegistry)
+    """Owning registry. Loop calls `registry.for_profile(profile)` per turn to
+    derive the visible tool surface; `_stable_text` iterates the same view so
+    the prompt's tool block matches what the model is told it can call."""
+
+    profile: Profile = "full"
+    """Filter applied to `registry` for this session's lifetime."""
+
     adapter: ModelAdapter | None = None
     oracle_adapter: ModelAdapter | None = None
 
@@ -304,7 +303,11 @@ class AgentState:
         )
 
     def _stable_text(self) -> str:
-        """Role + serialized tool schemas. Stable across iterations."""
+        """Role + serialized tool schemas. Stable across iterations.
+
+        Pulls the filtered tool surface from the registry so the cached
+        preamble matches what the model is told it can call this session.
+        """
         tool_lines = [
             json.dumps(
                 {
@@ -316,7 +319,7 @@ class AgentState:
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            for t in self.tools
+            for t in self.registry.for_profile(self.profile)
         ]
         return self.role + "\n\n" + "\n".join(tool_lines) if tool_lines else self.role
 

@@ -25,10 +25,18 @@ from reigner.harness.cache import ToolResultCache
 
 @runtime_checkable
 class RunnableTool(Protocol):
-    """Minimum runtime surface needed to execute a tool."""
+    """Minimum runtime surface needed to execute a tool.
 
-    name: str
-    readonly: bool
+    Declared with ``@property`` so adapters whose attributes are read-only
+    descriptors (e.g. ``RunnableToolAdapter``) structurally satisfy the
+    Protocol under mypy.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def readonly(self) -> bool: ...
 
     async def run(self, args: dict[str, Any]) -> Any: ...
 
