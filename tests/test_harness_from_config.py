@@ -52,11 +52,33 @@ def test_from_config_oracle_adapter(tmp_path: Path) -> None:
     assert h.oracle_adapter.model == "claude-opus-4-7"
 
 
-def test_from_config_artifacts_raises_with_helpful_message(tmp_path: Path) -> None:
+def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
+    (tmp_path / "schema.yaml").write_text(
+        "entity_path: '{entity_id}/{version}'\n"
+        "sections:\n  - document_summary\n  - sections/*\n"
+        "json_artifacts:\n  - metadata.json\n"
+    )
     body = (
         MINIMAL + "tools:\n  artifacts:\n    root: library/artifacts\n    schema: ./schema.yaml\n"
     )
-    with pytest.raises(ConfigError, match="T-09"):
+    h = Harness.from_config(_write(tmp_path, body))
+    names = {t.name for t in h.tools}
+    assert names == {
+        "read_artifact_file",
+        "grep_artifact",
+        "get_json_field",
+        "list_documents",
+        "list_versions",
+        "get_section",
+    }
+    assert all(t.readonly for t in h.tools)
+
+
+def test_from_config_artifacts_missing_schema_raises_config_error(tmp_path: Path) -> None:
+    body = (
+        MINIMAL + "tools:\n  artifacts:\n    root: library/artifacts\n    schema: ./schema.yaml\n"
+    )
+    with pytest.raises(ConfigError, match="cannot load schema"):
         Harness.from_config(_write(tmp_path, body))
 
 

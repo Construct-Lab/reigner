@@ -54,20 +54,22 @@ class Harness:
     ) -> Harness:
         """Build a :class:`Harness` from a ``reigner.yaml`` file.
 
-        Partial wiring in T-17:
+        Partial wiring in T-17 (post-T-09):
 
         - Model and oracle adapters are resolved via a lazy provider switch.
         - ``role.file`` is read from disk if present (resolved relative to the
           config file). Skill composition belongs to T-30 and is deferred.
         - ``tools.custom`` dotted paths are imported.
-        - ``tools.artifacts`` and ``tools.search`` raise :class:`ConfigError`
-          with a "requires T-09 / T-10" message — the underlying tool
-          builders don't exist yet.
+        - ``tools.artifacts`` is wired to a real :class:`ArtifactStore` (T-09);
+          the six SPEC §6.4 read tools are appended to ``wired_tools``.
+        - ``tools.search`` still raises :class:`ConfigError` (T-10).
         - Plugins (``cfg.plugins``) parse but are not yet wired (T-26).
         - Sessions / eval sections parse but the runtime that consumes them
           isn't on Harness yet (T-24, T-28).
 
-        Additional ``tools`` passed in are appended after ``cfg.tools.custom``.
+        Tool wiring order: ``[artifact tools, custom tools, *(tools or [])]``.
+        Names must be unique across sources — collisions raise
+        :class:`ConfigError`.
         """
         cfg = ReignerConfig.load(path)
 
@@ -80,11 +82,9 @@ class Harness:
 
         role_text = _load_role(cfg)
 
+        artifact_tools: list[RunnableTool] = []
         if cfg.tools.artifacts is not None:
-            raise ConfigError(
-                "tools.artifacts requires the ArtifactStore builders (T-09); "
-                "remove the section or wait for T-09 to land."
-            )
+            artifact_tools = _build_artifact_tools(cfg)
         if cfg.tools.search is not None:
             raise ConfigError(
                 "tools.search requires the search-index builders (T-10); "
@@ -96,7 +96,8 @@ class Harness:
             obj = import_dotted(dotted)
             custom_tools.append(obj)  # trusts the user's @tool-decorated callable
 
-        wired_tools: list[RunnableTool] = [*custom_tools, *(tools or [])]
+        wired_tools: list[RunnableTool] = [*artifact_tools, *custom_tools, *(tools or [])]
+        _check_tool_name_collisions(wired_tools)
 
         return cls(
             adapter=adapter,
@@ -293,6 +294,35 @@ def _build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
         ) from e
 
     raise ConfigError(f"unknown model provider: {provider!r}")
+
+
+def _build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
+    """Resolve ``tools.artifacts`` to a fully built ArtifactStore tool list."""
+    from reigner.artifacts import ArtifactSchema
+    from reigner.tools.artifacts import ArtifactStore
+
+    assert cfg.tools.artifacts is not None
+    root = cfg.resolve(cfg.tools.artifacts.root)
+    schema_path = cfg.resolve(cfg.tools.artifacts.schema_path)
+    try:
+        schema = ArtifactSchema.from_yaml(schema_path)
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"tools.artifacts: cannot load schema {schema_path}: {exc}") from exc
+    store = ArtifactStore(root, schema)
+    # `_ArtifactTool` satisfies `RunnableTool` structurally (Protocol).
+    return list(store.tools())  # type: ignore[arg-type]
+
+
+def _check_tool_name_collisions(tools: list[RunnableTool]) -> None:
+    seen: dict[str, int] = {}
+    for t in tools:
+        name = getattr(t, "name", None)
+        if not isinstance(name, str):
+            continue
+        seen[name] = seen.get(name, 0) + 1
+    dupes = sorted(n for n, c in seen.items() if c > 1)
+    if dupes:
+        raise ConfigError(f"duplicate tool name(s) across artifacts/custom/extra: {dupes}")
 
 
 def _load_role(cfg: ReignerConfig) -> str:
