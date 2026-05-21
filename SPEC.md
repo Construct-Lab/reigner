@@ -516,6 +516,19 @@ async def list_versions(entity_id: str) -> list[str]: ...
 - `fs_read`, `fs_grep`, `fs_glob`, `fs_ls`, optionally `fs_write`.
 - All bounded by config (max bytes, max lines, max matches), but explicit warning in docs that bounded ≠ self-describing the way artifact tools are.
 
+Use cases devs reach for `FsTools` for:
+
+- **Code navigator / repo Q&A** — agent answers "where is X defined", "what calls Y" over a live repo. The canonical case; `code_navigator` recipe.
+- **Log / config investigator** — point at a log or config tree; agent triages incidents or explains drift. No compile step makes sense; contents change constantly.
+- **Migration / refactor assistant** — `write_enabled=True`, scoped to a feature branch. Agent renames symbols, updates imports, rewrites configs.
+- **Doc-site author** — agent reads markdown sources, writes new pages. Whole-file writes match the workflow.
+- **Scratch / sandbox agents** — quick prototypes where building an artifact schema is overkill. Point at a `notes/` directory and ship.
+- **Ingestion debugging** — run an agent over the raw, pre-ingestion corpus to figure out what the schema should be, then graduate to `ArtifactStore`.
+- **Hybrid recipes with hard separation** — `ArtifactStore` for the grounded answer surface plus `FsTools` scoped to a read-only side directory (e.g. `examples/`) the agent can cite from without polluting the main corpus.
+- **MCP export** — every `@tool` is MCP-clean, so `FsTools` becomes a sandboxed filesystem MCP server for external clients with no extra code.
+
+`FsTools` and `ArtifactStore` are alternatives, not complements: a recipe picks one as the primary surface. Registering both in the same agent is supported but loses the grounding `ArtifactStore` exists to enforce — the model will reach for `fs_read` and bypass the schema. The "hybrid" case above works only because the two surfaces cover disjoint paths.
+
 ---
 
 ## 7. The Artifact System
