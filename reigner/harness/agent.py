@@ -24,7 +24,7 @@ from reigner.harness.adapters.base import ModelAdapter
 from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
-from reigner.harness.state import AgentState, Note, SteeringMode, Turn
+from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
 from reigner.tools.registry import ToolRegistry
 from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
@@ -219,6 +219,9 @@ class Session:
 
     def notes(self) -> list[Note]:
         return list(self._state.notes)
+
+    def citations(self) -> list[Citation]:
+        return list(self._state.citations)
 
     def events(self) -> list[Event]:
         return list(self._events)
