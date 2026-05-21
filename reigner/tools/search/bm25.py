@@ -22,8 +22,7 @@ import re
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from reigner.tools.base import tool
-from reigner.tools.search.base import ToolCallable
+from reigner.tools.base import RunnableToolAdapter, to_runnable, tool
 from reigner.tools.search.filters import matches, parse_filters
 
 _K1 = 1.5
@@ -292,7 +291,7 @@ class Bm25Index:
             "truncated": False,
         }
 
-    def tools(self) -> list[ToolCallable]:
+    def tools(self) -> list[RunnableToolAdapter]:
         index = self
 
         @tool(readonly=True, cache=True)
@@ -340,7 +339,7 @@ class Bm25Index:
                 raise ValueError("query must be non-empty")
             return index._search_section(query, section_name, _clamp_top_k(top_k))
 
-        return [bm25_search, filtered_search, section_search]
+        return [to_runnable(bm25_search), to_runnable(filtered_search), to_runnable(section_search)]
 
 
 __all__ = ["Bm25Index"]

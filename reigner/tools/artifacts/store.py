@@ -14,12 +14,10 @@ See SPEC §6.4 (built-in artifact tools) and §7 (artifact system).
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
 
 from reigner.artifacts.schema import ArtifactSchema
-from reigner.tools.base import ToolSpec
+from reigner.tools.base import RunnableToolAdapter, to_runnable
 
 
 class ArtifactStore:
@@ -67,7 +65,7 @@ class ArtifactStore:
 
     # ---- Tool assembly -----------------------------------------------------
 
-    def tools(self) -> list[_ArtifactTool]:
+    def tools(self) -> list[RunnableToolAdapter]:
         """Build the six SPEC §6.4 artifact tools as RunnableTool wrappers."""
         from reigner.tools.artifacts.grep import build_grep_artifact
         from reigner.tools.artifacts.json_field import build_get_json_field
@@ -86,55 +84,7 @@ class ArtifactStore:
             build_list_versions(self),
             build_get_section(self),
         ]
-        return [_ArtifactTool(f) for f in funcs]
-
-
-class _ArtifactTool:
-    """Adapter that lifts a ``@tool``-decorated function into the loop's RunnableTool.
-
-    The decorator attaches ``__reigner_spec__`` but returns the bare function;
-    the loop expects ``name``, ``description``, ``readonly``, ``json_schema()``
-    and ``run(args)``. This wrapper supplies the latter without re-decorating.
-    """
-
-    def __init__(self, func: Callable[..., Awaitable[Any]]) -> None:
-        spec = getattr(func, "__reigner_spec__", None)
-        if not isinstance(spec, ToolSpec):
-            raise TypeError(
-                f"{getattr(func, '__name__', func)!r} is not a @tool-decorated callable"
-            )
-        self._func = func
-        self._spec = spec
-
-    @property
-    def name(self) -> str:
-        return self._spec.name
-
-    @property
-    def description(self) -> str:
-        return self._spec.description
-
-    @property
-    def readonly(self) -> bool:
-        return self._spec.readonly
-
-    @property
-    def pseudo(self) -> bool:
-        return self._spec.pseudo
-
-    @property
-    def cache(self) -> bool:
-        return self._spec.cache
-
-    @property
-    def truncate_chars(self) -> int | None:
-        return self._spec.truncate_chars
-
-    def json_schema(self) -> dict[str, Any]:
-        return self._spec.json_schema()
-
-    async def run(self, args: dict[str, Any]) -> Any:
-        return await self._func(**args)
+        return [to_runnable(f) for f in funcs]
 
 
 __all__ = ["ArtifactStore"]
