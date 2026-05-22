@@ -62,6 +62,13 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - Depends on: #4, #5
   - _Future enhancement — surfaced during T-19 review; SPEC §5.6 / §22 Week 7 scope_
 
+- [ ] **[T-64 #64](https://github.com/Construct-Lab/reigner/issues/64)** `fix: auto-register pseudo + provenance tools in Harness` `S`
+  - `Harness.from_config` currently only registers artifact/search/custom tools; pseudo (`save_note`, `request_clarification`, `escalate_to_oracle`, `stop`) and `register_citation` never reach the registry, so the model can't see them
+  - SPEC §6.4 mandates "always available unless explicitly disabled"; registry profile filtering on `s.pseudo` (registry.py:98,103) is dead code until this lands
+  - Open: config knob for disabling; gate `escalate_to_oracle` on `cfg.oracle is not None`
+  - Depends on: #5, #7, #8, #12
+  - _Surfaced while reading T-12; blocks any end-to-end use of citations or scratchpad_
+
 ---
 
 ### Track B — Tool System
