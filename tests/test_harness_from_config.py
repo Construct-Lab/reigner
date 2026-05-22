@@ -29,7 +29,9 @@ def test_from_config_builds_harness(tmp_path: Path) -> None:
     assert h.adapter.model == "gpt-4o"
     assert h.settings.max_iterations == 25
     assert h.role == ""
-    assert len(h.registry) == 0
+    # Four SPEC §6.4 builtins are auto-registered on every harness:
+    # save_note, request_clarification, stop, register_citation.
+    assert len(h.registry) == 4
 
 
 def test_from_config_loads_role_file(tmp_path: Path) -> None:
@@ -63,7 +65,7 @@ def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
     )
     h = Harness.from_config(_write(tmp_path, body))
     names = {t.name for t in h.registry}
-    assert names == {
+    artifact_names = {
         "read_artifact_file",
         "grep_artifact",
         "get_json_field",
@@ -71,7 +73,8 @@ def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
         "list_versions",
         "get_section",
     }
-    assert all(t.readonly for t in h.registry)
+    assert artifact_names <= names
+    assert all(t.readonly for t in h.registry if t.name in artifact_names)
 
 
 def test_from_config_artifacts_missing_schema_raises_config_error(tmp_path: Path) -> None:
