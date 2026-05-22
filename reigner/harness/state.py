@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from reigner.tools.base import ToolSpec
+from reigner.tools.provenance.citations import citation_id
+from reigner.tools.provenance.lineage import Citation
 from reigner.tools.registry import ToolRegistry
 from reigner.types import Profile
 
@@ -175,6 +177,7 @@ class AgentState:
     # --- mutable per-iteration ------------------------------------------
     history: list[Turn] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    citations: list[Citation] = field(default_factory=list)
     pending_steering: list[tuple[str, SteeringMode]] = field(default_factory=list)
     iterations: int = 0
     done: bool = False
@@ -208,6 +211,23 @@ class AgentState:
         if len(self.notes) > self.max_session_notes:
             self.notes = self.notes[-self.max_session_notes :]
         return note
+
+    def add_citation(self, citation: Citation) -> Citation:
+        """Append a citation, idempotent on ``citation_id(source, locator)``.
+
+        Citations are uncapped: a multi-fact answer may need many, and silent
+        FIFO eviction would let early citations vanish — the faithfulness
+        check (T-29) would then flag those claims as hallucinations. Dedup is
+        cheap and the right behavior when the model re-registers the same
+        fact across turns. Returns the existing citation on re-registration
+        so callers see what's actually stored.
+        """
+        key = citation_id(citation.source, citation.locator)
+        for existing in self.citations:
+            if citation_id(existing.source, existing.locator) == key:
+                return existing
+        self.citations.append(citation)
+        return citation
 
     # ------------------------------------------------------------------
     # Steering (§5.6)
@@ -326,6 +346,7 @@ class AgentState:
 
 __all__ = [
     "AgentState",
+    "Citation",
     "ModelAdapter",
     "Note",
     "Prompt",

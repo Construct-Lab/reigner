@@ -51,6 +51,7 @@ from reigner.harness.adapters.base import (
 from reigner.harness.cache import ToolResultCache
 from reigner.harness.compaction import progressive
 from reigner.harness.events import (
+    CitationEvent,
     ClarificationEvent,
     CompactionEvent,
     ErrorEvent,
@@ -65,9 +66,15 @@ from reigner.harness.nudges import error_nudge, iteration_nudge
 from reigner.harness.oracle import OracleNotConfigured, pick_adapter
 from reigner.harness.oracle import arm as oracle_arm
 from reigner.harness.parallel import execute_batch, should_parallelize
-from reigner.harness.state import AgentState, Turn
+from reigner.harness.state import AgentState, Citation, Turn
 from reigner.harness.truncation import resolve_limit, truncate_for_tool
+from reigner.tools.provenance import PROVENANCE_TOOL_NAMES, citation_id
 from reigner.tools.pseudo import PSEUDO_TOOL_NAMES
+
+# All tool names the loop intercepts locally — pseudo loop-management verbs
+# plus the provenance tools. Real tools (anything not in this union) go
+# through the standard execute path.
+INTERCEPTED_TOOL_NAMES: frozenset[str] = PSEUDO_TOOL_NAMES | PROVENANCE_TOOL_NAMES
 
 
 @runtime_checkable
@@ -244,7 +251,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         # Decide parallel vs serial for the *real* tool calls this turn.
         # G11: only when every real call is readonly. Pseudo-tools always run
         # serially since some terminate the loop.
-        real_calls = [tc for tc in action.tool_calls if tc.name not in PSEUDO_TOOL_NAMES]
+        real_calls = [tc for tc in action.tool_calls if tc.name not in INTERCEPTED_TOOL_NAMES]
         all_readonly = should_parallelize(real_calls, tools_by_name)
 
         # Process every call in original order. Pseudo-tools dispatch inline
@@ -254,7 +261,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         pending_real: list[ToolCall] = []
 
         for tc in action.tool_calls:
-            if tc.name in PSEUDO_TOOL_NAMES:
+            if tc.name in INTERCEPTED_TOOL_NAMES:
                 # Flush any queued real calls first so emission order is stable.
                 if pending_real:
                     async for ev in _run_real_calls(
@@ -378,6 +385,49 @@ async def _dispatch_pseudo(
         )
         return
 
+    if tc.name == "register_citation":
+        source = str(tc.args.get("source", ""))
+        raw_locator = tc.args.get("locator", {}) or {}
+        locator: dict[str, Any] = (
+            dict(raw_locator) if isinstance(raw_locator, dict) else {"_": str(raw_locator)}
+        )
+        value = tc.args.get("value")
+        citation = Citation(
+            source=source,
+            locator=locator,
+            value=value,
+            turn=state.iterations,
+            tool_call_id=tc.id,
+            tool_name=tc.name,
+        )
+        # add_citation is idempotent on citation_id(source, locator).
+        stored = state.add_citation(citation)
+        yield CitationEvent(
+            seq=next_seq(),
+            session_id=session_id,
+            turn=state.iterations,
+            source=stored.source,
+            locator=stored.locator,
+            value=stored.value,
+        )
+        cite_result: dict[str, Any] = {
+            "ok": True,
+            "citation_id": citation_id(stored.source, stored.locator),
+        }
+        state.append_turn(
+            Turn(role="tool", content=_content_for_history(cite_result), tool_call_id=tc.id)
+        )
+        yield ToolResultEvent(
+            seq=next_seq(),
+            session_id=session_id,
+            turn=state.iterations,
+            call_id=tc.id,
+            result=cite_result,
+            truncated=False,
+            cached=False,
+        )
+        return
+
     if tc.name == "request_clarification":
         yield ClarificationEvent(
             seq=next_seq(),
@@ -435,8 +485,8 @@ async def _dispatch_pseudo(
         )
         return
 
-    # Unreachable: caller filtered on PSEUDO_TOOL_NAMES.
-    raise AssertionError(f"unhandled pseudo-tool: {tc.name}")
+    # Unreachable: caller filtered on INTERCEPTED_TOOL_NAMES.
+    raise AssertionError(f"unhandled intercepted tool: {tc.name}")
 
 
 # ---------------------------------------------------------------------------
