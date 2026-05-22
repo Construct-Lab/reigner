@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-05-22
+
+### Bug Fixes
+
+- Use annotated tags in release script and restructure RELEASING.md
+- Auto-register pseudo-tools and register_citation in Harness.from_config ([#64](https://github.com/Construct-Lab/reigner/issues/64))
+
+### Features
+
+- FS tools — raw filesystem surface (FsTools)
+- Provenance and citations (T-12) ([#63](https://github.com/Construct-Lab/reigner/issues/63))
+
 ## [0.2.0] - 2026-05-21
 
 ### Documentation
@@ -38,6 +50,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Add release tooling (cliff.toml, release.sh, RELEASING.md)
+- Release v0.2.0
 
 ### Refactor
 
