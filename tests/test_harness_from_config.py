@@ -108,6 +108,26 @@ def test_from_config_settings_threaded_through(tmp_path: Path) -> None:
     assert h.settings.nudge_interval == 1
 
 
+def test_from_config_fs_wires_read_only_tools(tmp_path: Path) -> None:
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    body = MINIMAL + f"tools:\n  fs:\n    root: {sandbox.as_posix()}\n"
+    h = Harness.from_config(_write(tmp_path, body))
+    names = {t.name for t in h.registry}
+    assert {"fs_read", "fs_grep", "fs_ls", "fs_glob"} <= names
+    # write_enabled defaults to False — fs_write must stay out.
+    assert "fs_write" not in names
+
+
+def test_from_config_fs_write_enabled(tmp_path: Path) -> None:
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    body = MINIMAL + f"tools:\n  fs:\n    root: {sandbox.as_posix()}\n    write_enabled: true\n"
+    h = Harness.from_config(_write(tmp_path, body))
+    names = {t.name for t in h.registry}
+    assert "fs_write" in names
+
+
 def test_from_config_extra_tools_appended(tmp_path: Path) -> None:
     from reigner.tools.base import tool
 

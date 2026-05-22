@@ -170,6 +170,27 @@ def test_tools_custom_passthrough(tmp_path: Path) -> None:
     assert cfg.tools.custom == ["mypkg.tools:get_foo"]
 
 
+def test_tools_fs_parses(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    root: .\n    write_enabled: true\n"
+    cfg = ReignerConfig.load(_write(tmp_path, body))
+    assert cfg.tools.fs is not None
+    assert cfg.tools.fs.root == "."
+    assert cfg.tools.fs.write_enabled is True
+
+
+def test_tools_fs_defaults_to_read_only(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    root: ./sandbox\n"
+    cfg = ReignerConfig.load(_write(tmp_path, body))
+    assert cfg.tools.fs is not None
+    assert cfg.tools.fs.write_enabled is False
+
+
+def test_tools_fs_rejects_unknown_key(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    root: .\n    bogus: 1\n"
+    with pytest.raises(ConfigError, match="bogus"):
+        ReignerConfig.load(_write(tmp_path, body))
+
+
 # ---------------------------------------------------------------------------
 # File errors
 # ---------------------------------------------------------------------------
