@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Auto-register builtin tools — Implementation plan</title>
+        <style>
+            :root {
+                --bg: #f5f0e1;
+                --paper: #fbf8ec;
+                --paper-soft: #f1ead5;
+                --ink: #1a2e1f;
+                --ink-soft: #5a6b5a;
+                --accent: #b4541a;
+                --rule: #d8cfb4;
+                --dash: #b9b29a;
+                --tag-bg: #ece5d0;
+                --op-add: #2d5938;
+                --op-mod: #856104;
+                --op-del: #8a3320;
+            }
+            * { box-sizing: border-box; }
+            html, body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--ink);
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px;
+                line-height: 1.55;
+            }
+            .page { max-width: 820px; margin: 0 auto; padding: 40px 24px 96px; }
+
+            .eyebrow {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            h1 {
+                font-size: 40px; line-height: 1.15;
+                margin: 6px 0 20px; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.01em;
+            }
+            h2 { font-size: 26px; margin: 0; font-weight: 600; letter-spacing: -0.005em; }
+            h3 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+            p { margin: 8px 0; }
+            code { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.92em; }
+
+            .prompt-box {
+                background: var(--paper-soft);
+                border: 1px solid var(--rule);
+                border-radius: 10px;
+                padding: 16px 18px;
+                margin: 20px 0 36px;
+            }
+            .prompt-box .plabel {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--accent);
+                margin-bottom: 6px;
+            }
+            .prompt-box p { margin: 0; color: var(--ink); font-size: 16px; }
+
+            .bubbles {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px; margin: 24px 0 56px;
+            }
+            .bubble {
+                background: #fff;
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px;
+            }
+            .bubble .label {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 10px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            .bubble .value {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 18px; font-weight: 500;
+                margin-top: 4px; color: var(--ink);
+            }
+
+            section { margin: 56px 0; }
+            .section-head {
+                display: flex; align-items: center; gap: 12px;
+                margin-bottom: 6px;
+            }
+            .section-num {
+                font-family: ui-monospace, Menlo, monospace;
+                color: var(--ink-soft);
+                font-size: 11px; letter-spacing: 0.08em;
+                background: var(--tag-bg);
+                border-radius: 4px; padding: 2px 7px;
+            }
+            section > p:first-of-type { color: var(--ink-soft); margin: 4px 0 24px; }
+
+            .timeline { margin-top: 8px; }
+            .milestone {
+                display: grid;
+                grid-template-columns: 130px 28px 1fr;
+                gap: 14px;
+                padding-bottom: 28px;
+                position: relative;
+            }
+            .milestone .when {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; letter-spacing: 0.04em;
+                color: var(--ink-soft); padding-top: 4px;
+                text-align: right;
+            }
+            .milestone .rail { position: relative; display: flex; justify-content: center; }
+            .milestone .rail::before {
+                content: ""; position: absolute;
+                top: 0; bottom: -28px; left: 50%;
+                width: 1px; background: var(--rule);
+                transform: translateX(-0.5px);
+            }
+            .milestone:last-child .rail::before { bottom: 0; }
+            .milestone .dot {
+                position: relative; z-index: 1;
+                width: 11px; height: 11px; border-radius: 50%;
+                margin-top: 8px;
+                background: var(--op-add);
+                border: 2px solid var(--op-add);
+            }
+            .milestone.upcoming .dot {
+                background: var(--bg);
+                border: 2px solid var(--accent);
+            }
+            .milestone .body { padding-top: 2px; }
+            .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+            .tag {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px;
+                background: var(--tag-bg);
+                border: 1px solid var(--rule);
+                padding: 2px 8px; border-radius: 4px;
+            }
+
+            .flow {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 22px;
+                overflow-x: auto;
+            }
+            .flow svg { width: 100%; height: auto; display: block; }
+            .legend {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin-top: 12px;
+            }
+
+            .mock {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 20px; margin: 16px 0;
+            }
+            .mock h3 { margin-bottom: 12px; }
+
+            .files { display: grid; grid-template-columns: 1fr; gap: 0; }
+            .file-row {
+                display: grid;
+                grid-template-columns: 80px 1fr;
+                gap: 12px; align-items: baseline;
+                border-bottom: 1px dashed var(--dash);
+                padding: 10px 0;
+            }
+            .file-op {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .op-add { color: var(--op-add); }
+            .op-mod { color: var(--op-mod); }
+            .op-del { color: var(--op-del); }
+            .file-path {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 14px; color: var(--ink);
+            }
+            .file-note {
+                color: var(--ink-soft);
+                font-size: 14px; margin-top: 3px; display: block;
+            }
+
+            pre.code {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px; overflow-x: auto;
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 13px; line-height: 1.55;
+                color: var(--ink);
+            }
+            .code-caption {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin: 18px 0 6px;
+            }
+            .kw { color: var(--accent); }
+
+            .future-item { border-top: 1px solid var(--rule); padding: 16px 0; }
+            .future-item:last-child { border-bottom: 1px solid var(--rule); }
+            .future-item .meta {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.04em;
+                color: var(--ink-soft); margin-top: 6px;
+            }
+
+            .node { fill: var(--paper); stroke: var(--ink); stroke-width: 2.5; }
+            .node-new { fill: var(--paper); stroke: var(--accent); stroke-width: 2.5; }
+            .node-label { font-family: ui-monospace, Menlo, monospace; font-size: 12px; fill: var(--ink); }
+            .node-sub { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+            .stroke-solid { stroke: var(--ink); stroke-width: 2; fill: none; }
+            .stroke-dash { stroke: var(--ink); stroke-width: 2; fill: none; stroke-dasharray: 6 5; }
+            .edge-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+
+            @media (max-width: 640px) {
+                .milestone { grid-template-columns: 90px 22px 1fr; gap: 10px; }
+                h1 { font-size: 32px; }
+                h2 { font-size: 22px; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <div class="eyebrow">Implementation plan · Reigner</div>
+            <h1>Auto-register pseudo-tools and <code>register_citation</code></h1>
+
+            <div class="prompt-box">
+                <div class="plabel">Prompt</div>
+                <p>Issue #64 — the four pseudo-tools (<code>save_note</code>, <code>request_clarification</code>, <code>escalate_to_oracle</code>, <code>stop</code>) and <code>register_citation</code> are intercepted by the loop but never registered. The model can't see them in its tool schema list, so SPEC §6.4 "always available" and SPEC §1 principle 4 (citations first-class) are silently broken. Wire them into <code>Harness.from_config</code> so the registry exposes them by default.</p>
+            </div>
+
+            <div class="bubbles">
+                <div class="bubble">
+                    <div class="label">Effort</div>
+                    <div class="value">~half day</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files added</div>
+                    <div class="value">1</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files updated</div>
+                    <div class="value">1</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files removed</div>
+                    <div class="value">0</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Packages touched</div>
+                    <div class="value">harness</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Config knob</div>
+                    <div class="value">none (deferred)</div>
+                </div>
+            </div>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">01</span>
+                    <h2>Milestones</h2>
+                </div>
+                <p>One slice. Single-file behavior fix plus tests — small enough to land in one PR.</p>
+
+                <div class="timeline">
+                    <div class="milestone">
+                        <div class="when">Slice 1</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Wire builtins into <code>Harness.from_config</code></h3>
+                            <p>Prepend the four pseudo-tools + <code>register_citation</code> to the registration tuple. Gate <code>escalate_to_oracle</code> on oracle adapter presence. Update the docstring. Add a focused test file covering default registration, oracle gating, profile filtering, and name-collision behavior.</p>
+                            <div class="tags">
+                                <span class="tag">reigner/harness/agent.py</span>
+                                <span class="tag">tests/harness/</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">02</span>
+                    <h2>Data flow</h2>
+                </div>
+                <p>How the five builtin tools enter the registry at <code>Harness.from_config</code> time. <code>escalate_to_oracle</code> is dashed because it only flows in when an oracle adapter is configured.</p>
+
+                <div class="flow">
+                    <svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg" aria-label="Builtin tool registration flow">
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,0 L10,5 L0,10 z" fill="#1a2e1f" />
+                            </marker>
+                        </defs>
+
+                        <!-- Source modules (existing) -->
+                        <rect class="node" x="20" y="20" width="200" height="50" />
+                        <text class="node-label" x="120" y="42" text-anchor="middle">tools.pseudo</text>
+                        <text class="node-sub" x="120" y="58" text-anchor="middle">save_note · clarification · stop</text>
+
+                        <rect class="node" x="20" y="90" width="200" height="50" />
+                        <text class="node-label" x="120" y="112" text-anchor="middle">tools.pseudo.escalate</text>
+                        <text class="node-sub" x="120" y="128" text-anchor="middle">escalate_to_oracle</text>
+
+                        <rect class="node" x="20" y="160" width="200" height="50" />
+                        <text class="node-label" x="120" y="182" text-anchor="middle">tools.provenance</text>
+                        <text class="node-sub" x="120" y="198" text-anchor="middle">register_citation</text>
+
+                        <rect class="node" x="20" y="240" width="200" height="50" />
+                        <text class="node-label" x="120" y="262" text-anchor="middle">tools.artifacts / search</text>
+                        <text class="node-sub" x="120" y="278" text-anchor="middle">existing wired tools</text>
+
+                        <rect class="node" x="20" y="310" width="200" height="50" />
+                        <text class="node-label" x="120" y="332" text-anchor="middle">tools.custom</text>
+                        <text class="node-sub" x="120" y="348" text-anchor="middle">user dotted-path tools</text>
+
+                        <!-- Aggregator (new behavior) -->
+                        <rect class="node-new" x="300" y="140" width="180" height="80" />
+                        <text class="node-label" x="390" y="170" text-anchor="middle">Harness.from_config</text>
+                        <text class="node-sub" x="390" y="188" text-anchor="middle">builtins prepended</text>
+                        <text class="node-sub" x="390" y="204" text-anchor="middle">harness/agent.py</text>
+
+                        <!-- Registry -->
+                        <rect class="node" x="560" y="140" width="180" height="80" />
+                        <text class="node-label" x="650" y="170" text-anchor="middle">ToolRegistry</text>
+                        <text class="node-sub" x="650" y="188" text-anchor="middle">schemas() ·</text>
+                        <text class="node-sub" x="650" y="204" text-anchor="middle">for_profile()</text>
+
+                        <!-- edges from sources to aggregator -->
+                        <path class="stroke-solid" d="M220 45 L260 45 L260 160 L300 160" marker-end="url(#arrow)" />
+                        <path class="stroke-dash"  d="M220 115 L270 115 L270 170 L300 170" marker-end="url(#arrow)" />
+                        <path class="stroke-solid" d="M220 185 L300 185" marker-end="url(#arrow)" />
+                        <path class="stroke-solid" d="M220 265 L260 265 L260 200 L300 200" marker-end="url(#arrow)" />
+                        <path class="stroke-solid" d="M220 335 L270 335 L270 210 L300 210" marker-end="url(#arrow)" />
+
+                        <text class="edge-label" x="260" y="35" text-anchor="end">always</text>
+                        <text class="edge-label" x="270" y="105" text-anchor="end">if cfg.oracle</text>
+                        <text class="edge-label" x="260" y="178" text-anchor="end">always</text>
+
+                        <!-- registry -->
+                        <path class="stroke-solid" d="M480 180 L560 180" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="520" y="172" text-anchor="middle">register(t)</text>
+
+                        <!-- loop reads schemas -->
+                        <rect class="node" x="560" y="310" width="180" height="50" />
+                        <text class="node-label" x="650" y="332" text-anchor="middle">model adapter</text>
+                        <text class="node-sub" x="650" y="348" text-anchor="middle">sees tool schema list</text>
+
+                        <path class="stroke-solid" d="M650 220 L650 310" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="660" y="270" text-anchor="start">schemas()</text>
+                    </svg>
+                </div>
+                <div class="legend">
+                    Solid = always registered. Dashed = registered only when <code>cfg.oracle is not None</code>. Terracotta border = the call site being changed.
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">03</span>
+                    <h2>Mockups</h2>
+                </div>
+                <p>No UI surface — backend-only change. Below is what the change is observable through: the names the model now sees in its tool list.</p>
+
+                <div class="mock">
+                    <h3>A · <code>registry.schemas()</code> on a default config</h3>
+                    <pre class="code">[
+  {"name": "save_note",            ...},   <span class="kw">// new — always</span>
+  {"name": "request_clarification",...},   <span class="kw">// new — always</span>
+  {"name": "stop",                 ...},   <span class="kw">// new — always</span>
+  {"name": "register_citation",    ...},   <span class="kw">// new — always</span>
+  {"name": "escalate_to_oracle",   ...},   <span class="kw">// new — only if cfg.oracle</span>
+  {"name": "artifact.read",        ...},   <span class="kw">// existing</span>
+  {"name": "search",               ...},   <span class="kw">// existing</span>
+  ...
+]</pre>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">04</span>
+                    <h2>Files</h2>
+                </div>
+                <p>One source file changed, one test file added.</p>
+
+                <div class="files">
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/harness/agent.py</span>
+                            <span class="file-note">Import the five builtin tools. Build <code>builtin_tools</code> with <code>escalate_to_oracle</code> conditionally appended when <code>oracle_adapter is not None</code>. Prepend to the registration tuple. Update <code>from_config</code> docstring to reflect the new wiring order and the oracle gate.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/harness/test_agent_builtin_tools.py</span>
+                            <span class="file-note">Covers: default config registers the four always-on builtins; <code>escalate_to_oracle</code> appears only with <code>oracle:</code> configured; <code>for_profile("eval")</code> excludes <code>escalate_to_oracle</code> and <code>request_clarification</code>; <code>for_profile("read_only")</code> includes all pseudo + provenance tools; a user <code>tools.custom</code> entry named <code>save_note</code> raises <code>ToolRegistrationError</code>.</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">05</span>
+                    <h2>Key code</h2>
+                </div>
+                <p>The whole change is a few lines in one function. The thing easiest to get wrong is the oracle gate and the registration order — builtins must come <em>first</em> so user-tool collisions raise loudly instead of silently shadowing SPEC §6.4 verbs.</p>
+
+                <div class="code-caption">reigner/harness/agent.py — Harness.from_config</div>
+                <pre class="code"><span class="kw">from</span> reigner.tools.provenance <span class="kw">import</span> register_citation
+<span class="kw">from</span> reigner.tools.pseudo <span class="kw">import</span> (
+    escalate_to_oracle,
+    request_clarification,
+    save_note,
+    stop,
+)
+
+<span class="kw">...</span>
+
+builtin_tools: list[RunnableTool] = [
+    save_note,
+    request_clarification,
+    stop,
+    register_citation,
+]
+<span class="kw">if</span> oracle_adapter <span class="kw">is not</span> <span class="kw">None</span>:
+    builtin_tools.append(escalate_to_oracle)
+
+registry = ToolRegistry()
+<span class="kw">for</span> t <span class="kw">in</span> (*builtin_tools, *artifact_tools, *search_tools,
+              *custom_tools, *(tools <span class="kw">or</span> [])):
+    registry.register(t)  <span class="kw"># type: ignore[arg-type]</span></pre>
+
+                <div class="code-caption">tests/harness/test_agent_builtin_tools.py — collision case</div>
+                <pre class="code"><span class="kw">def</span> test_user_tool_colliding_with_builtin_raises(tmp_path):
+    <span class="kw"># Builtins register first; a user-supplied save_note must error.</span>
+    cfg = _write_config(tmp_path, custom=[<span class="kw">"tests.fixtures.fake_save_note"</span>])
+    <span class="kw">with</span> pytest.raises(ToolRegistrationError):
+        Harness.from_config(cfg)</pre>
+            </section>
+
+            <section>
+                <div class="section-head">
+                    <span class="section-num">06</span>
+                    <h2>Future scope</h2>
+                </div>
+                <p>What this PR deliberately does not touch.</p>
+
+                <div class="future-item">
+                    <h3>Per-name disable knob (SPEC §6.4 "unless explicitly disabled")</h3>
+                    <p>SPEC permits opting builtins out by name. No current consumer needs this — adding a <code>tools.builtins_disabled: list[str]</code> field now would mean config surface, validation, and a deprecation path with no driver. Defer until a real use case lands; until then, the literal SPEC wording is honored by the fact that <em>nothing</em> is disabled.</p>
+                    <div class="meta">Decide with · @ananthanandanan · when a consumer asks</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>User overrides for builtin tool names</h3>
+                    <p>This plan picks "builtins win, user collisions raise loudly." The alternative — letting users redefine <code>save_note</code> — requires loosening <code>ToolRegistry</code>'s duplicate-name guard and is a bigger change. Not in scope for the bug fix.</p>
+                    <div class="meta">Decide with · @ananthanandanan · later</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Assumed test-file location</h3>
+                    <p>New tests land at <code>tests/harness/test_agent_builtin_tools.py</code> alongside <code>test_agent_search_wiring.py</code>. If the project prefers folding these into an existing file, the test list is small enough to move trivially.</p>
+                    <div class="meta">Decide with · reviewer · at PR time</div>
+                </div>
+            </section>
+        </div>
+    </body>
+</html>

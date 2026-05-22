@@ -25,6 +25,13 @@ from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
+from reigner.tools.provenance import register_citation
+from reigner.tools.pseudo import (
+    escalate_to_oracle,
+    request_clarification,
+    save_note,
+    stop,
+)
 from reigner.tools.registry import ToolRegistry
 from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
@@ -69,7 +76,13 @@ class Harness:
         - Sessions / eval sections parse but the runtime that consumes them
           isn't on Harness yet.
 
-        Tool wiring order: ``[artifact tools, search tools, custom tools, *(tools or [])]``.
+        Tool wiring order: ``[builtin tools, artifact tools, search tools,
+        custom tools, *(tools or [])]``. Builtins (SPEC §6.4 pseudo-tools +
+        :func:`register_citation` from SPEC §1 principle 4) are auto-registered
+        first so any user tool that collides on name raises loudly rather than
+        silently shadowing a control verb. ``escalate_to_oracle`` is only
+        registered when ``cfg.oracle`` is set — registering it without an oracle
+        adapter would let the model invoke a verb that faults at dispatch time.
         Names must be unique across sources — collisions raise
         :class:`ToolRegistrationError` from the registry.
         """
@@ -97,8 +110,20 @@ class Harness:
             obj = import_dotted(dotted)
             custom_tools.append(obj)  # trusts the user's @tool-decorated callable
 
+        # The @tool decorator returns the original callable unchanged (with a
+        # `__reigner_spec__` attached), so mypy sees plain async callables here;
+        # the registry accepts them structurally. Cast at the boundary.
+        builtin_tools: list[RunnableTool] = [
+            save_note,  # type: ignore[list-item]
+            request_clarification,  # type: ignore[list-item]
+            stop,  # type: ignore[list-item]
+            register_citation,  # type: ignore[list-item]
+        ]
+        if oracle_adapter is not None:
+            builtin_tools.append(escalate_to_oracle)  # type: ignore[arg-type]
+
         registry = ToolRegistry()
-        for t in (*artifact_tools, *search_tools, *custom_tools, *(tools or [])):
+        for t in (*builtin_tools, *artifact_tools, *search_tools, *custom_tools, *(tools or [])):
             # `RunnableTool` is structurally a `@tool`-decorated callable or a
             # `RunnableToolAdapter`; both are accepted by `register()`. Cast
             # at the boundary so mypy sees the union the registry expects.

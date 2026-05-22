@@ -46,15 +46,19 @@ async def custom_write(text: str) -> dict[str, str]:
 
 
 def _build_harness(tmp_path: Path) -> Harness:
-    """A harness with one readonly custom, one write custom, and the four pseudo-tools."""
+    """A harness with one readonly custom, one write custom, plus escalate_to_oracle.
+
+    save_note, stop, request_clarification, and register_citation are now auto-
+    registered by Harness.from_config; passing them explicitly would collide.
+    escalate_to_oracle is gated on oracle-adapter presence, so it is still
+    passed in here so the profile-filter assertions can exercise it.
+    """
+    _ = (save_note, stop, request_clarification)  # imports retained for readers
     h = Harness.from_config(
         _write(tmp_path, MINIMAL),
         tools=[
             custom_read,
             custom_write,
-            save_note,
-            stop,
-            request_clarification,
             escalate_to_oracle,
         ],
     )
@@ -71,6 +75,7 @@ def test_full_profile_exposes_every_tool(tmp_path: Path) -> None:
         "stop",
         "request_clarification",
         "escalate_to_oracle",
+        "register_citation",
     }
 
 
