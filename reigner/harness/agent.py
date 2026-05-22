@@ -72,12 +72,15 @@ class Harness:
           the six SPEC §6.4 read tools are appended to ``wired_tools``.
         - ``tools.search`` is wired to the configured :class:`SearchIndex`
           backend (``type: "bm25"`` is the only one known today).
+        - ``tools.fs`` is wired to :class:`reigner.tools.fs.FsTools` — the
+          raw filesystem surface (SPEC §6.4 FS tools). Off by default; only
+          registered when ``tools.fs`` is present in the config.
         - Plugins (``cfg.plugins``) parse but are not yet wired.
         - Sessions / eval sections parse but the runtime that consumes them
           isn't on Harness yet.
 
         Tool wiring order: ``[builtin tools, artifact tools, search tools,
-        custom tools, *(tools or [])]``. Builtins (SPEC §6.4 pseudo-tools +
+        fs tools, custom tools, *(tools or [])]``. Builtins (SPEC §6.4 pseudo-tools +
         :func:`register_citation` from SPEC §1 principle 4) are auto-registered
         first so any user tool that collides on name raises loudly rather than
         silently shadowing a control verb. ``escalate_to_oracle`` is only
@@ -99,11 +102,15 @@ class Harness:
 
         artifact_tools: list[RunnableTool] = []
         if cfg.tools.artifacts is not None:
-            artifact_tools = _build_artifact_tools(cfg)
+            artifact_tools = build_artifact_tools(cfg)
 
         search_tools: list[RunnableTool] = []
         if cfg.tools.search is not None:
-            search_tools = _build_search_tools(cfg)
+            search_tools = build_search_tools(cfg)
+
+        fs_tools: list[RunnableTool] = []
+        if cfg.tools.fs is not None:
+            fs_tools = build_fs_tools(cfg)
 
         custom_tools: list[RunnableTool] = []
         for dotted in cfg.tools.custom:
@@ -123,7 +130,14 @@ class Harness:
             builtin_tools.append(escalate_to_oracle)  # type: ignore[arg-type]
 
         registry = ToolRegistry()
-        for t in (*builtin_tools, *artifact_tools, *search_tools, *custom_tools, *(tools or [])):
+        for t in (
+            *builtin_tools,
+            *artifact_tools,
+            *search_tools,
+            *fs_tools,
+            *custom_tools,
+            *(tools or []),
+        ):
             # `RunnableTool` is structurally a `@tool`-decorated callable or a
             # `RunnableToolAdapter`; both are accepted by `register()`. Cast
             # at the boundary so mypy sees the union the registry expects.
@@ -328,7 +342,7 @@ def _build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
     raise ConfigError(f"unknown model provider: {provider!r}")
 
 
-def _build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
+def build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     """Resolve ``tools.artifacts`` to a fully built ArtifactStore tool list."""
     from reigner.artifacts import ArtifactSchema
     from reigner.tools.artifacts import ArtifactStore
@@ -344,7 +358,7 @@ def _build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     return list(store.tools())
 
 
-def _build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
+def build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     """Resolve ``tools.search`` to a built ``SearchIndex``'s tool list.
 
     Dispatches on ``cfg.tools.search.type``. Only ``"bm25"`` is known today;
@@ -361,6 +375,21 @@ def _build_search_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     else:
         raise ConfigError(f"tools.search.type={kind!r} is not supported (known: 'bm25')")
     return list(index.tools())
+
+
+def build_fs_tools(cfg: ReignerConfig) -> list[RunnableTool]:
+    """Resolve ``tools.fs`` to a built :class:`FsTools`' tool list.
+
+    Mirrors :func:`build_artifact_tools` / :func:`build_search_tools` so the
+    CLI's ``reigner inspect tools`` and the harness use the same construction
+    path.
+    """
+    from reigner.tools.fs import FsTools
+
+    assert cfg.tools.fs is not None
+    root = cfg.resolve(cfg.tools.fs.root)
+    fs = FsTools(root, write_enabled=cfg.tools.fs.write_enabled)
+    return list(fs.tools())
 
 
 def _load_role(cfg: ReignerConfig) -> str:

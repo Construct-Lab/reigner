@@ -159,7 +159,7 @@ class RoleConfig(BaseModel):
 
 
 class ArtifactsToolsConfig(BaseModel):
-    """``tools.artifacts`` — bound to ``ArtifactStore`` once T-09 lands."""
+    """``tools.artifacts`` — bound to ``ArtifactStore``."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -168,12 +168,30 @@ class ArtifactsToolsConfig(BaseModel):
 
 
 class SearchToolsConfig(BaseModel):
-    """``tools.search`` — bound to a ``SearchIndex`` once T-10 lands."""
+    """``tools.search`` — bound to a ``SearchIndex`` (``bm25`` today)."""
 
     model_config = ConfigDict(extra="forbid")
 
     type: str = "bm25"
     index_path: str
+
+
+class FsToolsConfig(BaseModel):
+    """``tools.fs`` — bound to :class:`reigner.tools.fs.FsTools`.
+
+    ``root`` is the sandbox directory the agent is allowed to see; resolved
+    relative to the config file. ``write_enabled`` toggles whether
+    :func:`fs_write` is exposed (defaults off — read-only is the safe default).
+
+    FsTools' other knobs (per-call caps, text-extension allowlist, ignored
+    dirs) stay at library defaults for now; promote them into this block when
+    a real project needs to tune them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    root: str
+    write_enabled: bool = False
 
 
 class ToolsConfig(BaseModel):
@@ -187,6 +205,7 @@ class ToolsConfig(BaseModel):
 
     artifacts: ArtifactsToolsConfig | None = None
     search: SearchToolsConfig | None = None
+    fs: FsToolsConfig | None = None
     custom: list[DottedPath] = Field(default_factory=list)
 
 
@@ -348,10 +367,13 @@ role:
 tools:
   # artifacts:
   #   root: library/artifacts
-  #   schema: ./schema.yaml          # T-09
+  #   schema: ./schema.yaml
   # search:
   #   type: bm25
-  #   index_path: search-index/documents.json  # T-10
+  #   index_path: search-index/documents.json
+  # fs:
+  #   root: .
+  #   write_enabled: false
   custom: []
 
 sessions:
@@ -367,6 +389,7 @@ __all__ = [
     "ConfigError",
     "EvalConfig",
     "FieldOrigin",
+    "FsToolsConfig",
     "ModelConfig",
     "OracleConfig",
     "ReignerConfig",

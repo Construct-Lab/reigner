@@ -1,15 +1,15 @@
-"""`reigner inspect` — introspect what the harness sees (T-20).
+"""`reigner inspect` — introspect what the harness sees.
 
-Four subcommands today: ``artifacts``, ``role``, ``tools``, ``config``.
-Deferred: ``index`` (T-10 BM25), ``session`` (T-21 owns ``reigner session``).
+Five subcommands today: ``artifacts``, ``role``, ``tools``, ``index``,
+``config``. Deferred: ``session`` (owned by ``reigner session``).
 
 Each subcommand loads ``reigner.yaml`` (default ``./reigner.yaml``; override
-with ``--config / -c``) via :meth:`ReignerConfig.load`. ``inspect role`` and
-``inspect tools`` deliberately stop short of full composition — the composed
-ROLE (REIGNER.md + active skill blocks + dynamic context) needs the skills
-loader (T-31); ``inspect tools`` enumerates the registry as wired from this
-config, not a live ``ArtifactStore`` / ``SearchIndex`` (those depend on T-09
-/ T-10). Each output makes the deferral visible to users.
+with ``--config / -c``) via :meth:`ReignerConfig.load`. ``inspect role``
+deliberately stops short of full composition — the composed ROLE
+(REIGNER.md + active skill blocks + dynamic context) needs the skills
+loader; this subcommand prints the source file plus the configured skill
+list. ``inspect tools`` enumerates the same registry the harness wires
+from this config (builtins, artifacts, search, fs, custom).
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ def register(app: typer.Typer) -> None:
     sub.command("artifacts")(_inspect_artifacts)
     sub.command("role")(_inspect_role)
     sub.command("tools")(_inspect_tools)
+    sub.command("index")(_inspect_index)
     sub.command("config")(_inspect_config)
     app.add_typer(sub)
 
@@ -249,65 +250,163 @@ def _inspect_role(
 def _inspect_tools(
     config: str = typer.Option(_DEFAULT_CONFIG, "--config", "-c"),
 ) -> None:
-    """Enumerate tools as the harness would wire them from this config.
+    """Enumerate every tool the harness would register from this config.
 
-    Today wires: ``tools.custom`` (dotted paths to @tool-decorated callables).
-    Deferred (surfaced as notes): ``tools.artifacts`` (T-09), ``tools.search``
-    (T-10).
+    Same wiring path as :meth:`Harness.from_config`, so the table can't
+    drift from what the model actually sees: builtin/pseudo tools first,
+    then artifacts / search / fs (when configured), then custom dotted
+    imports. Backend construction failures (bad root, missing index)
+    surface as red ``✗`` rows instead of crashing inspect.
     """
+    from reigner.harness.agent import (
+        build_artifact_tools,
+        build_fs_tools,
+        build_search_tools,
+    )
+    from reigner.tools.provenance import register_citation
+    from reigner.tools.pseudo import (
+        escalate_to_oracle,
+        request_clarification,
+        save_note,
+        stop,
+    )
+
     cfg = _load_config(Path(config))
     console = Console()
 
     specs: list[tuple[ToolSpec, str]] = []
+    errors: list[tuple[str, str]] = []
+
+    # 1. Builtins — mirror Harness.from_config exactly.
+    builtins: list[Any] = [save_note, request_clarification, stop, register_citation]
+    if cfg.oracle is not None:
+        builtins.append(escalate_to_oracle)
+    for fn in builtins:
+        spec = getattr(fn, "__reigner_spec__", None)
+        if isinstance(spec, ToolSpec):
+            specs.append((spec, "builtin"))
+
+    # 2. Backend-built tool groups — each guarded so a broken config still
+    # renders the rest of the table.
+    backends: list[tuple[str, object, object]] = [
+        ("artifacts", build_artifact_tools, cfg.tools.artifacts),
+        (
+            f"search:{cfg.tools.search.type}" if cfg.tools.search else "search",
+            build_search_tools,
+            cfg.tools.search,
+        ),
+        ("fs", build_fs_tools, cfg.tools.fs),
+    ]
+    for label, builder, cfg_attr in backends:
+        if cfg_attr is None:
+            continue
+        try:
+            for tool_obj in builder(cfg):  # type: ignore[operator]
+                spec = _spec_of(tool_obj)
+                if spec is not None:
+                    specs.append((spec, label))
+        except Exception as exc:
+            errors.append((label, str(exc)))
+
+    # 3. Custom dotted-path tools.
     for dotted in cfg.tools.custom:
         try:
             obj = _import_dotted(dotted)
         except (ImportError, AttributeError) as e:
-            console.print(f"[red]✗[/red] {dotted}: {e}")
+            errors.append((dotted, str(e)))
             continue
         spec = getattr(obj, "__reigner_spec__", None)
         if not isinstance(spec, ToolSpec):
-            console.print(
-                f"[red]✗[/red] {dotted}: not a @tool-decorated callable (no __reigner_spec__)"
-            )
+            errors.append((dotted, "not a @tool-decorated callable (no __reigner_spec__)"))
             continue
         specs.append((spec, dotted))
 
     if specs:
-        table = Table(title="custom tools", show_header=True, header_style="bold")
+        table = Table(title="wired tools", show_header=True, header_style="bold")
         table.add_column("name")
         table.add_column("readonly", justify="center")
         table.add_column("pseudo", justify="center")
         table.add_column("cache", justify="center")
         table.add_column("source")
-        for spec, dotted in specs:
+        for spec, source in specs:
             table.add_row(
                 spec.name,
                 _yn(spec.readonly),
                 _yn(spec.pseudo),
                 _yn(spec.cache),
-                f"[dim]{dotted}[/dim]",
+                f"[dim]{source}[/dim]",
             )
         console.print(table)
     else:
-        console.print("[dim]no custom tools configured in reigner.yaml[/dim]")
+        console.print("[dim]no tools wired from reigner.yaml[/dim]")
 
-    deferred: list[str] = []
-    if cfg.tools.artifacts is not None:
-        a = cfg.tools.artifacts
-        deferred.append(
-            f"  artifacts → root={a.root}, schema={a.schema_path}"
-            "  [deferred: T-09 ArtifactStore builders]"
+    for label, msg in errors:
+        console.print(f"[red]✗[/red] {label}: {msg}")
+
+
+# ---------------------------------------------------------------------------
+# index
+# ---------------------------------------------------------------------------
+
+
+def _inspect_index(
+    config: str = typer.Option(_DEFAULT_CONFIG, "--config", "-c"),
+) -> None:
+    """Show BM25 index health: doc count, vocab, sections, sample IDs."""
+    cfg = _load_config(Path(config))
+    console = Console()
+
+    if cfg.tools.search is None:
+        console.print("[dim]no tools.search configured in reigner.yaml[/dim]")
+        console.print(
+            "[dim]hint: add tools.search.index_path (and `reigner ingest` to populate it).[/dim]"
         )
-    if cfg.tools.search is not None:
-        deferred.append(
-            f"  search → type={cfg.tools.search.type}, index_path={cfg.tools.search.index_path}"
-            "  [deferred: T-10 BM25 builders]"
+        return
+
+    try:
+        from reigner.tools.search import Bm25Index
+
+        index = Bm25Index(cfg.resolve(cfg.tools.search.index_path))
+        stats = index.stats()
+    except Exception as e:
+        console.print(f"[red]✗[/red] search: {e}")
+        return
+
+    console.print(f"[bold]{stats['path']}[/bold]")
+    if not stats["exists"]:
+        console.print(
+            "[yellow]index file does not exist yet — run `reigner ingest` to populate it.[/yellow]"
         )
-    if deferred:
-        console.print("\n[dim]configured but not yet wired:[/dim]")
-        for line in deferred:
-            console.print(f"[dim]{line}[/dim]")
+        return
+
+    table = Table(show_header=False, box=None)
+    table.add_column(style="dim")
+    table.add_column()
+    table.add_row("size", _fmt_size(stats["size_bytes"]))
+    table.add_row("documents", str(stats["doc_count"]))
+    table.add_row("vocab size", str(stats["vocab_size"]))
+    table.add_row("avg doc length", f"{stats['avg_doc_len']} tokens")
+    if stats["sections"]:
+        table.add_row("sections", ", ".join(stats["sections"]))
+    else:
+        table.add_row("sections", "[dim](none)[/dim]")
+    console.print(table)
+
+    if stats["sample_ids"]:
+        console.print("\n[dim]first ids:[/dim]")
+        for entry_id in stats["sample_ids"]:
+            console.print(f"  {entry_id}")
+
+
+def _spec_of(tool_obj: Any) -> ToolSpec | None:
+    """Pull a ToolSpec off either a RunnableToolAdapter or a @tool callable."""
+    spec = getattr(tool_obj, "spec", None)
+    if isinstance(spec, ToolSpec):
+        return spec
+    spec = getattr(tool_obj, "__reigner_spec__", None)
+    if isinstance(spec, ToolSpec):
+        return spec
+    return None
 
 
 def _yn(v: bool) -> str:

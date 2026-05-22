@@ -318,3 +318,37 @@ async def test_non_list_sidecar_is_treated_as_empty(tmp_path: Path) -> None:
     result = await bm25_search(query="anything")
     assert result["hits"] == []
     assert result["note"] == "index not built; run `reigner ingest`"
+
+
+# ---------------------------------------------------------------------------
+# stats() — consumed by `reigner inspect index`
+# ---------------------------------------------------------------------------
+
+
+def test_stats_missing_file(tmp_path: Path) -> None:
+    path = tmp_path / "absent.json"
+    index = Bm25Index(path=path)
+    s = index.stats()
+    assert s["exists"] is False
+    assert s["doc_count"] == 0
+    assert s["vocab_size"] == 0
+    assert s["sections"] == []
+    assert s["sample_ids"] == []
+    assert s["size_bytes"] == 0
+
+
+def test_stats_populated(tmp_path: Path) -> None:
+    entries = [
+        _entry("AAPL/2024", "apple revenue grew", sections={"summary": "x", "risks": "y"}),
+        _entry("MSFT/2024", "microsoft cloud expanded", sections={"summary": "z"}),
+    ]
+    _write_sidecar(tmp_path / "idx.json", entries)
+    index = Bm25Index(path=tmp_path / "idx.json")
+    s = index.stats()
+    assert s["exists"] is True
+    assert s["doc_count"] == 2
+    assert s["vocab_size"] > 0
+    assert s["avg_doc_len"] > 0
+    assert s["sections"] == ["risks", "summary"]
+    assert s["sample_ids"] == ["AAPL/2024", "MSFT/2024"]
+    assert s["size_bytes"] > 0

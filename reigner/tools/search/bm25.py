@@ -291,6 +291,30 @@ class Bm25Index:
             "truncated": False,
         }
 
+    def stats(self) -> dict[str, Any]:
+        """Health summary used by ``reigner inspect index``.
+
+        Returns a flat dict — caller renders it. Values are derived from the
+        already-built index, so this is essentially free.
+        """
+        sections: set[str] = set()
+        for entry in self._entries:
+            secs = entry.get("sections")
+            if isinstance(secs, dict):
+                sections.update(str(k) for k in secs)
+        sample_ids = [str(e.get("id", "")) for e in self._entries[:5]]
+        size_bytes = self.path.stat().st_size if self.path.exists() else 0
+        return {
+            "path": str(self.path),
+            "exists": self.path.exists(),
+            "size_bytes": size_bytes,
+            "doc_count": self._N,
+            "vocab_size": len(self._df),
+            "avg_doc_len": round(self._avgdl, 2),
+            "sections": sorted(sections),
+            "sample_ids": sample_ids,
+        }
+
     def tools(self) -> list[RunnableToolAdapter]:
         index = self
 
