@@ -543,17 +543,6 @@ async def test_fork_inherits_history_and_resets_cache() -> None:
     assert len(forked.history()) == len(session.history())
 
 
-def test_steer_save_load_raise_until_their_tasks_land() -> None:
-    from reigner.harness.agent import Session
-
-    adapter = FakeAdapter(actions=[_final("x")])
-    s = _harness(adapter=adapter, tools=[]).session()
-    with pytest.raises(NotImplementedError):
-        s.save()
-    with pytest.raises(NotImplementedError):
-        Session.load("anything")
-
-
 @pytest.mark.asyncio
 async def test_steer_enqueues_onto_state() -> None:
     adapter = FakeAdapter(actions=[_final("x")])

@@ -16,15 +16,17 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from reigner.config import ReignerConfig, SettingsConfig
+from reigner.config import ReignerConfig, SessionsConfig, SettingsConfig
 from reigner.harness.adapters.base import ModelAdapter
 from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
+<<<<<<< HEAD
 from reigner.tools.provenance import register_citation
 from reigner.tools.pseudo import (
     escalate_to_oracle,
@@ -32,11 +34,18 @@ from reigner.tools.pseudo import (
     save_note,
     stop,
 )
+=======
+from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
+>>>>>>> ee9d31a (feat: session store (T-24))
 from reigner.tools.registry import ToolRegistry
 from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
 if TYPE_CHECKING:
     pass
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass(kw_only=True)
@@ -50,9 +59,20 @@ class Harness:
 
     adapter: ModelAdapter
     settings: SettingsConfig = field(default_factory=SettingsConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
     registry: ToolRegistry = field(default_factory=ToolRegistry)
     role: str = ""
     oracle_adapter: ModelAdapter | None = None
+    store: SessionStore = field(init=False)
+    """Built from :attr:`sessions.store_path` in :meth:`__post_init__`.
+
+    Override after construction (``h.store = SessionStore(elsewhere)``) for
+    tests that need a custom path; production callers should configure
+    :attr:`sessions` instead.
+    """
+
+    def __post_init__(self) -> None:
+        self.store = SessionStore(self.sessions.store_path)
 
     @classmethod
     def from_config(
@@ -143,9 +163,15 @@ class Harness:
             # at the boundary so mypy sees the union the registry expects.
             registry.register(t)  # type: ignore[arg-type]
 
+        resolved_sessions = SessionsConfig(
+            store_path=str(cfg.resolve(cfg.sessions.store_path)),
+            auto_save=cfg.sessions.auto_save,
+        )
+
         return cls(
             adapter=adapter,
             settings=cfg.settings,
+            sessions=resolved_sessions,
             registry=registry,
             role=role_text,
             oracle_adapter=oracle_adapter,
@@ -170,6 +196,15 @@ class Harness:
             profile=profile,
         )
 
+    def import_session(self, src_path: str | Path) -> Session:
+        """Import an exported session JSONL into the store, then load it.
+
+        The loaded :class:`Session` is inspection-only until T-25 lands
+        replay — :meth:`Session.run_stream` raises. Returns the new Session.
+        """
+        sid = self.store.import_(src_path)
+        return Session.load(sid, harness=self)
+
 
 class Session:
     """One conversation. Mutable. Forkable. Drives ``run_loop`` per query."""
@@ -182,12 +217,14 @@ class Session:
         parent_id: str | None,
         initial_history: list[Turn],
         profile: Profile = "full",
+        inspection_only: bool = False,
     ) -> None:
         self.harness = harness
         self.id = session_id
         self.parent_id = parent_id
         self.profile: Profile = profile
         self._cache = ToolResultCache()
+        self._inspection_only = inspection_only
         s = harness.settings
         self._state = AgentState(
             session_id=session_id,
@@ -207,6 +244,12 @@ class Session:
         for turn in initial_history:
             self._state.append_turn(turn)
         self._events: list[Event] = []
+        # Resume: if a session by this id is already on disk, preload its
+        # events so seq numbering continues correctly. State (history /
+        # notes / citations) is not reconstructed — that's T-25 (replay).
+        if harness.store.exists(session_id):
+            self._events.extend(harness.store.load_events(session_id))
+        self._persisted_count = len(self._events)
 
     # ------------------------------------------------------------------
     # Run
@@ -217,19 +260,37 @@ class Session:
         Appends the user query as a Turn, then drives ``run_loop`` until it
         emits a terminal event. ``state.iterations`` is reset per call so
         ``max_iterations`` is a per-query budget, not a per-session one.
+
+        Auto-saves each event to the session store when
+        ``harness.sessions.auto_save`` is true (the default); the meta sidecar
+        is refreshed once the stream completes.
         """
+        if self._inspection_only:
+            raise NotImplementedError(
+                "this Session was loaded for inspection — running new turns "
+                "needs replay-based state reconstruction, which lands with T-25"
+            )
         self._state.append_turn(Turn(role="user", content=query))
         s = self.harness.settings
-        async for event in run_loop(
-            self._state,
-            session_id=self.id,
-            cache=self._cache,
-            default_char_limit=s.max_tool_result_chars,
-            char_limits=s.tool_result_char_limits,
-            seq_start=len(self._events),
-        ):
-            self._events.append(event)
-            yield event
+        auto_save = self.harness.sessions.auto_save
+        store = self.harness.store
+        try:
+            async for event in run_loop(
+                self._state,
+                session_id=self.id,
+                cache=self._cache,
+                default_char_limit=s.max_tool_result_chars,
+                char_limits=s.tool_result_char_limits,
+                seq_start=len(self._events),
+            ):
+                self._events.append(event)
+                if auto_save:
+                    store.append_event(self.id, event)
+                    self._persisted_count += 1
+                yield event
+        finally:
+            if auto_save:
+                store.write_meta(self.id, self._build_meta(store))
 
     async def run(self, query: str) -> FinalAnswerEvent:
         """Drain ``run_stream`` and return the final answer.
@@ -273,22 +334,29 @@ class Session:
 
         ``at_turn=-1`` (default) forks from the current tail. Otherwise the
         new session inherits ``history[:at_turn]``. The fork gets a fresh
-        cache and event log; ``parent_id`` points back to this session for
-        the session tree (T-23).
+        cache and event log; ``parent_id`` points back to this session.
+
+        When auto-save is on, the child's meta is written immediately so
+        ``parent_id`` is durable even if the process crashes before the first
+        event is appended.
         """
         history = list(self._state.history)
         if at_turn >= 0:
             history = history[:at_turn]
-        return Session(
+        child = Session(
             harness=self.harness,
             session_id=uuid.uuid4().hex,
             parent_id=self.id,
             initial_history=history,
             profile=self.profile,
         )
+        if self.harness.sessions.auto_save:
+            store = self.harness.store
+            store.write_meta(child.id, child._build_meta(store))
+        return child
 
     # ------------------------------------------------------------------
-    # Stubs — land in later tasks
+    # Steering
     # ------------------------------------------------------------------
     async def steer(self, message: str, mode: SteeringMode = "interrupt") -> None:
         """Enqueue a user steering message; consumed at the next loop boundary.
@@ -300,12 +368,83 @@ class Session:
         """
         self._state.enqueue_steering(message, mode)
 
-    def save(self) -> None:
-        raise NotImplementedError("session persistence lands with T-23")
+    # ------------------------------------------------------------------
+    # Persistence (T-24)
+    # ------------------------------------------------------------------
+    def save(self) -> SessionMeta:
+        """Flush any unpersisted events plus the meta sidecar to disk.
+
+        Events are already on disk after each ``run_stream`` yield when
+        ``auto_save`` is true; this method matters for sessions running with
+        ``auto_save=False``, and as an explicit checkpoint for the meta
+        sidecar (which is otherwise written lazily). Returns the meta that
+        was written.
+        """
+        store = self.harness.store
+        for event in self._events[self._persisted_count :]:
+            store.append_event(self.id, event)
+            self._persisted_count += 1
+        meta = self._build_meta(store)
+        store.write_meta(self.id, meta)
+        return meta
+
+    def set_title(self, title: str | None) -> SessionMeta:
+        """Set or clear the session title in the meta sidecar."""
+        return self.harness.store.set_title(self.id, title)
+
+    def export(self, dest_path: str | Path) -> Path:
+        """Write this session's JSONL (plus sidecar meta) to ``dest_path``."""
+        return self.harness.store.export(self.id, dest_path)
 
     @classmethod
-    def load(cls, session_id: str) -> Session:
-        raise NotImplementedError("session persistence lands with T-23")
+    def load(cls, session_id: str, *, harness: Harness) -> Session:
+        """Load a stored session for inspection.
+
+        Returns a Session with ``events()``, ``id``, ``parent_id``, and the
+        meta-derived fields populated. ``run_stream`` raises
+        :class:`NotImplementedError` — replay-based state reconstruction
+        lands with T-25. To resume a session and keep running, use
+        ``harness.session(session_id=...)`` instead, which preloads events
+        but lets the loop continue (with the documented caveat that
+        in-memory history starts empty until T-25).
+        """
+        store = harness.store
+        if not store.exists(session_id):
+            raise SessionNotFound(f"session {session_id!r} not found at {store.root}")
+        meta = store.read_meta(session_id)
+        return cls(
+            harness=harness,
+            session_id=session_id,
+            parent_id=meta.parent_id,
+            initial_history=[],
+            profile="full",
+            inspection_only=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+    def _build_meta(self, store: SessionStore) -> SessionMeta:
+        """Build the meta record to persist, preserving ``created`` / ``title``.
+
+        Reads the existing sidecar (if any) so we don't clobber user-set
+        fields like ``title`` or the original ``created`` timestamp on every
+        write.
+        """
+        existing: SessionMeta | None = None
+        if store.exists(self.id):
+            try:
+                existing = store.read_meta(self.id)
+            except SessionNotFound:
+                existing = None
+        return SessionMeta(
+            session_id=self.id,
+            parent_id=self.parent_id,
+            title=existing.title if existing else None,
+            created=existing.created if existing else _utcnow_iso(),
+            last_updated=_utcnow_iso(),
+            event_count=len(self._events),
+        )
 
 
 # ---------------------------------------------------------------------------
