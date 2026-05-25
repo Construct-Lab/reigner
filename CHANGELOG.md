@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-05-25
+
+### Bug Fixes
+
+- Wire artifacts/search/fs into `reigner inspect tools` ([#58](https://github.com/Construct-Lab/reigner/issues/58))
+
+### Features
+
+- Session store ([#67](https://github.com/Construct-Lab/reigner/issues/67))
+- Plugin system
+- Bundled plugins (metrics, pii_redact)
+
 ## [0.3.0] - 2026-05-22
 
 ### Bug Fixes
@@ -13,6 +25,10 @@ All notable changes to this project will be documented in this file.
 
 - FS tools — raw filesystem surface (FsTools)
 - Provenance and citations (T-12) ([#63](https://github.com/Construct-Lab/reigner/issues/63))
+
+### Miscellaneous Tasks
+
+- Release v0.3.0
 
 ## [0.2.0] - 2026-05-21
 
