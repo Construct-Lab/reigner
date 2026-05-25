@@ -943,18 +943,17 @@ Hooks: `before_tool_call`, `after_tool_call`, `on_compaction`, `on_final_answer`
 
 Concrete examples shipping with Reigner:
 
-- `reigner.plugins.audit` — JSON log of every event.
-- `reigner.plugins.metrics` — OpenTelemetry traces.
-- `reigner.plugins.pii_redact` — strip configured patterns before context.
-- `reigner.plugins.rate_limit` — delay tool calls per provider rate limit.
+- `reigner.plugins.metrics.MetricsPlugin` — OpenTelemetry spans around tool calls and loop events (needs the `otel` extra; an OTLP integration point, not a telemetry product).
+- `reigner.plugins.pii_redact.PiiRedactPlugin` — strip configured regex patterns out of tool results and the final answer.
+
+An earlier draft also listed `audit` (JSON log of every event) and `rate_limit` (delay tool calls). Both were dropped: `audit` is redundant with the session store (§11), which already persists the full event stream, and with external observability sinks; `rate_limit` could only throttle domain tool calls via `before_tool_call`, never the model-adapter calls its name implied (those are the adapter's concern — see `RateLimitError` in §5). Either can return later if a concrete need appears.
 
 Configured in `reigner.yaml`:
 
 ```yaml
 plugins:
-  - reigner.plugins.audit
-  - mypackage.plugins:rate_limit
-  - mypackage.plugins.PiiRedactPlugin
+  - reigner.plugins.metrics.MetricsPlugin   # zero-arg — bare class path resolves
+  - mypackage.observability:redactor        # PiiRedactPlugin instance (takes patterns)
 ```
 
 ---
@@ -1016,7 +1015,7 @@ sessions:
   auto_save: true
 
 plugins:
-  - reigner.plugins.audit
+  - reigner.plugins.metrics.MetricsPlugin
 
 eval:
   cases: eval/cases.yaml

@@ -35,8 +35,8 @@ gemini = ["google-genai>=0.3"]
 server = []
 mcp = []
 ingestion = ["pymupdf>=1.24", "httpx>=0.27"]
-otel = []
-all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3", "pymupdf>=1.24", "httpx>=0.27"]
+otel = ["opentelemetry-api>=1.20"]
+all = ["anthropic>=0.39", "openai>=1.40", "google-genai>=0.3", "pymupdf>=1.24", "httpx>=0.27", "opentelemetry-api>=1.20"]
 
 [project.scripts]
 reigner = "reigner.cli.__main__:main"
@@ -78,6 +78,10 @@ files = ["reigner"]
 module = ["pymupdf"]
 follow_imports = "skip"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry", "opentelemetry.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

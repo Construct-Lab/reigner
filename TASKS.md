@@ -176,7 +176,8 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - Depends on: #5
 
 - [ ] **[T-27 #27](https://github.com/Construct-Lab/reigner/issues/27)** `feat: bundled plugins` `S`
-  - `audit`, `metrics` (OpenTelemetry), `pii_redact`, `rate_limit`
+  - `metrics` (OpenTelemetry spans, `otel` extra), `pii_redact` (regex redaction)
+  - `audit` and `rate_limit` dropped: audit duplicates the session store + external sinks; rate_limit could only throttle domain tool calls, not model-adapter calls
   - Depends on: #26
 
 - [ ] **[T-28 #28](https://github.com/Construct-Lab/reigner/issues/28)** `feat: eval suite + runner` `M`
