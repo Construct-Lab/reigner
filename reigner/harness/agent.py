@@ -26,7 +26,7 @@ from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
-<<<<<<< HEAD
+from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
 from reigner.tools.provenance import register_citation
 from reigner.tools.pseudo import (
     escalate_to_oracle,
@@ -34,9 +34,6 @@ from reigner.tools.pseudo import (
     save_note,
     stop,
 )
-=======
-from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
->>>>>>> ee9d31a (feat: session store (T-24))
 from reigner.tools.registry import ToolRegistry
 from reigner.types import ConfigError, Profile, ProviderName, import_dotted
 
