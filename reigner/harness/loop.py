@@ -68,6 +68,8 @@ from reigner.harness.oracle import arm as oracle_arm
 from reigner.harness.parallel import execute_batch, should_parallelize
 from reigner.harness.state import AgentState, Citation, Turn
 from reigner.harness.truncation import resolve_limit, truncate_for_tool
+from reigner.plugins.hooks import PluginHookError
+from reigner.plugins.host import PluginHost
 from reigner.tools.provenance import PROVENANCE_TOOL_NAMES, citation_id
 from reigner.tools.pseudo import PSEUDO_TOOL_NAMES
 
@@ -112,6 +114,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
     default_char_limit: int = 4000,
     char_limits: dict[str, int] | None = None,
     seq_start: int = 0,
+    plugins: PluginHost | None = None,
 ) -> AsyncIterator[Event]:
     """Drive one query to completion. Yields events in emission order.
 
@@ -119,8 +122,16 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
     It mutates ``state`` in place (history, notes, iterations, error counter)
     and emits exactly one terminal event per call: ``FinalAnswerEvent``,
     ``ClarificationEvent``, or ``ErrorEvent``.
+
+    ``plugins`` is the :class:`PluginHost` whose hooks fire around the loop
+    (SPEC §12). Transform hooks (``before_tool_call``, ``after_tool_call``,
+    ``on_final_answer``) can rewrite what flows through; a failure there is
+    fatal and surfaces as an ``ErrorEvent``. Observe hooks fire at the matching
+    event sites and never abort the run. Defaults to a no-op host.
     """
     char_limits = char_limits or {}
+    if plugins is None:
+        plugins = PluginHost.empty()
     # Profile is fixed for the session's lifetime; one filter call gives us
     # both the adapter list passed to the model and the dispatch map. Pseudo
     # tools never enter `tools_by_name` because real-vs-pseudo branching
@@ -140,14 +151,26 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         seq += 1
         return v
 
+    def plugin_error(exc: PluginHookError) -> ErrorEvent:
+        # A transform hook failed (SPEC §12): fail loud, abort the run.
+        return ErrorEvent(
+            seq=next_seq(),
+            session_id=session_id,
+            turn=state.iterations,
+            error=f"plugin: {exc}",
+            recoverable=False,
+        )
+
     if state.adapter is None:
-        yield ErrorEvent(
+        no_adapter = ErrorEvent(
             seq=next_seq(),
             session_id=session_id,
             turn=state.iterations,
             error="no model adapter configured on AgentState",
             recoverable=False,
         )
+        await plugins.on_error(no_adapter, state)
+        yield no_adapter
         return
 
     while not state.done:
@@ -163,17 +186,20 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         if state.has_pending_steering():
             for message, mode in state.consume_steering():
                 state.append_turn(Turn(role="user", content=message))
-                yield SteeringAcceptedEvent(
+                steering_event = SteeringAcceptedEvent(
                     seq=next_seq(),
                     session_id=session_id,
                     turn=state.iterations,
                     message=message,
                     mode=mode,
                 )
+                await plugins.on_steering(steering_event, state)
+                yield steering_event
 
         # G5/G10: progressive compaction at 80/90/95% of the token budget.
         outcome = progressive(state)
         if outcome.level is not None:
+            await plugins.on_compaction(state, outcome.level)
             yield CompactionEvent(
                 seq=next_seq(),
                 session_id=session_id,
@@ -195,45 +221,62 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         except AdapterError as exc:
             recoverable = isinstance(exc, TransientAdapterError)
             state.record_tool_error()
-            yield ErrorEvent(
+            adapter_error = ErrorEvent(
                 seq=next_seq(),
                 session_id=session_id,
                 turn=state.iterations,
                 error=f"adapter: {exc}",
                 recoverable=recoverable,
             )
+            await plugins.on_error(adapter_error, state)
+            yield adapter_error
             # Don't keep hammering a broken provider.
             return
 
         # ----- terminal: explicit final answer -----
         if action.is_final_answer:
-            text = action.text or ""
-            state.append_turn(Turn(role="assistant", content=text))
-            yield FinalAnswerEvent(
+            final = FinalAnswerEvent(
                 seq=next_seq(),
                 session_id=session_id,
                 turn=state.iterations,
-                text=text,
+                text=action.text or "",
                 metadata={"usage": asdict(action.usage), "stop_reason": action.stop_reason},
             )
+            try:
+                final = await plugins.on_final_answer(final, state)
+            except PluginHookError as exc:
+                err = plugin_error(exc)
+                await plugins.on_error(err, state)
+                yield err
+                return
+            # History reflects the post-hook text so a rewrite sticks.
+            state.append_turn(Turn(role="assistant", content=final.text))
+            yield final
             state.done = True
             return
 
         # ----- terminal: no progress (no text, no calls) -----
         if not action.tool_calls:
-            text = action.text or ""
-            state.append_turn(Turn(role="assistant", content=text))
-            yield FinalAnswerEvent(
+            final = FinalAnswerEvent(
                 seq=next_seq(),
                 session_id=session_id,
                 turn=state.iterations,
-                text=text,
+                text=action.text or "",
                 metadata={
                     "usage": asdict(action.usage),
                     "stop_reason": action.stop_reason,
                     "no_progress": True,
                 },
             )
+            try:
+                final = await plugins.on_final_answer(final, state)
+            except PluginHookError as exc:
+                err = plugin_error(exc)
+                await plugins.on_error(err, state)
+                yield err
+                return
+            state.append_turn(Turn(role="assistant", content=final.text))
+            yield final
             state.done = True
             return
 
@@ -264,27 +307,41 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
             if tc.name in INTERCEPTED_TOOL_NAMES:
                 # Flush any queued real calls first so emission order is stable.
                 if pending_real:
-                    async for ev in _run_real_calls(
-                        pending_real,
-                        tools_by_name=tools_by_name,
-                        cache=cache,
-                        state=state,
-                        session_id=session_id,
-                        default_char_limit=default_char_limit,
-                        char_limits=char_limits,
-                        parallel=all_readonly,
-                        next_seq=next_seq,
-                    ):
-                        yield ev
+                    try:
+                        async for ev in _run_real_calls(
+                            pending_real,
+                            tools_by_name=tools_by_name,
+                            cache=cache,
+                            state=state,
+                            session_id=session_id,
+                            default_char_limit=default_char_limit,
+                            char_limits=char_limits,
+                            parallel=all_readonly,
+                            next_seq=next_seq,
+                            plugins=plugins,
+                        ):
+                            yield ev
+                    except PluginHookError as exc:
+                        err = plugin_error(exc)
+                        await plugins.on_error(err, state)
+                        yield err
+                        return
                     pending_real = []
 
-                async for ev in _dispatch_pseudo(
-                    tc,
-                    state=state,
-                    session_id=session_id,
-                    next_seq=next_seq,
-                ):
-                    yield ev
+                try:
+                    async for ev in _dispatch_pseudo(
+                        tc,
+                        state=state,
+                        session_id=session_id,
+                        next_seq=next_seq,
+                        plugins=plugins,
+                    ):
+                        yield ev
+                except PluginHookError as exc:
+                    err = plugin_error(exc)
+                    await plugins.on_error(err, state)
+                    yield err
+                    return
                 if state.done:
                     terminate_after_calls = True
                     break
@@ -292,18 +349,25 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
                 pending_real.append(tc)
 
         if pending_real and not terminate_after_calls:
-            async for ev in _run_real_calls(
-                pending_real,
-                tools_by_name=tools_by_name,
-                cache=cache,
-                state=state,
-                session_id=session_id,
-                default_char_limit=default_char_limit,
-                char_limits=char_limits,
-                parallel=all_readonly,
-                next_seq=next_seq,
-            ):
-                yield ev
+            try:
+                async for ev in _run_real_calls(
+                    pending_real,
+                    tools_by_name=tools_by_name,
+                    cache=cache,
+                    state=state,
+                    session_id=session_id,
+                    default_char_limit=default_char_limit,
+                    char_limits=char_limits,
+                    parallel=all_readonly,
+                    next_seq=next_seq,
+                    plugins=plugins,
+                ):
+                    yield ev
+            except PluginHookError as exc:
+                err = plugin_error(exc)
+                await plugins.on_error(err, state)
+                yield err
+                return
 
         if terminate_after_calls:
             return
@@ -317,7 +381,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
                 state.append_turn(Turn(role="user", content=err_msg))
                 state.error_nudge_injected = True
             else:
-                yield ErrorEvent(
+                abort_error = ErrorEvent(
                     seq=next_seq(),
                     session_id=session_id,
                     turn=state.iterations,
@@ -326,18 +390,22 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
                     ),
                     recoverable=False,
                 )
+                await plugins.on_error(abort_error, state)
+                yield abort_error
                 return
 
         state.iterations += 1
 
         if state.iterations >= state.max_iterations:
-            yield ErrorEvent(
+            max_iter_error = ErrorEvent(
                 seq=next_seq(),
                 session_id=session_id,
                 turn=state.iterations,
                 error="max_iterations reached without a final answer",
                 recoverable=False,
             )
+            await plugins.on_error(max_iter_error, state)
+            yield max_iter_error
             return
 
 
@@ -352,11 +420,18 @@ async def _dispatch_pseudo(
     state: AgentState,
     session_id: str,
     next_seq: Any,
+    plugins: PluginHost,
 ) -> AsyncIterator[Event]:
     """Handle a pseudo-tool call. May set ``state.done``.
 
     Pseudo-tools are intercepted locally — they never reach an external
     service. See SPEC §6.4.
+
+    Pseudo-tools are not wrapped by ``before_tool_call`` / ``after_tool_call``
+    (those fire for real tools only). The two pseudo verbs that map to a
+    dedicated hook do fire it: ``escalate_to_oracle`` → ``on_oracle_escalation``
+    and ``stop`` → ``on_final_answer``. A failing ``on_final_answer`` raises
+    :class:`PluginHookError` for the caller to convert into an ``ErrorEvent``.
     """
     yield ToolCallEvent(
         seq=next_seq(),
@@ -440,15 +515,16 @@ async def _dispatch_pseudo(
         return
 
     if tc.name == "stop":
-        reason = str(tc.args.get("reason", ""))
-        state.append_turn(Turn(role="assistant", content=reason))
-        yield FinalAnswerEvent(
+        final = FinalAnswerEvent(
             seq=next_seq(),
             session_id=session_id,
             turn=state.iterations,
-            text=reason,
+            text=str(tc.args.get("reason", "")),
             metadata={"stop": True},
         )
+        final = await plugins.on_final_answer(final, state)
+        state.append_turn(Turn(role="assistant", content=final.text))
+        yield final
         state.done = True
         return
 
@@ -463,7 +539,7 @@ async def _dispatch_pseudo(
         except OracleNotConfigured as exc:
             oracle_result = {"error": str(exc)}
             to_model = "(unconfigured)"
-        yield OracleEscalationEvent(
+        oracle_event = OracleEscalationEvent(
             seq=next_seq(),
             session_id=session_id,
             turn=state.iterations,
@@ -471,6 +547,8 @@ async def _dispatch_pseudo(
             from_model=from_model,
             to_model=to_model,
         )
+        await plugins.on_oracle_escalation(oracle_event, state)
+        yield oracle_event
         state.append_turn(
             Turn(role="tool", content=_content_for_history(oracle_result), tool_call_id=tc.id)
         )
@@ -509,6 +587,7 @@ async def _run_real_calls(
     char_limits: dict[str, int],
     parallel: bool,
     next_seq: Any,
+    plugins: PluginHost,
 ) -> AsyncIterator[Event]:
     """Emit ToolCall/ToolResult events for a batch of real tool calls.
 
@@ -516,7 +595,18 @@ async def _run_real_calls(
     model issued them), then results are emitted in the same order. When
     ``parallel`` is True the underlying calls are gathered concurrently but
     the event stream stays deterministic.
+
+    Plugin hooks (SPEC §12) wrap each call: ``before_tool_call`` folds over the
+    calls before dispatch (so a rewrite reaches the tool and the emitted
+    ``ToolCallEvent``), and ``after_tool_call`` folds over each bounded result
+    before it lands in history (so a redaction reaches the model's context).
+    A transform-hook failure raises :class:`PluginHookError` for the caller.
     """
+    # Fold every call through before_tool_call before any dispatch, so the
+    # ToolCallEvent we emit reflects what actually runs.
+    if plugins:
+        calls = [await plugins.before_tool_call(tc, state) for tc in calls]
+
     for tc in calls:
         yield ToolCallEvent(
             seq=next_seq(),
@@ -543,15 +633,7 @@ async def _run_real_calls(
         limit = resolve_limit(tc.name, char_limits, default_char_limit)
         truncated, was_truncated = truncate_for_tool(outcome.raw, limit)
 
-        state.append_turn(
-            Turn(
-                role="tool",
-                content=_content_for_history(truncated),
-                tool_call_id=tc.id,
-            )
-        )
-
-        yield ToolResultEvent(
+        result_event = ToolResultEvent(
             seq=next_seq(),
             session_id=session_id,
             turn=state.iterations,
@@ -560,6 +642,18 @@ async def _run_real_calls(
             truncated=was_truncated,
             cached=outcome.cache_hit,
         )
+        result_event = await plugins.after_tool_call(tc, result_event, state)
+
+        # History uses the post-hook payload so a redaction stays out of context.
+        state.append_turn(
+            Turn(
+                role="tool",
+                content=_content_for_history(result_event.result),
+                tool_call_id=tc.id,
+            )
+        )
+
+        yield result_event
 
 
 __all__ = [
