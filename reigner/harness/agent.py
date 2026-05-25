@@ -26,6 +26,8 @@ from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
+from reigner.plugins.host import PluginHost
+from reigner.plugins.registry import load_plugins
 from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
 from reigner.tools.provenance import register_citation
 from reigner.tools.pseudo import (
@@ -60,6 +62,7 @@ class Harness:
     registry: ToolRegistry = field(default_factory=ToolRegistry)
     role: str = ""
     oracle_adapter: ModelAdapter | None = None
+    plugins: PluginHost = field(default_factory=PluginHost.empty)
     store: SessionStore = field(init=False)
     """Built from :attr:`sessions.store_path` in :meth:`__post_init__`.
 
@@ -92,7 +95,8 @@ class Harness:
         - ``tools.fs`` is wired to :class:`reigner.tools.fs.FsTools` — the
           raw filesystem surface (SPEC §6.4 FS tools). Off by default; only
           registered when ``tools.fs`` is present in the config.
-        - Plugins (``cfg.plugins``) parse but are not yet wired.
+        - Plugins (``cfg.plugins``) are resolved to a :class:`PluginHost` whose
+          hooks fire around the loop (SPEC §12).
         - Sessions / eval sections parse but the runtime that consumes them
           isn't on Harness yet.
 
@@ -172,6 +176,7 @@ class Harness:
             registry=registry,
             role=role_text,
             oracle_adapter=oracle_adapter,
+            plugins=PluginHost(load_plugins(cfg.plugins)),
         )
 
     def session(
@@ -279,6 +284,7 @@ class Session:
                 default_char_limit=s.max_tool_result_chars,
                 char_limits=s.tool_result_char_limits,
                 seq_start=len(self._events),
+                plugins=self.harness.plugins,
             ):
                 self._events.append(event)
                 if auto_save:
