@@ -243,6 +243,7 @@ async def test_no_plugins_is_a_clean_noop() -> None:
     events = await _drain(session, "go")
 
     assert [type(e).__name__ for e in events] == [
+        "UserQueryEvent",
         "ToolCallEvent",
         "ToolResultEvent",
         "FinalAnswerEvent",

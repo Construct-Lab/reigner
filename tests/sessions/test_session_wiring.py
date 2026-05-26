@@ -14,7 +14,7 @@ import pytest
 
 from reigner.config import SessionsConfig, SettingsConfig
 from reigner.harness.agent import Harness, Session
-from reigner.harness.events import Event, FinalAnswerEvent
+from reigner.harness.events import Event, FinalAnswerEvent, UserQueryEvent
 from reigner.sessions.store import SessionNotFound, SessionStore
 from tests.harness.test_loop import FakeAdapter, _final
 
@@ -61,10 +61,11 @@ async def test_auto_save_writes_event_per_yield(tmp_path: Path) -> None:
     session = h.session()
     events = await _drain(session, "q?")
 
-    assert len(events) == 1
+    assert len(events) == 2
     on_disk = list(h.store.load_events(session.id))
-    assert len(on_disk) == 1
-    assert isinstance(on_disk[0], FinalAnswerEvent)
+    assert len(on_disk) == 2
+    assert isinstance(on_disk[0], UserQueryEvent)
+    assert isinstance(on_disk[1], FinalAnswerEvent)
 
 
 @pytest.mark.asyncio
@@ -77,7 +78,7 @@ async def test_auto_save_off_stays_in_memory_until_save(tmp_path: Path) -> None:
     session.save()
     assert h.store.exists(session.id)
     on_disk = list(h.store.load_events(session.id))
-    assert len(on_disk) == 1
+    assert len(on_disk) == 2
 
 
 @pytest.mark.asyncio
@@ -87,7 +88,7 @@ async def test_meta_refreshed_after_run_stream(tmp_path: Path) -> None:
     await _drain(session, "q?")
 
     meta = h.store.read_meta(session.id)
-    assert meta.event_count == 1
+    assert meta.event_count == 2
     assert meta.session_id == session.id
     assert meta.parent_id is None
 
@@ -110,7 +111,7 @@ async def test_set_title_persists_through_subsequent_writes(tmp_path: Path) -> N
     await _drain(session, "q2")
     meta = h.store.read_meta(session.id)
     assert meta.title == "My title"
-    assert meta.event_count == 2
+    assert meta.event_count == 4
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ async def test_resume_preloads_events_so_seq_continues(tmp_path: Path) -> None:
     final_seqs = [ev.seq for ev in resumed.events()]
     assert final_seqs[: len(first_seqs)] == first_seqs
     # New events get fresh seq numbers continuing the sequence.
-    assert final_seqs[len(first_seqs) :] == [len(first_seqs)]
+    assert final_seqs[len(first_seqs) :] == [len(first_seqs), len(first_seqs) + 1]
 
 
 # ---------------------------------------------------------------------------
@@ -148,21 +149,22 @@ async def test_fork_writes_parent_id_immediately(tmp_path: Path) -> None:
     parent = h.session()
     await _drain(parent, "q1")
 
-    child = parent.fork()
-    # Even though the child has no events yet, its meta exists with parent_id.
+    child = parent.fork(at_turn=1)
+    # A fork before round one has an empty but durable transcript.
     meta = h.store.read_meta(child.id)
     assert meta.parent_id == parent.id
     assert meta.event_count == 0
+    assert h.store.exists(child.id)
 
 
 # ---------------------------------------------------------------------------
-# Session.load — inspection-only
+# Session.load — reconstructed and resumable
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_session_load_returns_inspection_only(tmp_path: Path) -> None:
-    h = _build_harness(tmp_path, actions=[_final("hi")])
+async def test_session_load_reconstructs_and_can_resume(tmp_path: Path) -> None:
+    h = _build_harness(tmp_path, actions=[_final("hi"), _final("continued")])
     original = h.session()
     await _drain(original, "q?")
     original_events = original.events()
@@ -171,10 +173,11 @@ async def test_session_load_returns_inspection_only(tmp_path: Path) -> None:
     assert loaded.id == original.id
     assert loaded.parent_id == original.parent_id
     assert [ev.seq for ev in loaded.events()] == [ev.seq for ev in original_events]
+    assert [turn.content for turn in loaded.history()] == ["q?", "hi"]
 
-    with pytest.raises(NotImplementedError):
-        async for _ in loaded.run_stream("can't run this"):
-            pass
+    events = await _drain(loaded, "continue")
+    assert isinstance(events[-1], FinalAnswerEvent)
+    assert events[-1].text == "continued"
 
 
 def test_session_load_missing_id_raises(tmp_path: Path) -> None:
@@ -204,7 +207,6 @@ async def test_session_export_then_import_preserves_link(tmp_path: Path) -> None
     assert imported.id == sid
     assert imported.parent_id == parent.parent_id
     assert [ev.seq for ev in imported.events()] == [ev.seq for ev in parent.events()]
-    # Imported sessions are inspection-only.
-    with pytest.raises(NotImplementedError):
-        async for _ in imported.run_stream("nope"):
-            pass
+    # Imported sessions are reconstructed and can keep running.
+    events = await _drain(imported, "next")
+    assert events[-1].text == "b"

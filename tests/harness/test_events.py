@@ -17,18 +17,19 @@ def _envelope(seq: int = 1) -> dict[str, Any]:
 
 
 SAMPLES: list[ev.Event] = [
-    ev.StatusEvent(**_envelope(1), message="thinking"),
-    ev.ToolCallEvent(**_envelope(2), name="fs_read", args={"path": "x"}, call_id="c1"),
+    ev.UserQueryEvent(**_envelope(1), query="what changed?"),
+    ev.StatusEvent(**_envelope(2), message="thinking"),
+    ev.ToolCallEvent(**_envelope(3), name="fs_read", args={"path": "x"}, call_id="c1"),
     ev.ToolResultEvent(
-        **_envelope(3), call_id="c1", result={"ok": True, "n": 3}, truncated=False, cached=True
+        **_envelope(4), call_id="c1", result={"ok": True, "n": 3}, truncated=False, cached=True
     ),
-    ev.CitationEvent(**_envelope(4), source="art-7", locator={"line": 12}, value="42"),
-    ev.ClarificationEvent(**_envelope(5), question="which year?", candidates=[2023, 2024]),
-    ev.FinalAnswerEvent(**_envelope(6), text="done", metadata={"tokens": 10}),
-    ev.ErrorEvent(**_envelope(7), error="boom", recoverable=True),
-    ev.CompactionEvent(**_envelope(8), level=1, tokens_freed=500),
-    ev.OracleEscalationEvent(**_envelope(9), reason="hard", from_model="haiku", to_model="opus"),
-    ev.SteeringAcceptedEvent(**_envelope(10), message="focus on §3", mode="append"),
+    ev.CitationEvent(**_envelope(5), source="art-7", locator={"line": 12}, value="42"),
+    ev.ClarificationEvent(**_envelope(6), question="which year?", candidates=[2023, 2024]),
+    ev.FinalAnswerEvent(**_envelope(7), text="done", metadata={"tokens": 10}),
+    ev.ErrorEvent(**_envelope(8), error="boom", recoverable=True),
+    ev.CompactionEvent(**_envelope(9), level=1, tokens_freed=500),
+    ev.OracleEscalationEvent(**_envelope(10), reason="hard", from_model="haiku", to_model="opus"),
+    ev.SteeringAcceptedEvent(**_envelope(11), message="focus on §3", mode="append"),
 ]
 
 
@@ -86,8 +87,9 @@ def test_missing_type_rejection() -> None:
 
 
 def test_registry_completeness() -> None:
-    assert len(ev.EVENT_TYPES) == 10
+    assert len(ev.EVENT_TYPES) == 11
     expected = {
+        "user_query",
         "status",
         "tool_call",
         "tool_result",
@@ -106,6 +108,7 @@ def test_registry_completeness() -> None:
 
 
 def test_type_is_class_level() -> None:
+    assert ev.UserQueryEvent.type == "user_query"
     assert ev.StatusEvent.type == "status"
     assert ev.ToolResultEvent.type == "tool_result"
 
