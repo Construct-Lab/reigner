@@ -2,8 +2,8 @@
 
 SPEC.md §11. Sessions are durable, forkable, branchable JSON files on disk.
 This module owns the disk format and the data layer; :class:`Session` wiring
-lives in :mod:`reigner.harness.agent`. Replay (event stream → AgentState) and
-fork-tree navigation are T-25 and not implemented here.
+lives in :mod:`reigner.harness.agent`. Reconstruction and fork-tree navigation
+live in :mod:`reigner.sessions.replay` and :mod:`reigner.sessions.tree`.
 
 On-disk layout
 --------------
@@ -22,7 +22,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +75,12 @@ class SessionMeta:
         if not isinstance(data, dict):
             raise ValueError("meta.json must be a JSON object")
         version = data.get("schema_version")
+        if version == 1:
+            # T-25 changes the event transcript (query rows), not the metadata
+            # fields. Preserve v1 visibility for list/tree/inspection; state
+            # reconstruction still rejects v1 logs without UserQueryEvent.
+            data["schema_version"] = SCHEMA_VERSION
+            return cls(**data)
         if version != SCHEMA_VERSION:
             raise SchemaVersionMismatch(
                 f"session meta schema_version {version!r} != expected {SCHEMA_VERSION}"
@@ -163,6 +169,27 @@ class SessionStore:
             fh.write(line)
             fh.write("\n")
             fh.flush()
+
+    def write_session_events(self, session_id: str, event_list: Iterable[Event]) -> int:
+        """Write ``event_list`` as the complete JSONL for ``session_id`` (overwrites).
+
+        Used by :meth:`Session.fork` to snapshot a parent's event prefix into a
+        fresh child file. The caller owns ``session_id`` consistency — events
+        whose ``session_id`` field doesn't match are written as-is, so rewrite
+        them (``dataclasses.replace``) before calling if a self-contained
+        transcript is wanted. Returns the number of events written.
+        """
+        self._validate_id(session_id)
+        self._ensure_root()
+        path = self._jsonl_path(session_id)
+        count = 0
+        with path.open("w", encoding="utf-8") as fh:
+            for ev in event_list:
+                fh.write(events.to_json(ev))
+                fh.write("\n")
+                count += 1
+            fh.flush()
+        return count
 
     def load_events(self, session_id: str) -> Iterator[Event]:
         """Iterate the events of one session in write order.

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2 adds UserQueryEvent (T-25 — sessions must record the query)
 
 
 class UnknownEventType(ValueError):
@@ -42,6 +42,21 @@ class Event:
     session_id: str
     turn: int
     ts: datetime = field(default_factory=_utcnow)
+
+
+@dataclass(kw_only=True)
+class UserQueryEvent(Event):
+    """The query that opened a conversational round.
+
+    Emitted by ``Session.run_stream`` before the loop runs (the loop itself
+    never sees the raw query as an event). This is the durable record of what
+    the user asked: without it a session's JSONL has the agent's actions but
+    not the question, so reconstruction/fork/replay (T-25) would be impossible.
+    It also marks the round boundary `at_turn` counts against.
+    """
+
+    type: ClassVar[str] = "user_query"
+    query: str
 
 
 @dataclass(kw_only=True)
@@ -119,6 +134,7 @@ class SteeringAcceptedEvent(Event):
 
 
 _ALL_EVENT_CLASSES: tuple[type[Event], ...] = (
+    UserQueryEvent,
     StatusEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -209,6 +225,7 @@ __all__ = [
     "ToolCallEvent",
     "ToolResultEvent",
     "UnknownEventType",
+    "UserQueryEvent",
     "from_json",
     "to_json",
 ]

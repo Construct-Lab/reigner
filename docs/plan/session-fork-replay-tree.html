@@ -1,0 +1,573 @@
+<!doctype html>
+<!--
+  IMPLEMENTATION PLAN — Reigner T-25 — session fork + replay + tree
+  Botanical Almanac aesthetic. Self-contained, offline.
+-->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Session fork + replay + tree — Implementation plan</title>
+        <style>
+            :root {
+                --bg: #f5f0e1;
+                --paper: #fbf8ec;
+                --paper-soft: #f1ead5;
+                --ink: #1a2e1f;
+                --ink-soft: #5a6b5a;
+                --accent: #b4541a;
+                --rule: #d8cfb4;
+                --dash: #b9b29a;
+                --tag-bg: #ece5d0;
+                --op-add: #2d5938;
+                --op-mod: #856104;
+                --op-del: #8a3320;
+            }
+            * { box-sizing: border-box; }
+            html, body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--ink);
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px;
+                line-height: 1.55;
+            }
+            .page { max-width: 820px; margin: 0 auto; padding: 40px 24px 96px; }
+
+            .eyebrow {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            h1 {
+                font-size: 40px; line-height: 1.15;
+                margin: 6px 0 20px; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.01em;
+            }
+            h2 { font-size: 26px; margin: 0; font-weight: 600; letter-spacing: -0.005em; }
+            h3 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+            p { margin: 8px 0; }
+            code { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.92em; }
+
+            .prompt-box {
+                background: var(--paper-soft);
+                border: 1px solid var(--rule);
+                border-radius: 10px;
+                padding: 16px 18px;
+                margin: 20px 0 36px;
+            }
+            .prompt-box .plabel {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--accent);
+                margin-bottom: 6px;
+            }
+            .prompt-box p { margin: 0; color: var(--ink); font-size: 16px; }
+
+            .bubbles {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px; margin: 24px 0 56px;
+            }
+            .bubble { background: #fff; border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; }
+            .bubble .label {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 10px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            .bubble .value {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 18px; font-weight: 500; margin-top: 4px; color: var(--ink);
+            }
+
+            section { margin: 56px 0; }
+            .section-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+            .section-num {
+                font-family: ui-monospace, Menlo, monospace;
+                color: var(--ink-soft); font-size: 11px; letter-spacing: 0.08em;
+                background: var(--tag-bg); border-radius: 4px; padding: 2px 7px;
+            }
+            section > p:first-of-type { color: var(--ink-soft); margin: 4px 0 24px; }
+
+            .timeline { margin-top: 8px; }
+            .milestone {
+                display: grid; grid-template-columns: 130px 28px 1fr; gap: 14px;
+                padding-bottom: 28px; position: relative;
+            }
+            .milestone .when {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; letter-spacing: 0.04em; color: var(--ink-soft);
+                padding-top: 4px; text-align: right;
+            }
+            .milestone .rail { position: relative; display: flex; justify-content: center; }
+            .milestone .rail::before {
+                content: ""; position: absolute; top: 0; bottom: -28px; left: 50%;
+                width: 1px; background: var(--rule); transform: translateX(-0.5px);
+            }
+            .milestone:last-child .rail::before { bottom: 0; }
+            .milestone .dot {
+                position: relative; z-index: 1; width: 11px; height: 11px; border-radius: 50%;
+                margin-top: 8px; background: var(--op-add); border: 2px solid var(--op-add);
+            }
+            .milestone.upcoming .dot { background: var(--bg); border: 2px solid var(--accent); }
+            .milestone .body { padding-top: 2px; }
+            .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+            .tag {
+                font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+                background: var(--tag-bg); border: 1px solid var(--rule);
+                padding: 2px 8px; border-radius: 4px; color: var(--ink);
+            }
+
+            .flow { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 22px; overflow-x: auto; }
+            .flow svg { width: 100%; height: auto; display: block; }
+            .legend { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-soft); margin-top: 12px; }
+
+            .mock { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 20px; margin: 16px 0; }
+            .mock h3 { margin-bottom: 12px; }
+            .term {
+                background: #1a2e1f; color: #e8e2cf; border-radius: 8px; padding: 14px 16px;
+                font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.6;
+                white-space: pre; overflow-x: auto;
+            }
+            .term .acc { color: #e0975a; }
+            .term .dim { color: #97a394; }
+            .term .grn { color: #9ec79e; }
+
+            .files { display: grid; grid-template-columns: 1fr; gap: 0; }
+            .file-row {
+                display: grid; grid-template-columns: 80px 1fr; gap: 12px; align-items: baseline;
+                border-bottom: 1px dashed var(--dash); padding: 10px 0;
+            }
+            .file-op { font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+            .op-add { color: var(--op-add); }
+            .op-mod { color: var(--op-mod); }
+            .op-del { color: var(--op-del); }
+            .file-path { font-family: ui-monospace, Menlo, monospace; font-size: 14px; color: var(--ink); }
+            .file-note { color: var(--ink-soft); font-size: 14px; margin-top: 3px; display: block; }
+
+            pre.code {
+                background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+                padding: 14px 16px; overflow-x: auto;
+                font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.55; color: var(--ink);
+            }
+            .code-caption { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-soft); margin: 18px 0 6px; }
+            .kw { color: var(--accent); }
+            .fn { color: #2d5938; }
+            .str { color: #856104; }
+
+            .future-item { border-top: 1px solid var(--rule); padding: 16px 0; }
+            .future-item:last-child { border-bottom: 1px solid var(--rule); }
+            .future-item .meta {
+                font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+                letter-spacing: 0.04em; color: var(--ink-soft); margin-top: 6px;
+            }
+
+            .node { fill: var(--paper); stroke: var(--ink); stroke-width: 2.5; }
+            .node-new { fill: var(--paper); stroke: var(--accent); stroke-width: 2.5; }
+            .node-label { font-family: ui-monospace, Menlo, monospace; font-size: 12px; fill: var(--ink); }
+            .node-sub { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+            .band-label { font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: 0.08em; fill: var(--ink-soft); text-transform: uppercase; }
+            .stroke-solid { stroke: var(--ink); stroke-width: 2; fill: none; }
+            .stroke-dash { stroke: var(--ink); stroke-width: 2; fill: none; stroke-dasharray: 6 5; }
+            .edge-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+
+            @media (max-width: 640px) {
+                .milestone { grid-template-columns: 90px 22px 1fr; gap: 10px; }
+                h1 { font-size: 32px; }
+                h2 { font-size: 22px; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <div class="eyebrow">Implementation plan · Reigner · T-25 (#25)</div>
+            <h1>Session fork, replay &amp; tree</h1>
+
+            <div class="prompt-box">
+                <div class="plabel">Prompt</div>
+                <p>Start T-25. Sessions are durable JSONL on disk (T-24 shipped); now make them
+                forkable, replayable, and tree-navigable per SPEC §11. Reconstruct a session's
+                state from its event log (deterministic, stub adapter), fork a branch at a
+                conversational turn, re-run a turn live against the current model for A/B/C
+                comparison, and render the fork tree. Library only — the <code>reigner session</code>
+                CLI is T-21.</p>
+            </div>
+
+            <!-- 2. HIGHLIGHT BUBBLES -->
+            <div class="bubbles">
+                <div class="bubble"><div class="label">Effort</div><div class="value">~3–4 days</div></div>
+                <div class="bubble"><div class="label">Files added</div><div class="value">4</div></div>
+                <div class="bubble"><div class="label">Files updated</div><div class="value">5</div></div>
+                <div class="bubble"><div class="label">New event type</div><div class="value">UserQueryEvent</div></div>
+                <div class="bubble"><div class="label">Schema version</div><div class="value">1 → 2</div></div>
+                <div class="bubble"><div class="label">Packages</div><div class="value">sessions · harness</div></div>
+            </div>
+
+            <!-- 3. MILESTONES -->
+            <section>
+                <div class="section-head"><span class="section-num">01</span><h2>Milestones</h2></div>
+                <p>Five slices, ordered so each is reviewable on its own. Slice 1 is the prerequisite
+                that unblocks the rest; reconstruction is the engine slices 3–5 build on.</p>
+
+                <div class="timeline">
+                    <div class="milestone">
+                        <div class="when">Slice 1 · foundation</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Persist the user query</h3>
+                            <p>Add <code>UserQueryEvent</code>, bump <code>SCHEMA_VERSION</code> 1→2,
+                            and emit + log + yield it at the top of <code>run_stream</code>. Without
+                            this the query never reaches disk and nothing downstream can reconstruct.
+                            It doubles as the conversational-round boundary marker.</p>
+                            <div class="tags"><span class="tag">harness/events.py</span><span class="tag">harness/agent.py</span></div>
+                        </div>
+                    </div>
+
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 2 · engine</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Deterministic reconstruction</h3>
+                            <p>New <code>sessions/replay.py</code>: regroup an event log into per-turn
+                            <code>ModelAction</code>s, replay through the real <code>run_loop</code>
+                            via a <code>StubAdapter</code> + stub tools serving recorded results.
+                            Returns a fully rebuilt <code>AgentState</code>. Fixes
+                            <code>Session.load</code>'s inspection-only gap so resume works.</p>
+                            <div class="tags"><span class="tag">sessions/replay.py</span><span class="tag">harness/agent.py</span></div>
+                        </div>
+                    </div>
+
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 3 · fork</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Fork from disk at a round</h3>
+                            <p>Extend <code>Session.fork</code> to cut at a conversational round
+                            (<code>UserQueryEvent</code> boundary) and snapshot-copy the parent's
+                            event prefix into the child's JSONL (session_id rewritten). Each branch
+                            is a standalone, replayable transcript; <code>parent_id</code> records lineage.</p>
+                            <div class="tags"><span class="tag">harness/agent.py</span><span class="tag">sessions/store.py</span></div>
+                        </div>
+                    </div>
+
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 4 · replay</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Live re-run of a turn</h3>
+                            <p><code>Session.replay(at_turn=N)</code>: fork at round N, re-issue
+                            round N's recorded query live against the attached Harness's current
+                            model &amp; ROLE. Original untouched and diff-able (acceptance #6).</p>
+                            <div class="tags"><span class="tag">harness/agent.py</span><span class="tag">sessions/replay.py</span></div>
+                        </div>
+                    </div>
+
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 5 · tree</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Fork-tree navigation</h3>
+                            <p>New <code>sessions/tree.py</code>: build the forest from
+                            <code>parent_id</code> links across <code>store.list()</code>;
+                            <code>tree(id)</code> walks up to the containing root and returns the
+                            whole family with <code>id</code> marked. Orphaned parents promote to roots.</p>
+                            <div class="tags"><span class="tag">sessions/tree.py</span><span class="tag">sessions/__init__.py</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. DATA FLOW -->
+            <section>
+                <div class="section-head"><span class="section-num">02</span><h2>Data flow</h2></div>
+                <p>Top band: reconstruction replays the log through the real loop with a stub adapter
+                — no provider calls (the up-arrow into <code>run_loop</code> is dashed). Bottom band:
+                fork snapshots the prefix; replay re-issues the recorded query live; tree reads lineage.</p>
+
+                <div class="flow">
+                    <svg viewBox="0 0 840 520" xmlns="http://www.w3.org/2000/svg" aria-label="Data flow diagram">
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,0 L10,5 L0,10 z" fill="#1a2e1f" />
+                            </marker>
+                        </defs>
+
+                        <!-- ===== BAND 1 — RECONSTRUCTION ===== -->
+                        <text class="band-label" x="20" y="36">Reconstruction · deterministic · no live model</text>
+
+                        <rect class="node" x="20" y="70" width="150" height="58" />
+                        <text class="node-label" x="95" y="96" text-anchor="middle">store.load_events</text>
+                        <text class="node-sub" x="95" y="112" text-anchor="middle">sessions/store.py</text>
+
+                        <rect class="node-new" x="240" y="70" width="160" height="58" />
+                        <text class="node-label" x="320" y="96" text-anchor="middle">reconstruct()</text>
+                        <text class="node-sub" x="320" y="112" text-anchor="middle">sessions/replay.py</text>
+
+                        <rect class="node" x="470" y="70" width="140" height="58" />
+                        <text class="node-label" x="540" y="96" text-anchor="middle">run_loop</text>
+                        <text class="node-sub" x="540" y="112" text-anchor="middle">harness/loop.py</text>
+
+                        <rect class="node" x="680" y="70" width="140" height="58" />
+                        <text class="node-label" x="750" y="96" text-anchor="middle">AgentState</text>
+                        <text class="node-sub" x="750" y="112" text-anchor="middle">harness/state.py</text>
+
+                        <rect class="node-new" x="470" y="180" width="140" height="58" />
+                        <text class="node-label" x="540" y="206" text-anchor="middle">StubAdapter</text>
+                        <text class="node-sub" x="540" y="222" text-anchor="middle">+ stub tools</text>
+
+                        <!-- band 1 edges -->
+                        <path class="stroke-solid" d="M170 99 L240 99" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="205" y="91" text-anchor="middle">events</text>
+
+                        <path class="stroke-solid" d="M400 99 L470 99" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="435" y="91" text-anchor="middle">drive / round</text>
+
+                        <path class="stroke-solid" d="M610 99 L680 99" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="645" y="91" text-anchor="middle">rebuilt</text>
+
+                        <path class="stroke-solid" d="M320 128 L320 209 L470 209" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="332" y="150" text-anchor="start">regroup → ModelActions</text>
+
+                        <path class="stroke-dash" d="M540 180 L540 130" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="548" y="160" text-anchor="start">replay actions + results</text>
+
+                        <!-- divider -->
+                        <line x1="20" y1="270" x2="820" y2="270" stroke="#d8cfb4" stroke-width="1" stroke-dasharray="3 4" />
+
+                        <!-- ===== BAND 2 — FORK / REPLAY / TREE ===== -->
+                        <text class="band-label" x="20" y="300">Fork · replay · tree · lineage on disk</text>
+
+                        <rect class="node" x="20" y="350" width="170" height="58" />
+                        <text class="node-label" x="105" y="376" text-anchor="middle">Session.fork</text>
+                        <text class="node-label" x="105" y="392" text-anchor="middle">Session.replay</text>
+
+                        <rect class="node" x="270" y="330" width="200" height="58" />
+                        <text class="node-label" x="370" y="356" text-anchor="middle">snapshot prefix → child</text>
+                        <text class="node-sub" x="370" y="372" text-anchor="middle">sessions/store.py</text>
+
+                        <rect class="node" x="270" y="430" width="200" height="58" />
+                        <text class="node-label" x="370" y="456" text-anchor="middle">run_loop (live adapter)</text>
+                        <text class="node-sub" x="370" y="472" text-anchor="middle">harness/loop.py</text>
+
+                        <rect class="node-new" x="560" y="380" width="180" height="58" />
+                        <text class="node-label" x="650" y="406" text-anchor="middle">tree()</text>
+                        <text class="node-sub" x="650" y="422" text-anchor="middle">sessions/tree.py</text>
+
+                        <!-- band 2 edges -->
+                        <path class="stroke-solid" d="M190 372 L230 372 L230 359 L270 359" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="300" y="324" text-anchor="middle">fork: copy prefix</text>
+
+                        <path class="stroke-solid" d="M190 392 L230 392 L230 459 L270 459" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="300" y="494" text-anchor="middle">replay: re-issue round-N query</text>
+
+                        <path class="stroke-dash" d="M470 359 L650 359 L650 380" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="560" y="351" text-anchor="middle">parent_id lineage</text>
+                    </svg>
+                </div>
+                <div class="legend">
+                    Solid = request/response, direct calls. Dashed = replayed / lineage (no live work).
+                    Terracotta border = new module. Reconstruction never calls a provider; replay's
+                    <em>continuation</em> does.
+                </div>
+            </section>
+
+            <!-- 5. MOCKUPS -->
+            <section>
+                <div class="section-head"><span class="section-num">03</span><h2>Mockups</h2></div>
+                <p>Library task, but the data has a shape worth pinning down. These are the structures
+                <code>tree()</code> and replay produce — actual CLI rendering lands in T-21.</p>
+
+                <div class="mock">
+                    <h3>A · what tree(id) renders to</h3>
+                    <div class="term"><span class="dim"># tree(store, "a1b2") → whole family, queried node marked</span>
+<span class="grn">●</span> a1b2c3  <span class="dim">"Apple R&amp;D 2024"        2 rounds · root</span>
+├─ <span class="grn">●</span> d4e5f6  <span class="dim">fork@2                 3 rounds</span>
+│  └─ <span class="grn">●</span> 7a8b9c  <span class="acc">← queried</span> <span class="dim">replay@3 · model=opus  4 rounds</span>
+└─ <span class="grn">●</span> 0f1e2d  <span class="dim">replay@1 · model=gpt-4o 2 rounds</span></div>
+                </div>
+
+                <div class="mock">
+                    <h3>B · replay against a different model (diff-able)</h3>
+                    <div class="term"><span class="dim"># original a1b2c3 (sonnet)        # 7a8b9c = replay@3 (opus), parent=d4e5f6</span>
+round 3 ▸ "...and for 2023?"      round 3 ▸ "...and for 2023?"   <span class="dim">(re-issued)</span>
+final   ▸ $29.9B  <span class="grn">[cite metrics]</span>   final   ▸ $29.9B  <span class="grn">[cite metrics]</span>
+                                  <span class="acc">+ note: YoY +14% vs 2022</span>
+<span class="dim">original transcript untouched — both branches persist on disk</span></div>
+                </div>
+            </section>
+
+            <!-- 6. FILES -->
+            <section>
+                <div class="section-head"><span class="section-num">04</span><h2>Files</h2></div>
+                <p>Two new modules in <code>sessions/</code>, one new event, and surgical edits to
+                <code>Session</code>. Nothing removed.</p>
+
+                <div class="files">
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/sessions/replay.py</span>
+                            <span class="file-note">Reconstruction engine: <code>reconstruct(events) → AgentState</code>, <code>StubAdapter</code>, stub tools, <code>round_boundaries()</code>, and the event→<code>ModelAction</code> regrouper.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/sessions/tree.py</span>
+                            <span class="file-note"><code>SessionNode</code> dataclass, <code>build_forest(store)</code>, and <code>tree(store, id)</code> with orphan-promotion and cycle guarding.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/sessions/test_replay.py</span>
+                            <span class="file-note">Round-trip: run a scripted session → reconstruct → assert history/notes/citations match; replay produces a new child diff-able from the parent.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/sessions/test_tree.py</span>
+                            <span class="file-note">Forest building from <code>parent_id</code>, root-walk, marked node, orphan promotion, cycle safety.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/harness/events.py</span>
+                            <span class="file-note">Add <code>UserQueryEvent</code>; register in <code>EVENT_TYPES</code> + <code>__all__</code>; bump <code>SCHEMA_VERSION</code> 1→2.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/harness/agent.py</span>
+                            <span class="file-note">Emit <code>UserQueryEvent</code> in <code>run_stream</code>; rewrite <code>Session.load</code> to reconstruct (drop <code>inspection_only</code> raise); extend <code>fork</code> to round-cut + disk; add async <code>replay</code>.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/sessions/store.py</span>
+                            <span class="file-note">Helper to write a child JSONL from a copied + session_id-rewritten event prefix; tolerate/flag v1 metas on load (migration note).</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/sessions/__init__.py</span>
+                            <span class="file-note">Export <code>reconstruct</code>, <code>SessionNode</code>, <code>build_forest</code>, <code>tree</code>.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">tests/harness/test_events.py · tests/sessions/test_store.py</span>
+                            <span class="file-note">Adjust for <code>SCHEMA_VERSION=2</code> and the new event in round-trip / listing assertions.</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. KEY CODE -->
+            <section>
+                <div class="section-head"><span class="section-num">05</span><h2>Key code</h2></div>
+                <p>The query event (the unblock), the regrouper (easiest to get wrong), and replay
+                (the fork + re-issue contract).</p>
+
+                <div class="code-caption">reigner/harness/events.py · reigner/harness/agent.py</div>
+                <pre class="code"><span class="kw">SCHEMA_VERSION</span> = <span class="str">2</span>  <span class="kw"># was 1 — adds UserQueryEvent</span>
+
+@dataclass(kw_only=<span class="kw">True</span>)
+<span class="kw">class</span> <span class="fn">UserQueryEvent</span>(Event):
+    type: ClassVar[str] = <span class="str">"user_query"</span>
+    query: str
+
+<span class="kw"># Session.run_stream — before driving the loop:</span>
+uq = UserQueryEvent(seq=len(self._events), session_id=self.id, turn=<span class="str">0</span>, query=query)
+self._events.append(uq)
+<span class="kw">if</span> auto_save: store.append_event(self.id, uq)
+<span class="kw">yield</span> uq
+self._state.append_turn(Turn(role=<span class="str">"user"</span>, content=query))</pre>
+
+                <div class="code-caption">reigner/sessions/replay.py — regroup one round's events into the ModelActions the loop produced</div>
+                <pre class="code"><span class="kw">def</span> <span class="fn">_round_to_actions</span>(events): <span class="kw"># events of ONE round (turn resets to 0 each round)</span>
+    results, by_turn = {}, defaultdict(list)
+    <span class="kw">for</span> ev <span class="kw">in</span> events:
+        by_turn[ev.turn].append(ev)
+    actions = []
+    <span class="kw">for</span> turn <span class="kw">in</span> sorted(by_turn):
+        calls = [ToolCall(id=e.call_id, name=e.name, args=e.args)
+                 <span class="kw">for</span> e <span class="kw">in</span> by_turn[turn] <span class="kw">if</span> isinstance(e, ToolCallEvent)]
+        <span class="kw">for</span> e <span class="kw">in</span> by_turn[turn]:
+            <span class="kw">if</span> isinstance(e, ToolResultEvent): results[e.call_id] = e.result
+        final = next((e <span class="kw">for</span> e <span class="kw">in</span> by_turn[turn] <span class="kw">if</span> isinstance(e, FinalAnswerEvent)), <span class="kw">None</span>)
+        <span class="kw">if</span> final: actions.append(ModelAction(is_final_answer=<span class="kw">True</span>, text=final.text))
+        <span class="kw">elif</span> calls: actions.append(ModelAction(is_final_answer=<span class="kw">False</span>, tool_calls=calls))
+    <span class="kw">return</span> actions, results  <span class="kw"># results feed the stub tools, keyed by call_id</span></pre>
+
+                <div class="code-caption">reigner/harness/agent.py — Session.replay</div>
+                <pre class="code"><span class="kw">async def</span> <span class="fn">replay</span>(self, at_turn: int) -> <span class="str">"Session"</span>:
+    <span class="str">"""Fork at round N, re-issue round N's recorded query live against this
+    Harness's current model &amp; ROLE (SPEC §11.2). Original is untouched."""</span>
+    bounds = round_boundaries(self._events)        <span class="kw"># index per UserQueryEvent</span>
+    query = self._events[bounds[at_turn - <span class="str">1</span>]].query
+    child = self.fork(at_turn=at_turn)             <span class="kw"># history = rounds 1..N-1</span>
+    <span class="kw">async for</span> _ <span class="kw">in</span> child.run_stream(query): <span class="kw">pass</span>  <span class="kw"># runs live, persists to child</span>
+    <span class="kw">return</span> child</pre>
+            </section>
+
+            <!-- 8. FUTURE SCOPE -->
+            <section>
+                <div class="section-head"><span class="section-num">06</span><h2>Future scope</h2></div>
+                <p>What's deliberately deferred, plus the assumptions baked into this plan for you
+                to overrule on review.</p>
+
+                <div class="future-item">
+                    <h3>Interleaved assistant text is lost on reconstruction</h3>
+                    <p>When the model emits prose <em>alongside</em> tool calls, the loop stores it in
+                    history but no event carries it (only <code>FinalAnswerEvent</code> has text). So
+                    reconstruction can't recover it — tolerable, since queries, tool calls, and results
+                    all survive, and re-run's headline case (model swap) dwarfs lost narration. The real
+                    fix is to log that text; it's an event-protocol change, out of scope here.</p>
+                    <div class="meta">Decide with · maintainer · when a narration-heavy model becomes the default</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Schema migration for v1 sessions</h3>
+                    <p>Bumping to <code>SCHEMA_VERSION=2</code> means existing v1 JSONL has no
+                    <code>UserQueryEvent</code>. <strong>Assumption:</strong> v1 sessions stay inspectable
+                    (<code>events()</code>, <code>tree()</code>) but <code>reconstruct</code>/<code>replay</code>
+                    raise a clear "no recorded query" error rather than silently guessing. No data rewrite.</p>
+                    <div class="meta">Decide with · reviewer · this PR (flag if hard-fail is preferred)</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Snapshot duplication vs delta+lineage</h3>
+                    <p>Copying the parent prefix into each child makes branches self-contained but
+                    duplicates bytes; deep fork trees over long sessions grow. We chose snapshot for v0
+                    simplicity and crash-safety. Revisit a delta+lineage store if session sizes make
+                    duplication costly.</p>
+                    <div class="meta">Decide with · maintainer · post-v1, if storage shows up as a problem</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Explicit model / role overrides on replay</h3>
+                    <p>Today <code>replay</code> uses whatever Harness it's attached to (SPEC §11.2:
+                    "against current model &amp; ROLE"); to A/B a model you load the session into a
+                    second Harness. The SPEC CLI hints at <code>--with-role</code>, so ergonomic
+                    <code>replay(model=, with_role=)</code> params are a natural follow-up.</p>
+                    <div class="meta">Decide with · T-21 (CLI session commands) author</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>CLI is T-21</h3>
+                    <p><code>reigner session list|fork|replay|tree</code> consumes this library surface
+                    but is a separate task (depends on #25). The mockups above illustrate intended
+                    rendering only; this PR ships no CLI.</p>
+                    <div class="meta">Decide with · already scoped out · T-21</div>
+                </div>
+            </section>
+        </div>
+    </body>
+</html>

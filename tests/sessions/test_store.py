@@ -201,6 +201,32 @@ def test_schema_version_mismatch_on_read(tmp_path: Path) -> None:
         store.read_meta(sid)
 
 
+def test_v1_meta_remains_visible_for_tree_and_inspection(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path)
+    sid = "legacy"
+    store.append_event(sid, _status(sid, 0))
+    (tmp_path / f"{sid}.meta.json").write_text(
+        json.dumps(
+            {
+                "session_id": sid,
+                "parent_id": None,
+                "title": "old transcript",
+                "created": "2026-05-23T00:00:00+00:00",
+                "last_updated": "2026-05-23T00:00:00+00:00",
+                "event_count": 1,
+                "schema_version": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    meta = store.read_meta(sid)
+
+    assert meta.title == "old transcript"
+    assert meta.schema_version == SCHEMA_VERSION
+    assert [listed.session_id for listed in store.list()] == [sid]
+
+
 # ---------------------------------------------------------------------------
 # list / exists
 # ---------------------------------------------------------------------------

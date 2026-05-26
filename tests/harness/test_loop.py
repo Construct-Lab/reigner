@@ -156,11 +156,12 @@ async def test_immediate_final_answer() -> None:
     adapter = FakeAdapter(actions=[_final("hello")])
     session = _harness(adapter=adapter, tools=[]).session()
     events = await _drain(session, "hi")
-    assert len(events) == 1
-    assert isinstance(events[0], FinalAnswerEvent)
-    assert events[0].text == "hello"
+    assert [type(event).__name__ for event in events] == ["UserQueryEvent", "FinalAnswerEvent"]
+    assert isinstance(events[1], FinalAnswerEvent)
+    assert events[1].text == "hello"
     # Stable seq numbering starting from 0.
     assert events[0].seq == 0
+    assert events[1].seq == 1
 
 
 @pytest.mark.asyncio
@@ -185,9 +186,9 @@ async def test_tool_call_then_final() -> None:
     events = await _drain(session, "search please")
 
     types = [type(e).__name__ for e in events]
-    assert types == ["ToolCallEvent", "ToolResultEvent", "FinalAnswerEvent"]
+    assert types == ["UserQueryEvent", "ToolCallEvent", "ToolResultEvent", "FinalAnswerEvent"]
     assert tool.calls == [{"q": "x"}]
-    result_event = events[1]
+    result_event = events[2]
     assert isinstance(result_event, ToolResultEvent)
     assert result_event.cached is False
     assert result_event.truncated is False
@@ -380,8 +381,8 @@ async def test_adapter_transient_error_yields_recoverable_error_event() -> None:
     adapter = FakeAdapter(actions=[TransientAdapterError("rate limited")])
     session = _harness(adapter=adapter, tools=[]).session()
     events = await _drain(session, "go")
-    assert len(events) == 1
-    err = events[0]
+    assert len(events) == 2
+    err = events[1]
     assert isinstance(err, ErrorEvent)
     assert err.recoverable is True
 
@@ -391,7 +392,7 @@ async def test_adapter_permanent_error_yields_unrecoverable_error_event() -> Non
     adapter = FakeAdapter(actions=[AdapterError("nope")])
     session = _harness(adapter=adapter, tools=[]).session()
     events = await _drain(session, "go")
-    err = events[0]
+    err = events[1]
     assert isinstance(err, ErrorEvent)
     assert err.recoverable is False
 

@@ -100,6 +100,7 @@ async def test_register_citation_emits_event_and_stores_citation() -> None:
 
     types = [type(e).__name__ for e in events]
     assert types == [
+        "UserQueryEvent",
         "ToolCallEvent",
         "CitationEvent",
         "ToolResultEvent",

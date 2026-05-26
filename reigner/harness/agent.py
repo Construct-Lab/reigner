@@ -15,19 +15,20 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from reigner.config import ReignerConfig, SessionsConfig, SettingsConfig
 from reigner.harness.adapters.base import ModelAdapter
 from reigner.harness.cache import ToolResultCache
-from reigner.harness.events import Event, FinalAnswerEvent
+from reigner.harness.events import Event, FinalAnswerEvent, UserQueryEvent
 from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
 from reigner.plugins.host import PluginHost
 from reigner.plugins.registry import load_plugins
+from reigner.sessions.replay import reconstruct, round_boundaries
 from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
 from reigner.tools.provenance import register_citation
 from reigner.tools.pseudo import (
@@ -190,10 +191,16 @@ class Harness:
         # `state` is reserved for user-attached metadata (e.g. {"user_id": "u1"}
         # per SPEC §4); persisted alongside the session by T-23.
         _ = state
+        resolved_id = session_id or uuid.uuid4().hex
+        parent_id = (
+            self.store.read_meta(resolved_id).parent_id
+            if session_id is not None and self.store.exists(resolved_id)
+            else None
+        )
         return Session(
             harness=self,
-            session_id=session_id or uuid.uuid4().hex,
-            parent_id=None,
+            session_id=resolved_id,
+            parent_id=parent_id,
             initial_history=list(history or []),
             profile=profile,
         )
@@ -201,8 +208,8 @@ class Harness:
     def import_session(self, src_path: str | Path) -> Session:
         """Import an exported session JSONL into the store, then load it.
 
-        The loaded :class:`Session` is inspection-only until T-25 lands
-        replay — :meth:`Session.run_stream` raises. Returns the new Session.
+        The returned :class:`Session` is fully live — its state is reconstructed
+        from the imported log (T-25), so ``run_stream``/``fork``/``replay`` work.
         """
         sid = self.store.import_(src_path)
         return Session.load(sid, harness=self)
@@ -219,14 +226,12 @@ class Session:
         parent_id: str | None,
         initial_history: list[Turn],
         profile: Profile = "full",
-        inspection_only: bool = False,
     ) -> None:
         self.harness = harness
         self.id = session_id
         self.parent_id = parent_id
         self.profile: Profile = profile
         self._cache = ToolResultCache()
-        self._inspection_only = inspection_only
         s = harness.settings
         self._state = AgentState(
             session_id=session_id,
@@ -246,11 +251,20 @@ class Session:
         for turn in initial_history:
             self._state.append_turn(turn)
         self._events: list[Event] = []
-        # Resume: if a session by this id is already on disk, preload its
-        # events so seq numbering continues correctly. State (history /
-        # notes / citations) is not reconstructed — that's T-25 (replay).
+        # Resume: if a session by this id is already on disk, preload its events
+        # (so seq numbering continues) and reconstruct in-memory state from the
+        # log so the conversation continues from where it left off (T-25).
         if harness.store.exists(session_id):
             self._events.extend(harness.store.load_events(session_id))
+            if self._events:
+                self._seed_state(
+                    reconstruct(
+                        self._events,
+                        settings=harness.settings,
+                        session_id=session_id,
+                        role=harness.role,
+                    )
+                )
         self._persisted_count = len(self._events)
 
     # ------------------------------------------------------------------
@@ -259,23 +273,36 @@ class Session:
     async def run_stream(self, query: str) -> AsyncIterator[Event]:
         """Stream events for a single query to completion.
 
-        Appends the user query as a Turn, then drives ``run_loop`` until it
-        emits a terminal event. ``state.iterations`` is reset per call so
-        ``max_iterations`` is a per-query budget, not a per-session one.
+        Emits a ``UserQueryEvent`` (so the query is durable — reconstruction in
+        T-25 depends on it and uses it as the round boundary), appends the query
+        as a Turn, then drives ``run_loop`` until it emits a terminal event.
+        ``state.iterations`` is reset per call so ``max_iterations`` is a
+        per-query budget, not a per-session one.
 
         Auto-saves each event to the session store when
         ``harness.sessions.auto_save`` is true (the default); the meta sidecar
         is refreshed once the stream completes.
         """
-        if self._inspection_only:
-            raise NotImplementedError(
-                "this Session was loaded for inspection — running new turns "
-                "needs replay-based state reconstruction, which lands with T-25"
-            )
-        self._state.append_turn(Turn(role="user", content=query))
         s = self.harness.settings
         auto_save = self.harness.sessions.auto_save
         store = self.harness.store
+
+        # Record the query first — emitted, persisted, and yielded — so the
+        # event log is a complete transcript. The loop never sees the raw
+        # query as an event, so this is the only place it gets logged.
+        query_event = UserQueryEvent(
+            seq=len(self._events),
+            session_id=self.id,
+            turn=0,
+            query=query,
+        )
+        self._events.append(query_event)
+        if auto_save:
+            store.append_event(self.id, query_event)
+            self._persisted_count += 1
+        yield query_event
+
+        self._state.append_turn(Turn(role="user", content=query))
         try:
             async for event in run_loop(
                 self._state,
@@ -333,30 +360,97 @@ class Session:
     # Forking
     # ------------------------------------------------------------------
     def fork(self, at_turn: int = -1) -> Session:
-        """Branch from this session at ``at_turn``.
+        """Branch a new session from this one at conversational round ``at_turn``.
 
-        ``at_turn=-1`` (default) forks from the current tail. Otherwise the
-        new session inherits ``history[:at_turn]``. The fork gets a fresh
-        cache and event log; ``parent_id`` points back to this session.
-
-        When auto-save is on, the child's meta is written immediately so
-        ``parent_id`` is durable even if the process crashes before the first
-        event is appended.
+        ``at_turn`` counts conversational rounds (``UserQueryEvent`` boundaries),
+        1-based. ``fork(at_turn=N)`` keeps rounds ``1..N-1`` and leaves the child
+        ready to accept new input; ``at_turn=-1`` (default) forks from the tail
+        (every round). The child's JSONL is a self-contained snapshot — the
+        parent's event prefix is copied in with ``session_id`` rewritten — so the
+        branch can be reconstructed, replayed, and diffed on its own.
+        ``parent_id`` points back to this session for the fork tree.
         """
-        history = list(self._state.history)
-        if at_turn >= 0:
-            history = history[:at_turn]
+        events = list(self._events)
+        cut = self._cut_index(events, at_turn)
+        child_id = uuid.uuid4().hex
+        prefix = [replace(ev, session_id=child_id) for ev in events[:cut]]
+
         child = Session(
             harness=self.harness,
-            session_id=uuid.uuid4().hex,
+            session_id=child_id,
             parent_id=self.id,
-            initial_history=history,
+            initial_history=[],
             profile=self.profile,
         )
+        # __init__ saw no file for the fresh id, so child state is empty; rebuild
+        # it from the prefix we're about to adopt.
+        if prefix:
+            child._seed_state(
+                reconstruct(
+                    prefix,
+                    settings=self.harness.settings,
+                    session_id=child_id,
+                    role=self.harness.role,
+                )
+            )
+        child._events = prefix
+
+        store = self.harness.store
         if self.harness.sessions.auto_save:
-            store = self.harness.store
-            store.write_meta(child.id, child._build_meta(store))
+            # Persist an empty JSONL for fork(at_turn=1) as well: a branch with
+            # no copied rounds must still be loadable and appear in the tree.
+            store.write_session_events(child_id, prefix)
+            child._persisted_count = len(prefix)
+            store.write_meta(child_id, child._build_meta(store))
         return child
+
+    async def replay(self, at_turn: int) -> Session:
+        """Re-run round ``at_turn`` live, returning a new child session.
+
+        SPEC §11.2. Forks at round ``at_turn`` (keeping rounds ``1..N-1``), then
+        re-issues that round's *recorded* query against this Harness's current
+        model & ROLE and runs it to completion on the child. This session is
+        untouched, so the original answer stays diff-able against the new branch
+        (acceptance criterion #6). To compare models, load the session into a
+        Harness configured with the other model and call ``replay`` there.
+        """
+        bounds = round_boundaries(self._events)
+        if at_turn < 1 or at_turn > len(bounds):
+            raise ValueError(
+                f"at_turn={at_turn} out of range — session has {len(bounds)} recorded round(s)"
+            )
+        query = cast("UserQueryEvent", self._events[bounds[at_turn - 1]]).query
+        child = self.fork(at_turn=at_turn)
+        async for _ in child.run_stream(query):
+            pass
+        return child
+
+    def _cut_index(self, events: list[Event], at_turn: int) -> int:
+        """Translate a 1-based round ``at_turn`` (or ``-1`` tail) into an event-list cut.
+
+        Returns the index such that ``events[:cut]`` is rounds ``1..at_turn-1``.
+        """
+        if at_turn == -1:
+            return len(events)
+        if at_turn < 1:
+            raise ValueError("at_turn must be >= 1 (1-based round) or -1 for the tail")
+        bounds = round_boundaries(events)
+        if at_turn > len(bounds):
+            raise ValueError(
+                f"at_turn={at_turn} exceeds the {len(bounds)} recorded round(s) in this session"
+            )
+        return bounds[at_turn - 1]
+
+    def _seed_state(self, src: AgentState) -> None:
+        """Adopt reconstructed history/notes/citations into this session's live state.
+
+        ``src`` comes from :func:`reconstruct` and carries stub tooling; we copy
+        only the conversational payload, leaving this session's real registry,
+        adapter, and budgets intact so it can keep running.
+        """
+        self._state.history = list(src.history)
+        self._state.notes = list(src.notes)
+        self._state.citations = list(src.citations)
 
     # ------------------------------------------------------------------
     # Steering
@@ -387,6 +481,8 @@ class Session:
         for event in self._events[self._persisted_count :]:
             store.append_event(self.id, event)
             self._persisted_count += 1
+        if not store.exists(self.id):
+            store.write_session_events(self.id, [])
         meta = self._build_meta(store)
         store.write_meta(self.id, meta)
         return meta
@@ -401,15 +497,14 @@ class Session:
 
     @classmethod
     def load(cls, session_id: str, *, harness: Harness) -> Session:
-        """Load a stored session for inspection.
+        """Load a stored session, reconstructing its state so it can be resumed.
 
-        Returns a Session with ``events()``, ``id``, ``parent_id``, and the
-        meta-derived fields populated. ``run_stream`` raises
-        :class:`NotImplementedError` — replay-based state reconstruction
-        lands with T-25. To resume a session and keep running, use
-        ``harness.session(session_id=...)`` instead, which preloads events
-        but lets the loop continue (with the documented caveat that
-        in-memory history starts empty until T-25).
+        Reads the meta sidecar for ``parent_id``, preloads the event log, and
+        rebuilds history/notes/citations via deterministic replay (T-25). The
+        returned session is fully live: ``run_stream``, ``fork``, and ``replay``
+        all work. Raises :class:`SessionNotFound` if the id isn't on disk, or
+        :class:`reigner.sessions.replay.ReplayError` if the log predates
+        ``UserQueryEvent`` (SCHEMA_VERSION 1) and carries no recorded query.
         """
         store = harness.store
         if not store.exists(session_id):
@@ -421,7 +516,6 @@ class Session:
             parent_id=meta.parent_id,
             initial_history=[],
             profile="full",
-            inspection_only=True,
         )
 
     # ------------------------------------------------------------------
