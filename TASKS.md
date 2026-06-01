@@ -138,6 +138,12 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - Scaffolds the project layout from SPEC §9.1 (REIGNER.md, reigner.yaml, schema.yaml, extractors/, library/{raw,artifacts}/, search-index/, eval/, .env.example, .gitignore, README.md)
   - Depends on: #17
 
+- [ ] **[T-73 #73](https://github.com/Construct-Lab/reigner/issues/73)** `feat: implement reigner init --guided` `M`
+  - `cli/init.py`: wire the SPEC §14 default mode — interactive Q&A → model-generated REIGNER.md + schema.yaml, confirmation gate before scaffolding `extractors/my_extractor.py`, graceful no-API-key fallback to `--blank`
+  - Make bare `reigner init <name>` adopt `--guided` as its default; remove the `_NO_MODE` / `_STUB_GUIDED` stub messages
+  - Depends on: #4, #13, #17
+  - _T-18 shipped only the `--blank` path and closed with `--guided` stubbed; this tracks the remaining default-mode work_
+
 - [ ] **[T-19 #19](https://github.com/Construct-Lab/reigner/issues/19)** `feat: CLI chat REPL` `M`
   - `cli/chat.py`: interactive REPL with interrupt/queue steering; `--print` and `--json` modes
   - Depends on: #5, #18
@@ -157,6 +163,12 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
 - [ ] **[T-23 #23](https://github.com/Construct-Lab/reigner/issues/23)** `feat: MCP server export` `M`
   - `server/mcp_export.py`: expose all `@tool`-decorated functions as MCP-callable tools
   - Depends on: #7, #22
+
+- [ ] **[T-74 #74](https://github.com/Construct-Lab/reigner/issues/74)** `feat: auto-load project .env at CLI startup` `S`
+  - `cli/_env.py`: `load_project_env(config_path)` — `load_dotenv(root/".env", override=False)` from the resolved project root (`--config` parent or CWD); real OS env wins, no walk-up past root
+  - Add `python-dotenv>=1.0` runtime dep; call from `chat`, `ingest`, `serve`, `init --guided` before building any adapter
+  - Depends on: #17
+  - _Fixes: keys in a project `.env` were never read because nothing seeded `os.environ` (SDKs read env directly)_
 
 ---
 
@@ -219,6 +231,21 @@ All Phase 1 tracks must be stable before these begin.
   - `examples/sec_10k/`: extractor, ingestion script, 20 eval cases, README
   - Validates SPEC.md §21 acceptance criteria end-to-end
   - Depends on: #16, #28, #32
+
+---
+
+## Documentation
+
+Cross-cutting docs work — no hard code dependency on the tracks above; documents the whole surface.
+
+- [ ] **[T-75 #75](https://github.com/Construct-Lab/reigner/issues/75)** `docs: docs/USAGE.md — end-to-end feature & usage guide` `M`
+  - Single Markdown guide: quick start, feature status table (✅ shipped / 🟡 partial / ⏳ planned), walkthrough in user order (init → ingest → chat → session → eval → serve), config reference, known gaps
+  - Status flags verified against real CLI behavior, not assumed from TASKS.md; written MkDocs-friendly (headings/relative links) so #76 can render it as-is
+  - Coordinate with: all tracks
+
+- [ ] **[T-76 #76](https://github.com/Construct-Lab/reigner/issues/76)** `docs: scaffold MkDocs Material site + GitHub Pages deploy` `S`
+  - `mkdocs.yml` (Material), `mkdocstrings[python]` API reference, GitHub Pages deploy Action with `mike` versioning; resolve the `docs/` source-dir vs. generated-HTML collision
+  - Coordinate with: #75 (provides content)
 
 ---
 
