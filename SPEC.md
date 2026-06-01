@@ -1207,6 +1207,8 @@ Calling these out so they don't sneak back in during the build:
 - Terminal UI as a primary surface. CLI is utility-grade.
 - Self-modification / agent-edits-itself.
 - More than two recipes. `document_qa` and `code_navigator` only.
+- Concurrency control on a single session. The `Harness` is immutable and shared, so independent sessions run in parallel safely. But two in-flight runs resuming the *same* `session_id` both append to one JSONL via `auto_save` and race. v0 documents the contract as "one live run per `session_id` at a time"; a per-session lock (or rejecting a concurrent resume with HTTP 409) is a later hardening step. This surfaces first at the HTTP server (§16), where a retrying client or two tabs make it easy to trigger.
+- Per-request profile on a *resumed* session. New sessions honor their `profile` (§6.3), but `Session.load` currently rebuilds resumed sessions at `profile="full"` regardless of the requested profile. So a `read_only` request that carries a `session_id` silently runs with full tool access. v0 documents this; threading `profile` through `Session.load` (and fork/replay) is a follow-up if per-request gating on resumes is needed.
 
 ---
 

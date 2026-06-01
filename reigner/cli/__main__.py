@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from reigner.cli import _meta, chat, ingest, init, inspect
+from reigner.cli import _meta, chat, ingest, init, inspect, serve
 
 app = typer.Typer(
     name="reigner",
@@ -17,7 +17,7 @@ init.register(app)
 chat.register(app)
 ingest.register(app)
 inspect.register(app)
-# T-21+ append more register() calls here.
+serve.register(app)
 
 
 def main() -> None:
