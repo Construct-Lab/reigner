@@ -177,12 +177,18 @@ def render_tool_for_openai(tool: ToolSpec) -> dict[str, Any]:
     (``{"type": "function", "function": {...}}``). `strict: True` opts into
     schema-conformant tool arg generation — aligns with the bounded-output
     discipline (PRINCIPLES §3).
+
+    Strict mode imposes JSON Schema rules Pydantic's default output violates
+    (``additionalProperties: false`` on every object, every property listed in
+    ``required``, no ``default``). Normalize at the boundary so tool authors
+    keep writing canonical JSON Schema — same pattern as
+    ``_strip_gemini_unsupported``.
     """
     return {
         "type": "function",
         "name": tool.name,
         "description": tool.description,
-        "parameters": tool.json_schema(),
+        "parameters": _normalize_openai_strict(tool.json_schema()),
         "strict": True,
     }
 
@@ -225,6 +231,36 @@ def _strip_gemini_unsupported(schema: Any) -> Any:
         }
     if isinstance(schema, list):
         return [_strip_gemini_unsupported(v) for v in schema]
+    return schema
+
+
+def _normalize_openai_strict(schema: Any) -> Any:
+    """Recursively coerce a JSON Schema into OpenAI strict-mode compliance.
+
+    Strict mode (``tools[*].strict = true``) requires:
+    - every object schema declares ``additionalProperties: false``
+    - every key in ``properties`` is listed in ``required``
+    - ``default`` is rejected (the model is expected to always supply a value;
+      optional-ness is expressed by unioning with ``null``, which Pydantic
+      already emits for ``T | None`` parameters)
+
+    Pydantic's ``model_json_schema()`` emits none of these by default, so we
+    massage the schema at the OpenAI boundary instead of forcing every tool
+    author to write strict-mode-shaped schemas. The walk descends into
+    ``properties``, ``$defs``, ``items``, and ``anyOf`` / ``oneOf`` / ``allOf``
+    branches so nested object schemas (Pydantic ``$ref``-ed models) are
+    normalized too.
+    """
+    if isinstance(schema, dict):
+        out = {k: _normalize_openai_strict(v) for k, v in schema.items() if k != "default"}
+        if "properties" in out or out.get("type") == "object":
+            out["additionalProperties"] = False
+            props = out.get("properties")
+            if isinstance(props, dict):
+                out["required"] = list(props.keys())
+        return out
+    if isinstance(schema, list):
+        return [_normalize_openai_strict(v) for v in schema]
     return schema
 
 
