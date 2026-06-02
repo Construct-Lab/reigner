@@ -14,6 +14,7 @@ from pathlib import Path
 
 import typer
 
+from reigner.cli._env import load_project_env
 from reigner.config import ReignerConfig
 from reigner.harness.agent import Harness
 from reigner.types import ConfigError
@@ -77,6 +78,7 @@ def _load(config_path: Path) -> tuple[ReignerConfig, Harness]:
             err=True,
         )
         raise typer.Exit(EXIT_USAGE)
+    load_project_env(config_path)
     try:
         cfg = ReignerConfig.load(config_path)
         harness = Harness.from_config(config_path)

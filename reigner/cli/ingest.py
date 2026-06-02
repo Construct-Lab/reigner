@@ -23,6 +23,7 @@ from typing import Literal, NoReturn
 import typer
 from rich.console import Console
 
+from reigner.cli._env import load_project_env
 from reigner.harness.events import ErrorEvent, StatusEvent, to_json
 from reigner.ingestion import IngestionPipeline
 
@@ -87,6 +88,7 @@ def _ingest(
     resolved_spec = pipeline_spec or _DEFAULT_PIPELINE
     resolved_source = Path(source or _DEFAULT_SOURCE)
 
+    load_project_env()
     pipeline = _resolve_pipeline(resolved_spec)
     _apply_overrides(pipeline, on_error=on_error, concurrency=concurrency)
 
