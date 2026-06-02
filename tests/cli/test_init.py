@@ -91,13 +91,6 @@ def test_force_overwrites_scaffold_keeps_foreign(tmp_path: Path) -> None:
     assert (target / "notes.txt").read_text() == "keep me"
 
 
-def test_no_mode_flag_errors(tmp_path: Path) -> None:
-    result = _run(["init", "demo"], tmp_path)
-    assert result.exit_code == 2
-    for flag in ("--blank", "--recipe", "--guided"):
-        assert flag in result.stderr
-
-
 def test_recipe_stub_exits_with_t32_message(tmp_path: Path) -> None:
     result = _run(["init", "demo", "--recipe", "document_qa"], tmp_path)
     assert result.exit_code == 1
@@ -106,11 +99,7 @@ def test_recipe_stub_exits_with_t32_message(tmp_path: Path) -> None:
     assert not (tmp_path / "demo").exists()
 
 
-def test_guided_stub_exits_cleanly(tmp_path: Path) -> None:
-    result = _run(["init", "demo", "--guided"], tmp_path)
-    assert result.exit_code == 1
-    assert "--blank" in result.stderr
-    assert not (tmp_path / "demo").exists()
+# Guided is the default mode; its behavior is covered in test_init_guided.py.
 
 
 @pytest.mark.parametrize("bad", ["1abc", "my/agent", "my agent", "with.dot"])

@@ -2,14 +2,14 @@
 
 Three modes per SPEC §14:
 
-- ``--blank``   : empty stubs only (offline, fully working).
+- ``--guided``  : interactive Q&A → model-generated REIGNER.md + schema.yaml.
+  This is the default — bare ``reigner init <name>`` runs it.
 - ``--recipe``  : copy a recipe's bundled scaffolds (stubbed until T-32).
-- ``--guided``  : interactive Q&A → LLM-generated REIGNER.md (stubbed).
+- ``--blank``   : empty stubs only (offline, fully working).
 
-Bare ``reigner init <name>`` errors out and lists the three modes; we
-deliberately don't pick a default until ``--guided`` lands (the SPEC's
-chosen default). This makes the in-progress state honest instead of
-silently shipping a different default we'd have to flip back later.
+The guided flow lives in :mod:`reigner.cli._guided`; it reuses the scaffolder
+here for everything except the two files it generates (``REIGNER.md`` and
+``schema.yaml``) and the gated extractor stub.
 """
 
 from __future__ import annotations
@@ -33,16 +33,6 @@ _STUB_RECIPE: Final = (
     "  Use --blank for now:\n"
     "    reigner init {name} --blank"
 )
-_STUB_GUIDED: Final = (
-    "✗ Guided init is not yet wired.\n  Use --blank for now:\n    reigner init {name} --blank"
-)
-_NO_MODE: Final = (
-    "✗ Pick a mode for `reigner init`.\n\n"
-    "  --blank     empty stubs only (offline)\n"
-    "  --recipe    copy a recipe scaffold  (not yet — T-32)\n"
-    "  --guided    interactive Q&A         (not yet)\n\n"
-    "SPEC §14 makes --guided the default once it ships."
-)
 
 # Filenames within the blank template that should be rendered with substitutions.
 # Everything else is copied byte-for-byte.
@@ -63,7 +53,9 @@ def _init(
     recipe: str | None = typer.Option(
         None, "--recipe", metavar="NAME", help="Copy a recipe scaffold (not yet bundled)."
     ),
-    guided: bool = typer.Option(False, "--guided", help="Interactive Q&A (not yet wired)."),
+    guided: bool = typer.Option(
+        False, "--guided", help="Interactive Q&A → model-generated files (the default)."
+    ),
     force: bool = typer.Option(
         False, "--force", help="Overwrite scaffold files if the target is non-empty."
     ),
@@ -72,10 +64,6 @@ def _init(
     modes_picked = sum(bool(m) for m in (blank, recipe, guided))
     if modes_picked > 1:
         typer.echo("✗ pass at most one of --blank / --recipe / --guided", err=True)
-        raise typer.Exit(2)
-
-    if modes_picked == 0:
-        typer.echo(_NO_MODE, err=True)
         raise typer.Exit(2)
 
     if not NAME_RE.match(name):
@@ -89,13 +77,18 @@ def _init(
         typer.echo(_STUB_RECIPE.format(name=name), err=True)
         raise typer.Exit(1)
 
-    if guided:
-        typer.echo(_STUB_GUIDED.format(name=name), err=True)
-        raise typer.Exit(1)
+    if blank:
+        target = Path(name)
+        _scaffold(target, force=force)
+        _print_success(target)
+        return
 
-    target = Path(name)
-    _scaffold_blank(target, force=force)
-    _print_success(target)
+    # Guided is the SPEC §14 default: it runs for an explicit --guided and for
+    # bare `reigner init <name>`. Imported lazily so blank/recipe paths don't
+    # pay for the model-adapter import surface.
+    from reigner.cli._guided import run_guided
+
+    run_guided(name, force=force)
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +96,12 @@ def _init(
 # ---------------------------------------------------------------------------
 
 
-def _scaffold_blank(target: Path, *, force: bool) -> None:
+def ensure_writable(target: Path, *, force: bool) -> None:
+    """Refuse to scaffold into a non-empty directory unless ``--force``.
+
+    Exposed (no underscore) so the guided flow can fail this check *before*
+    the interactive Q&A and model calls, rather than wasting them.
+    """
     if target.exists() and target.is_dir() and any(target.iterdir()) and not force:
         typer.echo(
             f"✗ ./{target} already exists and is non-empty.\n"
@@ -113,6 +111,25 @@ def _scaffold_blank(target: Path, *, force: bool) -> None:
         )
         raise typer.Exit(1)
 
+
+def _scaffold(
+    target: Path,
+    *,
+    force: bool,
+    overrides: dict[str, str] | None = None,
+    skip: set[str] | None = None,
+) -> None:
+    """Materialise the blank template into ``target``.
+
+    ``overrides`` maps a project-relative path to file content that replaces
+    the template's version (guided uses it for ``REIGNER.md`` / ``schema.yaml``).
+    ``skip`` is a set of project-relative paths to omit entirely (guided uses
+    it to drop the extractor stub when the confirmation gate is declined).
+    """
+    overrides = overrides or {}
+    skip = skip or set()
+
+    ensure_writable(target, force=force)
     target.mkdir(parents=True, exist_ok=True)
 
     template_root = files("reigner.cli.templates") / "blank"
@@ -124,9 +141,14 @@ def _scaffold_blank(target: Path, *, force: bool) -> None:
                 # Realise the directory but skip the marker file itself.
                 (target / rel.parent).mkdir(parents=True, exist_ok=True)
                 continue
+            rel_str = rel.as_posix()
+            if rel_str in skip:
+                continue
             dest = target / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if rel.name in _RENDER:
+            if rel_str in overrides:
+                dest.write_text(overrides[rel_str])
+            elif rel.name in _RENDER:
                 rendered = src.read_text().replace("{project_name}", target.name)
                 dest.write_text(rendered)
             else:
@@ -146,9 +168,9 @@ def _walk(root: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-def _print_success(target: Path) -> None:
+def _print_success(target: Path, *, mode: str = "blank") -> None:
     console = Console()
-    console.print(f"[green]✓[/green] Scaffolded [bold]{target}/[/bold] (blank mode)\n")
+    console.print(f"[green]✓[/green] Scaffolded [bold]{target}/[/bold] ({mode} mode)\n")
 
     tree = Tree(f"[bold]{target}/[/bold]")
     _build_tree(tree, target)
