@@ -528,22 +528,153 @@ $ reigner serve --mcp
 
 ### 3.7 Plugins
 
-Plugins hook into the loop without touching it. Two ship in the box; list their
-dotted paths under `plugins:` in `reigner.yaml`:
+Plugins hook into the loop without touching it. You list **dotted paths** under
+`plugins:` in `reigner.yaml`, and each path resolves to one of two things:
+
+- a **`Plugin` subclass** — the loader instantiates it with **no arguments**.
+  Use this only for zero-arg plugins.
+- a **pre-built `Plugin` instance** (`module:instance` form) — used as-is. This
+  is what you must use for any plugin that takes constructor arguments, since
+  the flat `plugins:` list has no per-plugin config block.
+
+Anything else (a non-`Plugin` value, or a parameterized class referenced as a
+bare path so the no-arg construction fails) is a loud `ConfigError` at startup.
+
+#### Built-in plugins
+
+Two ship in the box, one of each reference style:
 
 - **`MetricsPlugin`** (`reigner.plugins.metrics`) — turns the loop into
-  OpenTelemetry spans (one per tool call, plus markers for compaction, errors,
-  steering). Needs the `otel` extra **and** an OTel provider configured in *your*
-  app — without one, spans hit a no-op tracer (by design). See the README's
-  Observability section.
+  OpenTelemetry spans (one per tool call, plus short spans for compaction,
+  errors, oracle escalation, steering). Needs the `otel` extra **and** an OTel
+  provider configured in *your* app — a missing `otel` dependency raises at
+  construction rather than degrading to a silent no-op. Zero-arg, so reference
+  the class directly. See the README's Observability section.
 - **`PiiRedactPlugin`** (`reigner.plugins.pii_redact`) — regex redaction of tool
-  results before they reach the model. No extra dependency.
+  results (before they reach the model) **and** the final answer (before it
+  reaches the user). No extra dependency. It requires `patterns`, so it **cannot**
+  be a bare class path — build an instance and reference it.
+
+`MetricsPlugin` wires as a bare class path; `PiiRedactPlugin` needs an instance:
+
+```python
+# myproject/observability.py
+from reigner.plugins import PiiRedactPlugin
+
+EMAIL_RE = r"[\w.+-]+@[\w-]+\.[\w.-]+"
+redactor = PiiRedactPlugin(patterns=[r"\b\d{3}-\d{2}-\d{4}\b", EMAIL_RE])
+```
 
 ```yaml
 plugins:
-  - reigner.plugins.pii_redact.PiiRedactPlugin
-  - reigner.plugins.metrics.MetricsPlugin
+  - reigner.plugins.metrics.MetricsPlugin   # zero-arg → class path
+  - myproject.observability:redactor        # parameterized → module:instance
 ```
+
+> Caveat worth stating loudly: regex catches **structured** PII (SSNs, emails,
+> card numbers) but not names or addresses. Treat `PiiRedactPlugin` as a
+> backstop, not a guarantee.
+
+##### Seeing `MetricsPlugin` spans (simple console exporter)
+
+`MetricsPlugin` calls the **global** OpenTelemetry `TracerProvider`; until your
+app sets one, spans hit a no-op tracer and vanish (by design — Reigner never
+hijacks your telemetry). The fastest way to confirm it's working is a
+`ConsoleSpanExporter`, which prints each span to stdout with no collector to
+stand up. Install the SDK alongside the `otel` extra:
+
+```bash
+uv add 'reigner[otel]' opentelemetry-sdk
+```
+
+Then configure the provider **once, at your app's startup** (before the harness
+runs):
+
+```python
+# myproject/tracing.py — import this early, e.g. at the top of your entrypoint
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
+provider = TracerProvider()
+provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+trace.set_tracer_provider(provider)
+```
+
+With that provider live and `MetricsPlugin` wired, each tool call prints a span:
+
+```text
+# representative output
+{
+    "name": "reigner.tool.bm25_search",
+    "attributes": {
+        "reigner.session_id": "01J...",
+        "reigner.tool": "bm25_search",
+        "reigner.truncated": false,
+        "reigner.cached": false
+    },
+    ...
+}
+```
+
+`SimpleSpanProcessor` + `ConsoleSpanExporter` is for local sanity checks — it
+exports synchronously and is noisy. For real backends (Langfuse, Tempo,
+Honeycomb, Jaeger, …) swap in a `BatchSpanProcessor` with an OTLP exporter; the
+README's **Observability** section has that production setup, plus the
+`opentelemetry-instrument` env-var alternative.
+
+#### Writing a custom plugin
+
+Subclass `Plugin` and override only the hooks you care about — every hook
+defaults to a safe no-op, so an audit logger is two methods:
+
+```python
+# myproject/plugins.py
+import logging
+
+from reigner.plugins import Plugin
+
+log = logging.getLogger("myproject.audit")
+
+
+class AuditLogPlugin(Plugin):
+    name = "audit_log"
+
+    async def before_tool_call(self, call, state):
+        # transform hook — you MUST return a (possibly rewritten) call
+        log.info("tool=%s session=%s args=%s", call.name, state.session_id, call.args)
+        return call
+
+    async def on_error(self, error, state):
+        # observe hook — side effect only, returns None
+        log.warning("run error (recoverable=%s): %s", error.recoverable, error.error)
+```
+
+Zero-arg, so wire it by class path:
+
+```yaml
+plugins:
+  - myproject.plugins.AuditLogPlugin
+```
+
+The seven hooks split into two kinds, and the distinction matters for error
+handling:
+
+| Hook | Kind | Fires when | On raise |
+|---|---|---|---|
+| `before_tool_call` | transform | before a tool runs | **aborts the run** |
+| `after_tool_call` | transform | after a tool result is bounded/truncated | **aborts the run** |
+| `on_final_answer` | transform | before the answer is emitted | **aborts the run** |
+| `on_compaction` | observe | a compaction tier fires | logged; next plugin runs |
+| `on_error` | observe | a terminal error is about to emit | logged; next plugin runs |
+| `on_oracle_escalation` | observe | a single-turn oracle escalation is armed | logged; next plugin runs |
+| `on_steering` | observe | a queued steering message is accepted | logged; next plugin runs |
+
+**Transform** hooks return a value that flows on through the loop (return the
+input unchanged for a no-op); a raised exception is fatal. **Observe** hooks
+return `None` and are isolated — a raise is logged and the next plugin still
+runs. Plugins compose in list order, folding each transform's output into the
+next.
 
 ---
 
@@ -603,6 +734,81 @@ plugins: []
 > you uncomment them the agent has only the four built-in pseudo-tools, and
 > `inspect artifacts`/`inspect index` print a hint instead of data (see
 > [Section 3.4](#34-inspect-the-project--reigner-inspect)).
+
+#### 4.1 Full `reigner.yaml` reference
+
+The block above is what the **blank scaffold** ships (most of `tools:` commented
+out). Below is the **exhaustive menu** — every key the schema accepts, fully
+uncommented, with each line annotated `default · type · constraint`. The loader
+uses `extra="forbid"` *everywhere*, so any key not listed here — including a
+typo — fails loudly at load rather than being silently ignored.
+
+```yaml
+name: my_agent              # required · str
+version: 0.1.0              # str · default "0.1.0"
+
+model:                      # required — the main-loop LLM
+  provider: openai          # openai | anthropic | gemini
+  name: gpt-4o              # str, non-empty
+  temperature: 0.2          # float · default 0.2
+
+oracle:                     # optional · single-turn escalation (SPEC §5.5)
+  provider: anthropic       # openai | anthropic | gemini
+  model: claude-opus-4-7    # NOTE: key is `model`, not `name` (asymmetric with model:)
+
+settings:                   # all optional — these defaults are the source of truth
+  max_iterations: 25            # int>0 · default 25 · loop iteration cap
+  context_budget_tokens: 100000 # int>0 · default 100000
+  max_tool_result_chars: 4000   # int>0 · default 4000 · global tool-result cap
+  tool_result_char_limits:      # dict[str,int] · default {} · per-tool overrides, each >0
+    bm25_search: 8000
+  nudge_interval: 3             # int>0 · default 3 · turns between progress nudges
+  max_consecutive_errors: 3     # int>0 · default 3 · abort after N back-to-back errors
+  max_session_notes: 20         # int>0 · default 20 · save_note ring-buffer size
+  history_keep_recent: 3        # int>0 · default 3 · turns kept verbatim on compaction
+  compaction_thresholds: [0.80, 0.90, 0.95]  # 3 floats in (0,1), strictly increasing
+  parallel_reads: true          # bool · default true · coalesce parallel read tools
+  timeout_seconds: 120          # int>0 · default 120 · per model-call timeout
+
+role:
+  file: REIGNER.md          # str · default "REIGNER.md" · the instruction file
+  skills: []                # list[dotted-path] · default [] · ⏳ accepted, not yet wired (§5)
+  # cascade: ...            # ✗ HARD-REJECTED at load (SPEC §9) — there is no runtime cascade
+
+tools:                      # every sub-block optional; omit one to leave that surface unwired
+  artifacts:
+    root: library/artifacts
+    schema: ./schema.yaml   # NOTE: the YAML key is `schema` (aliased to schema_path internally)
+  search:
+    type: bm25              # str · default "bm25" (only bm25 ships today)
+    index_path: search-index/documents.json
+  fs:                       # optional read-only filesystem tool
+    root: .                 # sandbox dir the agent may see, resolved against the config file
+    write_enabled: false    # bool · default false — read-only is the safe default
+  custom: []                # list[dotted-path] · default [] · extra @tool surfaces to register
+
+sessions:
+  store_path: ./.reigner/sessions  # str · default "./.reigner/sessions"
+  auto_save: true                  # bool · default true
+
+plugins: []                 # list[dotted-path] · default [] · see Section 3.7
+
+eval:                       # optional · ⏳ `reigner eval` not wired yet (§5)
+  cases: eval/cases.yaml    # str · default "eval/cases.yaml"
+  checks: []                # list[dotted-path] · default []
+```
+
+Three footguns the schema enforces, worth calling out:
+
+- **`oracle.model` vs `model.name`** — the main model block names the model under
+  `name:`, but the oracle block uses `model:`. They are deliberately asymmetric;
+  using `name:` under `oracle:` is a forbidden-key error.
+- **`tools.artifacts.schema`** — the YAML key is `schema` (it maps to
+  `schema_path` inside the loader). Write `schema:`, not `schema_path:`.
+- **Closed provider set + forbidden extras** — `provider` must be one of
+  `openai`, `anthropic`, `gemini`, and *every* block rejects unknown keys, so a
+  misspelled setting surfaces immediately at `reigner inspect config` or any
+  command that loads the config.
 
 ### `REIGNER.md`
 
