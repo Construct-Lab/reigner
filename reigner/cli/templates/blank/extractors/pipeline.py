@@ -7,9 +7,10 @@ landing pad. Uncomment, adapt loaders/writers to your schema, and run.
 See SPEC.md §8 for the full ingestion contract.
 """
 
-# from reigner.artifacts import ArtifactSchema, ArtifactWriter
+# from reigner.artifacts import ArtifactSchema
 # from reigner.ingestion import IngestionPipeline
 # from reigner.ingestion.loaders import JsonLoader, MdLoader, PdfLoader
+# from reigner.ingestion.writers import ArtifactWriter, Bm25IndexWriter
 #
 # from .my_extractor import MyExtractor
 #
@@ -18,7 +19,10 @@ See SPEC.md §8 for the full ingestion contract.
 # pipeline = IngestionPipeline(
 #     loaders=[PdfLoader(), MdLoader(), JsonLoader()],
 #     transforms=[MyExtractor(schema=_schema)],
-#     writers=[ArtifactWriter(root="library/artifacts", schema=_schema)],
+#     writers=[
+#         ArtifactWriter(root="library/artifacts", schema=_schema),
+#         Bm25IndexWriter(path="search-index/documents.json"),
+#     ],
 #     concurrency=4,
 #     on_error="skip",
 # )
