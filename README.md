@@ -2,8 +2,10 @@
 
 Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.
 
-> Status: pre-implementation. See [`SPEC.md`](SPEC.md) for the v0 contract and
-> [`PRINCIPLES.md`](PRINCIPLES.md) for design rationale.
+> Status: in development. `init`, `ingest`, `chat`, `inspect`, and `serve` work
+> today — see [`docs/USAGE.md`](docs/USAGE.md) for the hands-on guide with
+> per-feature status flags, and [`PRINCIPLES.md`](PRINCIPLES.md) for design
+> rationale.
 
 ## Install
 
