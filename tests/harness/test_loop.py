@@ -310,10 +310,14 @@ async def test_request_clarification_terminates_with_clarification_event() -> No
     )
     session = _harness(adapter=adapter, tools=[]).session()
     events = await _drain(session, "ambiguous")
-    last = events[-1]
-    assert isinstance(last, ClarificationEvent)
-    assert last.question == "which year?"
-    assert last.candidates == ["2023", "2024"]
+    clarification = next(e for e in events if isinstance(e, ClarificationEvent))
+    assert clarification.question == "which year?"
+    assert clarification.candidates == ["2023", "2024"]
+    # A tool Turn must close out the clarification call so resume payloads stay
+    # well-formed for adapters that map tool Turns to per-call outputs (issue #83).
+    closing = session.history()[-1]
+    assert closing.role == "tool"
+    assert closing.tool_call_id == "c1"
 
 
 @pytest.mark.asyncio
