@@ -511,6 +511,19 @@ async def _dispatch_pseudo(
             question=str(tc.args.get("question", "")),
             candidates=list(tc.args.get("candidates", []) or []),
         )
+        clarify_result = {"ok": True, "awaiting_user_reply": True}
+        state.append_turn(
+            Turn(role="tool", content=_content_for_history(clarify_result), tool_call_id=tc.id)
+        )
+        yield ToolResultEvent(
+            seq=next_seq(),
+            session_id=session_id,
+            turn=state.iterations,
+            call_id=tc.id,
+            result=clarify_result,
+            truncated=False,
+            cached=False,
+        )
         state.done = True
         return
 
