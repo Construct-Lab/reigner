@@ -59,6 +59,15 @@ def test_blank_scaffolds_all_files(tmp_path: Path) -> None:
     assert not missing, f"missing scaffold paths: {missing}"
 
 
+def test_pipeline_stub_includes_bm25_writer(tmp_path: Path) -> None:
+    # SPEC §8.3 lists both writers; the stub must not silently drop the BM25
+    # writer, or a freshly-init'd project never generates search-index/documents.json.
+    _run(["init", "demo", "--blank"], tmp_path)
+    stub = (tmp_path / "demo" / "extractors" / "pipeline.py").read_text()
+    assert "Bm25IndexWriter" in stub
+    assert "ArtifactWriter" in stub
+
+
 def test_yaml_round_trips_through_config(tmp_path: Path) -> None:
     _run(["init", "demo", "--blank"], tmp_path)
     # Must validate without raising — catches drift from ReignerConfig schema.
