@@ -78,6 +78,51 @@ def test_render_openai_strict_promotes_optional_to_required() -> None:
     assert "default" not in params["properties"]["entity"]
 
 
+def test_render_openai_disables_strict_for_any_typed_property() -> None:
+    """Pydantic emits a property with no `type` for `Any`-typed parameters
+    (e.g. ``register_citation``'s ``value: Any``). Strict mode requires every
+    leaf to declare a type, so fall back to non-strict rather than crashing."""
+
+    class T(FakeTool):
+        def json_schema(self) -> dict:
+            return {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                    "value": {"title": "Value"},  # Any → no type
+                },
+                "required": ["source", "value"],
+            }
+
+    out = render_tool_for_openai(T())
+    assert out["strict"] is False
+    # Schema is passed through unmodified — non-strict accepts canonical JSON
+    # Schema, no normalization needed.
+    assert "additionalProperties" not in out["parameters"]
+
+
+def test_render_openai_disables_strict_for_open_object() -> None:
+    """``dict[str, Any]`` emits ``type: object`` with ``additionalProperties:
+    true`` and no ``properties`` — also unrepresentable in strict mode."""
+
+    class T(FakeTool):
+        def json_schema(self) -> dict:
+            return {
+                "type": "object",
+                "properties": {
+                    "locator": {
+                        "type": "object",
+                        "additionalProperties": True,
+                    },
+                },
+                "required": ["locator"],
+            }
+
+    out = render_tool_for_openai(T())
+    assert out["strict"] is False
+    assert out["parameters"]["properties"]["locator"]["additionalProperties"] is True
+
+
 def test_render_openai_strict_normalizes_nested_and_defs() -> None:
     """Nested object schemas (including ones reached via ``$defs``) must also
     get ``additionalProperties: false`` and full ``required`` coverage."""
