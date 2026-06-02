@@ -49,6 +49,64 @@ def test_render_openai() -> None:
     assert out["strict"] is True
     assert out["parameters"]["type"] == "object"
     assert out["parameters"]["properties"]["location"]["type"] == "string"
+    # Strict mode requires additionalProperties: false on every object schema.
+    assert out["parameters"]["additionalProperties"] is False
+
+
+def test_render_openai_strict_promotes_optional_to_required() -> None:
+    """Pydantic emits optional `T | None = None` params as anyOf-with-null plus
+    `default: null`, and omits them from `required`. OpenAI strict mode rejects
+    both — promote everything into required and strip defaults at the boundary."""
+
+    class T(FakeTool):
+        def json_schema(self) -> dict:
+            return {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "entity": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "default": None,
+                    },
+                },
+                "required": ["query"],
+            }
+
+    params = render_tool_for_openai(T())["parameters"]
+    assert params["additionalProperties"] is False
+    assert set(params["required"]) == {"query", "entity"}
+    assert "default" not in params["properties"]["entity"]
+
+
+def test_render_openai_strict_normalizes_nested_and_defs() -> None:
+    """Nested object schemas (including ones reached via ``$defs``) must also
+    get ``additionalProperties: false`` and full ``required`` coverage."""
+
+    class T(FakeTool):
+        def json_schema(self) -> dict:
+            return {
+                "type": "object",
+                "properties": {
+                    "filter": {"$ref": "#/$defs/Filter"},
+                },
+                "required": ["filter"],
+                "$defs": {
+                    "Filter": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "value": {"type": "string"},
+                        },
+                        "required": ["key"],
+                    }
+                },
+            }
+
+    params = render_tool_for_openai(T())["parameters"]
+    assert params["additionalProperties"] is False
+    filter_def = params["$defs"]["Filter"]
+    assert filter_def["additionalProperties"] is False
+    assert set(filter_def["required"]) == {"key", "value"}
 
 
 def test_render_anthropic() -> None:
