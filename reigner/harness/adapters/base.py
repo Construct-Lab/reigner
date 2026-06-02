@@ -183,13 +183,28 @@ def render_tool_for_openai(tool: ToolSpec) -> dict[str, Any]:
     ``required``, no ``default``). Normalize at the boundary so tool authors
     keep writing canonical JSON Schema — same pattern as
     ``_strip_gemini_unsupported``.
+
+    Some legitimate tools take open-ended arguments (``Any`` values, ``dict[
+    str, Any]`` locators — e.g. ``register_citation``) which strict mode simply
+    cannot represent: it requires every leaf to declare a ``type`` and every
+    object to be closed. For those, fall back to the unnormalized schema with
+    ``strict: False`` rather than crashing every chat turn.
     """
+    raw = tool.json_schema()
+    if _is_openai_strict_compatible(raw):
+        return {
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": _normalize_openai_strict(raw),
+            "strict": True,
+        }
     return {
         "type": "function",
         "name": tool.name,
         "description": tool.description,
-        "parameters": _normalize_openai_strict(tool.json_schema()),
-        "strict": True,
+        "parameters": raw,
+        "strict": False,
     }
 
 
@@ -262,6 +277,51 @@ def _normalize_openai_strict(schema: Any) -> Any:
     if isinstance(schema, list):
         return [_normalize_openai_strict(v) for v in schema]
     return schema
+
+
+_STRICT_SCHEMA_POSITIONS = ("items", "additionalItems", "not", "if", "then", "else")
+_STRICT_SCHEMA_LIST_POSITIONS = ("anyOf", "oneOf", "allOf", "prefixItems")
+_STRICT_SCHEMA_DICT_POSITIONS = ("properties", "$defs", "definitions")
+
+
+def _is_openai_strict_compatible(schema: Any) -> bool:
+    """Whether `schema` can be sent to OpenAI under ``strict: True``.
+
+    Strict mode rejects two shapes Pydantic emits for genuinely-open arguments:
+    a property with no concrete ``type`` (what ``Any`` becomes) and an object
+    with ``additionalProperties: true`` or no declared ``properties`` (what
+    ``dict[str, Any]`` becomes). Walk only schema positions — not every dict
+    value — so titles, descriptions, and other annotation strings don't get
+    misread as schemas.
+    """
+    if not isinstance(schema, dict):
+        return True
+    is_typed = any(
+        k in schema for k in ("type", "$ref", "anyOf", "oneOf", "allOf", "enum", "const")
+    )
+    if not is_typed:
+        return False
+    if schema.get("type") == "object":
+        if schema.get("additionalProperties") is True:
+            return False
+        if "properties" not in schema and schema.get("additionalProperties") is not False:
+            return False
+    for key in _STRICT_SCHEMA_POSITIONS:
+        if key in schema and not _is_openai_strict_compatible(schema[key]):
+            return False
+    for key in _STRICT_SCHEMA_LIST_POSITIONS:
+        branches = schema.get(key)
+        if isinstance(branches, list) and not all(
+            _is_openai_strict_compatible(b) for b in branches
+        ):
+            return False
+    for key in _STRICT_SCHEMA_DICT_POSITIONS:
+        children = schema.get(key)
+        if isinstance(children, dict) and not all(
+            _is_openai_strict_compatible(v) for v in children.values()
+        ):
+            return False
+    return True
 
 
 __all__ = [
