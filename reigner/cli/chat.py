@@ -27,6 +27,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 from rich.panel import Panel
 
+from reigner.cli._env import load_project_env
 from reigner.harness.agent import Harness, Session
 from reigner.harness.events import (
     CitationEvent,
@@ -105,6 +106,7 @@ def _build_session(config_path: Path) -> Session:
             err=True,
         )
         raise typer.Exit(EXIT_USAGE)
+    load_project_env(config_path)
     try:
         harness = Harness.from_config(config_path)
     except ConfigError as e:
