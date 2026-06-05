@@ -249,6 +249,28 @@ Cross-cutting docs work — no hard code dependency on the tracks above; documen
 
 ---
 
+## Phase 3 — v1 (post-v0)
+
+Roadmap work that lands after the v0 rollout. Surfaced from the discussion in
+[#71](https://github.com/Construct-Lab/reigner/issues/71): multimodal ingestion so
+the agent can compile scanned and image-bearing documents. Tracked under milestone
+**M4 — v1**.
+
+- [ ] **[T-86 #86](https://github.com/Construct-Lab/reigner/issues/86)** `feat: multimodal adapter surface (image/content-part inputs)` `M`
+  - Extend `ModelAdapter` beyond text-in/text-out: carry image/content-part inputs so the harness and `LLMExtractor.call_model` can send images alongside text (content-parts on `call` vs. a parallel `call_with_attachments` path is open)
+  - Provider-neutral image part mapped to OpenAI image parts / Anthropic image blocks / Gemini `inline_data`; text-only callers unchanged
+  - Depends on: #4
+  - _Surfaced in #71; prerequisite for #87. SPEC section 5.3 / T-04 gap — no existing task covers it_
+
+- [ ] **[T-87 #87](https://github.com/Construct-Lab/reigner/issues/87)** `feat: multimodal extraction for scanned & image documents` `M`
+  - `LLMExtractor` passes page images straight to a vision model via #86 — vision reads scanned pages natively, so **no OCR** and **no `ImageLoader`** (a scanned PDF is still a PDF; the loader was never the missing piece)
+  - PyMuPDF renders page pixmaps (no new heavy dep); `ExtractionResult` contract unchanged, so validation/retry/idempotency/cost all keep working
+  - Reframe SPEC section 8.5: OCR superseded by multimodal extraction, not merely deferred
+  - Depends on: #86, #13, #14
+  - _Surfaced in #71; answers "ingest scanned PDFs?" (yes, via vision) and "need an ImageLoader?" (no)_
+
+---
+
 ## Dependency Map
 
 ```
@@ -288,6 +310,7 @@ Cross-cutting docs work — no hard code dependency on the tracks above; documen
 | `area:cli` | Track D |
 | `area:sessions` | Track E |
 | `area:recipes` | Phase 2 |
+| `v1` | Post-v0 (v1) roadmap work — Phase 3 |
 | `blocked` | Waiting on another issue to merge |
 | `size:S` | Hours |
 | `size:M` | 1–2 days |
@@ -300,3 +323,4 @@ Cross-cutting docs work — no hard code dependency on the tracks above; documen
 | M1 — Foundations | #1–#4, #7, #13, #17 | Package boots; events, adapters, tool decorator, schema all exist |
 | M2 — Working parts | #5–#29 | Every component functional and tested in isolation |
 | M3 — Shipped | #30–#34 | `document_qa` works end-to-end; SEC example passes eval |
+| M4 — v1 | #86, #87 | Multimodal ingestion: scanned/image documents via vision-capable adapter |

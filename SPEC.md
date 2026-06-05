@@ -285,6 +285,8 @@ Every UI driving Reigner consumes these events. CLI, web UI, IDE plugin, MCP tra
 
 The loop is small on purpose (~300 lines fleshed out). A developer can read it end-to-end and understand what their agent is doing.
 
+> **v1 follow-up (#86):** `adapter.call(prompt, tools)` is text-in / text-out in v0. v1 extends the adapter surface to carry image/content-part inputs (one path serving both the loop and `LLMExtractor.call_model`), enabling the multimodal extraction in section 8.5 (#87).
+
 ```python
 async def run_loop(state: AgentState) -> AsyncIterator[Event]:
     while not state.done:
@@ -713,6 +715,8 @@ class TenKExtractor(LLMExtractor):
 - Standard error patterns: `TransientError` (retried), `ExtractionError` (routed to dead-letter), `ValidationError` (routed to dead-letter with the malformed payload preserved).
 - A default `preprocess_pdf` implementation using `pymupdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.). PyMuPDF is AGPL-3.0; downstream users requiring a permissive license can install `pymupdf-pro` or override `preprocess_pdf` with another loader.
 
+> **v1 follow-up (#87):** `preprocess_pdf` is text-only, so scanned PDFs fail in v0. v1 adds a multimodal extraction path — page images sent straight to a vision model via the multimodal adapter (#86) — so scanned and image-bearing documents need no OCR. See section 8.5.
+
 **What the user provides:**
 
 - `PROMPT` — the actual instructions. Irreducibly domain-specific.
@@ -769,7 +773,7 @@ The pipeline handles:
 
 - Specific extractors for any domain.
 - Specific PDF parsing strategies beyond a basic default.
-- An OCR pipeline (use a separate library like `unstructured` or `marker` upstream of the pipeline if needed).
+- An OCR pipeline. **v1 supersedes this rather than deferring it** (#87): scanned and image-bearing documents are handled by *multimodal extraction* — `LLMExtractor` passes page images straight to a vision model via the multimodal adapter (#86) — so OCR is unnecessary, not just out of scope. For v0, run a separate library (`unstructured` / `marker`) upstream if needed. Note there is deliberately **no `ImageLoader`**: a scanned PDF is still a PDF, so the loader was never the missing piece.
 - A document deduplication layer (idempotency is per-source, not cross-source).
 
 ---
