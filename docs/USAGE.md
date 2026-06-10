@@ -323,6 +323,122 @@ $ reigner ingest --pipeline mypkg.pipelines:web_pipeline --source urls.txt
 `run` returns an `IngestionReport` (counts + any `SourceFailure` entries), so you
 can also drive ingestion from Python instead of the CLI.
 
+#### Large & non-uniform corpora
+
+Most corpora are **uniform** — many instances of the *same* shape. Every SEC
+10-K has a business section, risk factors, and financials, so a schema that
+*requires* those sections fits every document and minimal setup just works. That
+assumption is baked into the artifact-schema model, and it breaks quietly on a
+**non-uniform** corpus — documents of genuinely different shapes (a textbook, a
+statute, a procedure manual) where no single required-section list fits all of
+them. The failure surfaces late, at ingest, not at schema-authoring time.
+
+`reigner init --guided` asks whether your corpus is uniform or mixed and
+scaffolds accordingly; if you answered *mixed*, this is what it generated for you
+and why. If you're building a pipeline by hand, this is the playbook.
+
+**Diagnose your axis.** A large or awkward corpus is usually failing on one of
+three independent axes. Identify which before reaching for a tool:
+
+| Axis | How it shows up | Reach for |
+|---|---|---|
+| **Size** — a document is too big for one model call | artifacts look fine but are quietly incomplete; the tail of long documents was never read | `MapReduceExtractor` (reads the whole document) |
+| **Heterogeneity** — documents don't share a shape | `SchemaValidationError` → dead-letter on the documents that can't fill a `required` section | `generic_default()` + optional sections |
+| **Extractability** — a PDF has no text layer | page count high, extracted text near-zero (a 200-page scan → a few hundred chars) | OCR upstream, or park it ([#87](https://github.com/Construct-Lab/reigner/issues/87)) |
+
+**Reading the whole document.** `call_model(prompt, input_text)` is
+**single-shot — it does not chunk**. It guards `max_input_chars` (default
+`200_000`); the default `overflow_mode="warn"` **shouts a warning but still sends
+the whole text** — it never silently drops the tail (`"error"` raises
+`InputOverflowError`; `"truncate"` cuts to the cap and warns how much went). That
+guard is how you *discover* a document is too big — the smoke alarm telling you
+to escape the single-shot path. When a document must be read in full but doesn't
+fit one call, subclass `MapReduceExtractor`. It opts out of the single-shot guard
+(`max_input_chars = None`) because chunking already bounds every `call_model`
+call — your subclass inherits that, nothing to set. It MAPs the text in
+`chunk_chars`-capped windows (default `100_000` ≈ 25K tokens; pages are packed,
+never split, so every page is seen), then REDUCEs the per-section fragments to
+fit each section's `max_chars`. You supply two prompts; the base owns chunking,
+fan-out, reduction, and the final size guard — `extract()` is inherited, you do
+not write it.
+
+**Uniform vs. non-uniform corpora.** A `required: true` section is enforced for
+*every* document, so a required-section list is really a per-document-type
+contract — it holds only when every document is that type. For a mixed corpus,
+make topical sections `optional` (each document fills only what it covers), or
+start from `ArtifactSchema.generic_default()` — a preset of corpus-agnostic
+sections any document can fill:
+
+```python
+from reigner.artifacts import ArtifactSchema
+
+schema = ArtifactSchema.generic_default()
+# one required section: overview/topic_summary
+# optional: key_concepts, entities_and_definitions, structure/outline,
+#           notable_passages, citations/source_evidence
+```
+
+The trade-off vs. `document_qa_default()` (uniform corpora) is weaker
+`section_search` targeting — there's no `constitution/fundamental_rights` bucket
+to aim at — recovered by leaning on `bm25_search` over the generic sections.
+
+**Worked example — a map-reduce extractor.** A `MapReduceExtractor` subclass for
+a mixed corpus. The full version is what `reigner init --guided` writes to
+`extractors/my_extractor.py` (and lives at
+`reigner/cli/templates/my_extractor_mapreduce.py`); the shape:
+
+```python
+from typing import Any
+
+from reigner.artifacts import ArtifactSchema
+from reigner.ingestion import MapReduceExtractor
+
+
+class MyExtractor(MapReduceExtractor):
+    schema = ArtifactSchema.from_yaml("schema.yaml")
+    model = "anthropic:claude-sonnet-4-6"
+
+    # overview/topic_summary is synthesized by summarize() from the reduced
+    # sections — don't ask the per-chunk map for it.
+    MAP_EXCLUDE = frozenset({"overview/topic_summary"})
+
+    MAP_PROMPT = "...extract per-section content from THIS part; {section_spec}..."
+    REDUCE_PROMPT = "...merge fragments for {section}, keep under {max_chars}..."
+    SUMMARY_PROMPT = "...write a faithful overview grounded only in these sections..."
+
+    def prompt_context(self, meta: dict[str, Any]) -> dict[str, Any]:
+        return {"filename": meta.get("filename", "unknown")}  # feeds {filename}
+
+    async def summarize(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, str]:
+        compiled = "\n\n".join(f"## {n}\n{b}" for n, b in sections.items())
+        resp = await self.call_model(self.SUMMARY_PROMPT, compiled[: self.reduce_input_chars])
+        return {"overview/topic_summary": str(resp.get("summary", "")).strip()}
+
+    def post_process(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        # Deterministic coverage — computed from which sections actually filled,
+        # never asked of the model. Can't hallucinate, can't dead-letter.
+        filled = [n for n, body in sections.items() if body.strip()]
+        return {"metadata.json": {"sections_filled": len(filled)}}
+```
+
+The **deterministic-coverage trick** is the part worth copying: `post_process`
+derives JSON artifacts (coverage flags, metadata) from *which sections got real
+content*, rather than asking the model "what did you cover?" A computed flag
+can't be hallucinated and can't dead-letter on a partial document. Every other
+knob (`chunk_chars`, `reduce_input_chars`, the `reduce()` and `prompt_context()`
+seams) is documented on the `MapReduceExtractor` class itself — see the API
+reference and the class docstring.
+
+**Scanned / image PDFs.** The default `preprocess_pdf` (PyMuPDF) is **text-only
+in v0** — a scanned PDF with no text layer yields near-empty text, and *no*
+extraction strategy can recover content from text that isn't there (map-reduce
+just loops over nothing). Spot one by comparing page count to extracted length:
+a high page count with near-zero characters means there's no text layer. The fix
+is upstream OCR, or detect-and-park (move it out of `library/raw/` until OCR is
+available). Multimodal extraction for scanned and image documents is tracked in
+[#87](https://github.com/Construct-Lab/reigner/issues/87); see SPEC §8.5 for the
+boundary.
+
 ### 3.3 Chat with your agent — `reigner chat`
 
 `chat` builds the harness from `reigner.yaml`, auto-loads your project `.env`,
