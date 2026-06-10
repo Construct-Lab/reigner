@@ -121,6 +121,16 @@ def test_document_qa_default_loads() -> None:
     assert schema.json_artifact("metadata.json") is not None
 
 
+def test_generic_default_loads() -> None:
+    schema = ArtifactSchema.generic_default()
+    assert schema.section("overview/topic_summary") is not None
+    assert schema.section("key_concepts") is not None
+    assert schema.section("citations/source_evidence") is not None
+    assert schema.json_artifact("metadata.json") is not None
+    # exactly one required section — the universal summary slot
+    assert [s.name for s in schema.required_sections()] == ["overview/topic_summary"]
+
+
 def test_to_json_schema_basic_shape() -> None:
     schema = ArtifactSchema(
         sections=[SectionSpec(name="document_summary", required=True)],

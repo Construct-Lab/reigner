@@ -176,6 +176,32 @@ class ArtifactSchema:
         )
 
     @classmethod
+    def generic_default(cls) -> ArtifactSchema:
+        """Default schema for non-uniform / mixed corpora.
+
+        Where :meth:`document_qa_default` assumes every document shares a shape,
+        this offers corpus-agnostic sections any document can fill: one required
+        summary slot, the rest optional. Use it when a single corpus mixes
+        document kinds (a textbook, a law, a manual) that no fixed schema fits.
+
+        Section targeting is weaker as a result — a document may leave most slots
+        empty — so retrieval recovers the long tail via bm25 over the raw text
+        rather than relying on well-populated sections.
+        """
+        return cls(
+            entity_path=DEFAULT_ENTITY_PATH,
+            sections=[
+                SectionSpec(name="overview/topic_summary", required=True),
+                SectionSpec(name="key_concepts"),
+                SectionSpec(name="entities_and_definitions"),
+                SectionSpec(name="structure/outline"),
+                SectionSpec(name="notable_passages"),
+                SectionSpec(name="citations/source_evidence"),
+            ],
+            json_artifacts=[JsonArtifactSpec(name="metadata.json")],
+        )
+
+    @classmethod
     def from_yaml(cls, path: str | Path) -> ArtifactSchema:
         data = yaml.safe_load(Path(path).read_text())
         if not isinstance(data, dict):
