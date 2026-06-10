@@ -84,7 +84,7 @@ output in Section 3 is marked representative.
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
 | Skills (on-demand modules) | ⏳ | `role.skills:` in `reigner.yaml` | [Section 5](#5-known-gaps--not-yet-wired) |
-| Eval suite | ⏳ | (no CLI yet) | [Section 5](#5-known-gaps--not-yet-wired) |
+| Eval suite | 🟡 | Python API (no CLI yet) | [Section 5](#5-known-gaps--not-yet-wired) |
 
 ---
 
@@ -909,9 +909,9 @@ sessions:
 
 plugins: []                 # list[dotted-path] · default [] · see Section 3.7
 
-eval:                       # optional · ⏳ `reigner eval` not wired yet (§5)
+eval:                       # optional · runnable from Python today; `reigner eval` CLI pending (§5)
   cases: eval/cases.yaml    # str · default "eval/cases.yaml"
-  checks: []                # list[dotted-path] · default []
+  checks: []                # list[str] · named checks to run (faithfulness, …) — pending #29
 ```
 
 Three footguns the schema enforces, worth calling out:
@@ -964,8 +964,33 @@ tracking issue.
 
 - **`reigner session` CLI** — ⏳ no CLI; fork/replay/tree are Python-API only
   today ([Section 3.5](#35-sessions-fork--replay--tree--python-api)).
-- **`reigner eval`** — ⏳ the `eval/cases.yaml` stub is scaffolded but there's no
-  `eval` command and the `reigner.eval` package is empty.
+- **Eval** — 🟡 the suite + runner shipped
+  ([#28](https://github.com/Construct-Lab/reigner/issues/28)). Build an `EvalSuite`
+  from `eval/cases.yaml`, run it against a harness, and render the SPEC §15.2
+  scorecard — all from Python. The always-on **intrinsic** checks
+  (`forbidden_phrases`, `expected_clarification`) work today; the named analytical
+  checks (`faithfulness`, `coverage`, …) are pending
+  ([#29](https://github.com/Construct-Lab/reigner/issues/29)) and the `reigner eval`
+  CLI is pending ([#21](https://github.com/Construct-Lab/reigner/issues/21)).
+
+  ```python
+  import asyncio
+  from reigner.harness.agent import Harness
+  from reigner.eval import EvalSuite, render_scorecard
+
+  async def main() -> None:
+      harness = Harness.from_config("reigner.yaml")
+      suite = EvalSuite.from_yaml("eval/cases.yaml")
+      results = await suite.run(harness, checks=[])  # named checks once #29 lands
+      print(render_scorecard(results))
+
+  asyncio.run(main())
+  ```
+
+  Each case runs in a fresh `profile="eval"` session; a case that clarifies or
+  errors is captured (it never aborts the suite). `expected_clarification: true`
+  cases need `suite.run(harness, profile="read_only")` since the `eval` profile
+  strips clarification.
 - **`reigner init --recipe`** — ⏳ `--help` says *"not yet bundled"*; the
   `recipes/` package ships empty. Use `--blank` (or `--guided`) for now.
 - **Skills** (`role.skills:`) — ⏳ the on-demand skill loader package is empty;

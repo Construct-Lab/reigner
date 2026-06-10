@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Eval suite + runner — Implementation plan</title>
+        <style>
+            :root {
+                --bg: #f5f0e1;
+                --paper: #fbf8ec;
+                --paper-soft: #f1ead5;
+                --ink: #1a2e1f;
+                --ink-soft: #5a6b5a;
+                --accent: #b4541a;
+                --rule: #d8cfb4;
+                --dash: #b9b29a;
+                --tag-bg: #ece5d0;
+                --op-add: #2d5938;
+                --op-mod: #856104;
+                --op-del: #8a3320;
+            }
+            * { box-sizing: border-box; }
+            html, body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--ink);
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px;
+                line-height: 1.55;
+            }
+            .page { max-width: 820px; margin: 0 auto; padding: 40px 24px 96px; }
+
+            .eyebrow {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            h1 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 40px; line-height: 1.15;
+                margin: 6px 0 20px; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.01em;
+            }
+            h2 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 26px; margin: 0; font-weight: 600; color: var(--ink);
+                letter-spacing: -0.005em;
+            }
+            h3 {
+                font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+                font-size: 17px; margin: 0 0 4px; font-weight: 600; color: var(--ink);
+            }
+            p { margin: 8px 0; }
+            code {
+                font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+                font-size: 0.92em;
+            }
+
+            .prompt-box {
+                background: var(--paper-soft);
+                border: 1px solid var(--rule);
+                border-radius: 10px;
+                padding: 16px 18px;
+                margin: 20px 0 36px;
+            }
+            .prompt-box .plabel {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--accent);
+                margin-bottom: 6px;
+            }
+            .prompt-box p { margin: 0; color: var(--ink); font-size: 16px; }
+
+            .bubbles {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px; margin: 24px 0 56px;
+            }
+            .bubble {
+                background: #fff;
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px;
+            }
+            .bubble .label {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 10px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--ink-soft);
+            }
+            .bubble .value {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 18px; font-weight: 500;
+                margin-top: 4px; color: var(--ink);
+            }
+
+            section { margin: 56px 0; }
+            .section-head {
+                display: flex; align-items: center; gap: 12px;
+                margin-bottom: 6px;
+            }
+            .section-num {
+                font-family: ui-monospace, Menlo, monospace;
+                color: var(--ink-soft);
+                font-size: 11px; letter-spacing: 0.08em;
+                background: var(--tag-bg);
+                border-radius: 4px; padding: 2px 7px;
+            }
+            section > p:first-of-type { color: var(--ink-soft); margin: 4px 0 24px; }
+
+            .timeline { margin-top: 8px; }
+            .milestone {
+                display: grid;
+                grid-template-columns: 130px 28px 1fr;
+                gap: 14px;
+                padding-bottom: 28px;
+                position: relative;
+            }
+            .milestone .when {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; letter-spacing: 0.04em;
+                color: var(--ink-soft); padding-top: 4px;
+                text-align: right;
+            }
+            .milestone .rail {
+                position: relative;
+                display: flex; justify-content: center;
+            }
+            .milestone .rail::before {
+                content: ""; position: absolute;
+                top: 0; bottom: -28px; left: 50%;
+                width: 1px; background: var(--rule);
+                transform: translateX(-0.5px);
+            }
+            .milestone:last-child .rail::before { bottom: 0; }
+            .milestone .dot {
+                position: relative; z-index: 1;
+                width: 11px; height: 11px; border-radius: 50%;
+                margin-top: 8px;
+                background: var(--op-add);
+                border: 2px solid var(--op-add);
+            }
+            .milestone.upcoming .dot {
+                background: var(--bg);
+                border: 2px solid var(--accent);
+            }
+            .milestone .body { padding-top: 2px; }
+            .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+            .tag {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px;
+                background: var(--tag-bg);
+                border: 1px solid var(--rule);
+                padding: 2px 8px; border-radius: 4px;
+                color: var(--ink);
+            }
+
+            .flow {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 22px;
+                overflow-x: auto;
+            }
+            .flow svg { width: 100%; height: auto; display: block; }
+            .legend {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin-top: 12px;
+            }
+
+            .mock {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 12px;
+                padding: 20px; margin: 16px 0;
+            }
+            .mock h3 { margin-bottom: 12px; }
+
+            .files { display: grid; grid-template-columns: 1fr; gap: 0; }
+            .file-row {
+                display: grid;
+                grid-template-columns: 80px 1fr;
+                gap: 12px; align-items: baseline;
+                border-bottom: 1px dashed var(--dash);
+                padding: 10px 0;
+            }
+            .file-op {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .op-add { color: var(--op-add); }
+            .op-mod { color: var(--op-mod); }
+            .op-del { color: var(--op-del); }
+            .file-path {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 14px; color: var(--ink);
+            }
+            .file-note {
+                color: var(--ink-soft);
+                font-size: 14px; margin-top: 3px; display: block;
+            }
+
+            pre.code {
+                background: var(--paper);
+                border: 1px solid var(--rule);
+                border-radius: 8px;
+                padding: 14px 16px; overflow-x: auto;
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 13px; line-height: 1.55;
+                color: var(--ink);
+            }
+            .code-caption {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 12px; color: var(--ink-soft);
+                margin: 18px 0 6px;
+            }
+            .kw { color: var(--accent); }
+            .fn { color: #2d5938; }
+            .str { color: #856104; }
+
+            .future-item {
+                border-top: 1px solid var(--rule);
+                padding: 16px 0;
+            }
+            .future-item:last-child { border-bottom: 1px solid var(--rule); }
+            .future-item .meta {
+                font-family: ui-monospace, Menlo, monospace;
+                font-size: 11px; letter-spacing: 0.04em;
+                color: var(--ink-soft); margin-top: 6px;
+            }
+
+            .node { fill: var(--paper); stroke: var(--ink); stroke-width: 2.5; }
+            .node-new { fill: var(--paper); stroke: var(--accent); stroke-width: 2.5; }
+            .node-label { font-family: ui-monospace, Menlo, monospace; font-size: 12px; fill: var(--ink); }
+            .node-sub { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+            .stroke-solid { stroke: var(--ink); stroke-width: 2; fill: none; }
+            .stroke-dash { stroke: var(--ink); stroke-width: 2; fill: none; stroke-dasharray: 6 5; }
+            .edge-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; fill: var(--ink-soft); }
+
+            @media (max-width: 640px) {
+                .milestone { grid-template-columns: 90px 22px 1fr; gap: 10px; }
+                h1 { font-size: 32px; }
+                h2 { font-size: 22px; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <div class="eyebrow">Implementation plan · Reigner · T-28 / #28</div>
+            <h1>Eval suite + runner</h1>
+
+            <div class="prompt-box">
+                <div class="plabel">Prompt</div>
+                <p>
+                    Build the eval framework (issue #28). Ship <code>EvalSuite</code> and
+                    <code>EvalCase</code> with YAML-loadable cases, plus an async
+                    <code>suite.run(harness, checks=[...])</code> that runs each case through the
+                    harness and reports results. Eval is part of Reigner's trust story, not
+                    bring-your-own. This task owns the runner and the seam the five concrete
+                    checks (T-29) plug into — it does <em>not</em> implement those checks or the
+                    <code>reigner eval</code> CLI (T-21).
+                </p>
+            </div>
+
+            <div class="bubbles">
+                <div class="bubble">
+                    <div class="label">Effort</div>
+                    <div class="value">~1.5 days · M</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files added</div>
+                    <div class="value">4</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Files updated</div>
+                    <div class="value">1</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Package</div>
+                    <div class="value">reigner/eval</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Unblocks</div>
+                    <div class="value">T-29 · T-21</div>
+                </div>
+                <div class="bubble">
+                    <div class="label">Eval profile</div>
+                    <div class="value">deterministic</div>
+                </div>
+            </div>
+
+            <!-- 3. MILESTONES -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">01</span>
+                    <h2>Milestones</h2>
+                </div>
+                <p>Three slices, each independently reviewable. The contract slice lands first so T-29 can start against a frozen seam.</p>
+
+                <div class="timeline">
+                    <div class="milestone">
+                        <div class="when">Slice 1</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Cases + contract types</h3>
+                            <p>
+                                <code>EvalCase</code>, YAML loading, and the data shapes every later
+                                piece depends on: <code>CaseRun</code>, <code>CheckResult</code>
+                                (ternary status), and the <code>@check</code> decorator registry.
+                                This is the seam T-29 inherits — freezing it first unblocks that
+                                track immediately.
+                            </p>
+                            <div class="tags">
+                                <span class="tag">eval/cases.py</span>
+                                <span class="tag">eval/checks.py</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 2</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Runner + two-tier evaluation</h3>
+                            <p>
+                                <code>EvalSuite.run</code>: per-case fresh <code>profile="eval"</code>
+                                session, drain <code>run_stream</code> into a <code>CaseRun</code>,
+                                then the intrinsic tier (<code>forbidden_phrases</code>,
+                                <code>expected_clarification</code>) plus any named checks from the
+                                registry. Aggregate into <code>SuiteResult</code>. Suite never aborts.
+                            </p>
+                            <div class="tags">
+                                <span class="tag">eval/runner.py</span>
+                                <span class="tag">harness/agent.py</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="milestone upcoming">
+                        <div class="when">Slice 3</div>
+                        <div class="rail"><div class="dot"></div></div>
+                        <div class="body">
+                            <h3>Scorecard renderer + exports</h3>
+                            <p>
+                                <code>render_scorecard(SuiteResult) -&gt; str</code> producing the
+                                SPEC §15.2 markdown table (co-located so it's unit-testable without
+                                the CLI), and the <code>reigner/eval/__init__.py</code> public surface.
+                            </p>
+                            <div class="tags">
+                                <span class="tag">eval/runner.py</span>
+                                <span class="tag">eval/__init__.py</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. DATA FLOW -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">02</span>
+                    <h2>Data flow</h2>
+                </div>
+                <p>One case, left to right: load → run the harness (solid sync drain of the event stream) → assemble a <code>CaseRun</code> → fan out to both evaluation tiers → aggregate → render. Terracotta boxes are new.</p>
+
+                <div class="flow">
+                    <svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" aria-label="Eval data flow diagram">
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M0,0 L10,5 L0,10 z" fill="#1a2e1f" />
+                            </marker>
+                        </defs>
+
+                        <!-- Row 1: cases.yaml -> EvalSuite -> Session -->
+                        <rect class="node-new" x="20" y="40" width="150" height="60" />
+                        <text class="node-label" x="95" y="66" text-anchor="middle">EvalSuite.run</text>
+                        <text class="node-sub" x="95" y="82" text-anchor="middle">eval/runner.py</text>
+
+                        <rect class="node" x="290" y="40" width="150" height="60" />
+                        <text class="node-label" x="365" y="66" text-anchor="middle">Session</text>
+                        <text class="node-sub" x="365" y="82" text-anchor="middle">harness/agent.py</text>
+
+                        <rect class="node" x="540" y="40" width="160" height="60" />
+                        <text class="node-label" x="620" y="62" text-anchor="middle">run_stream</text>
+                        <text class="node-sub" x="620" y="78" text-anchor="middle">profile="eval"</text>
+                        <text class="node-sub" x="620" y="92" text-anchor="middle">harness/loop.py</text>
+
+                        <path class="stroke-solid" d="M170 70 L290 70" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="230" y="62" text-anchor="middle">session()</text>
+                        <path class="stroke-solid" d="M440 70 L540 70" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="490" y="62" text-anchor="middle">run</text>
+
+                        <!-- events stream back down into CaseRun -->
+                        <rect class="node-new" x="290" y="170" width="150" height="64" />
+                        <text class="node-label" x="365" y="196" text-anchor="middle">CaseRun</text>
+                        <text class="node-sub" x="365" y="212" text-anchor="middle">final · events</text>
+                        <text class="node-sub" x="365" y="225" text-anchor="middle">citations · usage</text>
+
+                        <path class="stroke-solid" d="M620 100 L620 202 L440 202" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="560" y="192" text-anchor="middle">drain events</text>
+
+                        <!-- CaseRun fans to two tiers -->
+                        <rect class="node-new" x="20" y="300" width="200" height="64" />
+                        <text class="node-label" x="120" y="326" text-anchor="middle">intrinsic tier</text>
+                        <text class="node-sub" x="120" y="342" text-anchor="middle">forbidden_phrases</text>
+                        <text class="node-sub" x="120" y="355" text-anchor="middle">expected_clarification</text>
+
+                        <rect class="node-new" x="270" y="300" width="200" height="64" />
+                        <text class="node-label" x="370" y="326" text-anchor="middle">@check registry</text>
+                        <text class="node-sub" x="370" y="342" text-anchor="middle">faithfulness · coverage…</text>
+                        <text class="node-sub" x="370" y="355" text-anchor="middle">(T-29 fills these)</text>
+
+                        <path class="stroke-solid" d="M330 234 L150 234 L150 300" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="150" y="270" text-anchor="middle">always</text>
+                        <path class="stroke-solid" d="M380 234 L380 300" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="430" y="270" text-anchor="middle">checks=[…]</text>
+
+                        <!-- both produce CheckResults -> SuiteResult -> scorecard -->
+                        <rect class="node-new" x="540" y="300" width="160" height="64" />
+                        <text class="node-label" x="620" y="326" text-anchor="middle">SuiteResult</text>
+                        <text class="node-sub" x="620" y="342" text-anchor="middle">render_scorecard</text>
+                        <text class="node-sub" x="620" y="355" text-anchor="middle">markdown §15.2</text>
+
+                        <path class="stroke-solid" d="M220 332 L270 332" marker-end="url(#arrow)" />
+                        <path class="stroke-solid" d="M470 332 L540 332" marker-end="url(#arrow)" />
+                        <text class="edge-label" x="505" y="324" text-anchor="middle">CheckResult[]</text>
+                    </svg>
+                </div>
+                <div class="legend">
+                    Solid = request/response &amp; synchronous drain. Dashed = async / fire-and-forget (none here — the runner awaits each case fully before checking). Terracotta border = new module. Cases run sequentially; a fresh eval-profile session per case means zero cross-case state leak.
+                </div>
+            </section>
+
+            <!-- 5. MOCKUPS -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">03</span>
+                    <h2>Mockup</h2>
+                </div>
+                <p>No GUI surface — this is a library task. The user-visible artifact is the markdown scorecard <code>render_scorecard</code> emits (later printed by the T-21 CLI). Shown rendered, with all three statuses.</p>
+
+                <div class="mock">
+                    <h3>A · Scorecard output (SPEC §15.2)</h3>
+                    <pre class="code">## Eval results — 2026-06-09
+
+| Case              | faithfulness | repeated_calls | coverage | forbidden_phrases | clarification |
+|-------------------|--------------|----------------|----------|-------------------|---------------|
+| apple_rnd_2024    | ✓            | ✓              | ✓        | ✓                 | ✓             |
+| ambiguous_revenue | n/a          | ✓              | n/a      | ✓                 | ✓ (clarified) |
+| msft_buyback_2023 | ✗            | ✓              | ✓        | ✓                 | ✓             |
+
+3 cases · 2 passed · 1 failed
+✗ msft_buyback_2023 · faithfulness — claim "$67B" not cited</pre>
+                </div>
+            </section>
+
+            <!-- 6. FILES -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">04</span>
+                    <h2>Files</h2>
+                </div>
+                <p>Four new modules under <code>reigner/eval/</code>, one updated barrel. The five concrete checks and the CLI stay out (T-29 / T-21).</p>
+
+                <div class="files">
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/eval/cases.py</span>
+                            <span class="file-note"><code>EvalCase</code> dataclass + <code>EvalSuite</code> with <code>from_yaml</code>. Fields: id, query, expected_citations, forbidden_phrases, expected_clarification.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/eval/checks.py</span>
+                            <span class="file-note">The seam for T-29: <code>CaseRun</code>, <code>CheckResult</code> (ternary status), the <code>Check</code> protocol, the <code>@check("name")</code> decorator and its module-level registry + a lookup helper.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">reigner/eval/runner.py</span>
+                            <span class="file-note"><code>EvalSuite.run</code> orchestration, the intrinsic-tier assertions, <code>SuiteResult</code>/<code>CaseResult</code> aggregation, and <code>render_scorecard</code>.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-add">add</span>
+                        <span>
+                            <span class="file-path">tests/eval/test_runner.py</span>
+                            <span class="file-note">Stub-adapter sessions + a fake <code>@check</code> to exercise pass/fail/na, intrinsic tier, suite-never-aborts, and scorecard rendering — without depending on T-29.</span>
+                        </span>
+                    </div>
+                    <div class="file-row">
+                        <span class="file-op op-mod">update</span>
+                        <span>
+                            <span class="file-path">reigner/eval/__init__.py</span>
+                            <span class="file-note">Export <code>EvalCase</code>, <code>EvalSuite</code>, <code>CaseRun</code>, <code>CheckResult</code>, <code>check</code>, <code>render_scorecard</code>. Currently empty.</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. KEY CODE -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">05</span>
+                    <h2>Key code</h2>
+                </div>
+                <p>The two spots most likely to be done wrong: the registry seam T-29 inherits, and the per-case drain that must never let one bad case abort the suite.</p>
+
+                <div class="code-caption">reigner/eval/checks.py — the seam T-29 plugs into</div>
+                <pre class="code"><span class="kw">from</span> typing <span class="kw">import</span> Literal, Protocol
+
+<span class="kw">@dataclass</span>
+<span class="kw">class</span> <span class="fn">CaseRun</span>:
+    final: FinalAnswerEvent | <span class="kw">None</span>   <span class="str"># None = clarified / errored / no answer</span>
+    events: list[Event]
+    citations: list[Citation]
+    elapsed: float
+    usage: dict
+
+<span class="kw">@dataclass</span>
+<span class="kw">class</span> <span class="fn">CheckResult</span>:
+    name: str
+    status: Literal[<span class="str">"pass"</span>, <span class="str">"fail"</span>, <span class="str">"na"</span>]
+    detail: str = <span class="str">""</span>
+
+<span class="kw">class</span> <span class="fn">Check</span>(Protocol):
+    <span class="kw">async def</span> <span class="fn">__call__</span>(self, case: EvalCase, run: CaseRun) -&gt; CheckResult: ...
+
+_REGISTRY: dict[str, Check] = {}
+
+<span class="kw">def</span> <span class="fn">check</span>(name: str):                 <span class="str"># T-29 decorates its 5 fns with this</span>
+    <span class="kw">def</span> <span class="fn">register</span>(fn: Check) -&gt; Check:
+        <span class="kw">if</span> name <span class="kw">in</span> _REGISTRY:
+            <span class="kw">raise</span> ValueError(f<span class="str">"duplicate check {name!r}"</span>)
+        _REGISTRY[name] = fn
+        <span class="kw">return</span> fn
+    <span class="kw">return</span> register</pre>
+
+                <div class="code-caption">reigner/eval/runner.py — per-case drain, suite never aborts</div>
+                <pre class="code"><span class="kw">async def</span> <span class="fn">_run_case</span>(self, harness, case, checks) -&gt; CaseResult:
+    session = harness.session(profile=<span class="str">"eval"</span>)   <span class="str"># fresh, isolated</span>
+    final, events = <span class="kw">None</span>, []
+    t0 = time.perf_counter()
+    <span class="kw">try</span>:
+        <span class="kw">async for</span> ev <span class="kw">in</span> session.run_stream(case.query):
+            events.append(ev)
+            <span class="kw">if</span> isinstance(ev, FinalAnswerEvent):
+                final = ev
+    <span class="kw">except</span> Exception <span class="kw">as</span> exc:                  <span class="str"># a bad case can't sink the suite</span>
+        events.append(_error_event(exc))
+    run = CaseRun(final, events, session.citations(),
+                  time.perf_counter() - t0, _usage(final))
+
+    results = self._intrinsic(case, run)            <span class="str"># always: phrases + clarification</span>
+    <span class="kw">for</span> name <span class="kw">in</span> checks:                          <span class="str"># named tier, registry lookup</span>
+        results.append(<span class="kw">await</span> _REGISTRY[name](case, run))
+    passed = <span class="kw">all</span>(r.status != <span class="str">"fail"</span> <span class="kw">for</span> r <span class="kw">in</span> results)  <span class="str"># na/pass both OK</span>
+    <span class="kw">return</span> CaseResult(case, run, results, passed)</pre>
+            </section>
+
+            <!-- 8. FUTURE SCOPE -->
+            <section>
+                <div class="section-head">
+                    <span class="section-num">06</span>
+                    <h2>Future scope &amp; assumptions</h2>
+                </div>
+                <p>What this task deliberately leaves to adjacent issues, plus assumptions made where the conversation didn't pin every nail.</p>
+
+                <div class="future-item">
+                    <h3>The five concrete checks — T-29</h3>
+                    <p>
+                        <code>faithfulness</code>, <code>repeated_calls</code>,
+                        <code>entity_resolution</code>, <code>coverage</code>,
+                        <code>latency_cost</code> are out of scope here. This task only proves the
+                        seam works (one fake check in tests). T-29 decorates real implementations
+                        with <code>@check</code> — no runner edits required when it lands.
+                    </p>
+                    <div class="meta">Decide with · T-29 owner · next</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Sequential, not concurrent</h3>
+                    <p>
+                        Cases run one at a time. Determinism and predictable token cost are the
+                        point of the eval profile, and cases are independent so concurrency is a
+                        trivial later add (an <code>asyncio.gather</code> with a semaphore). Not
+                        worth the nondeterministic ordering and cost-spike risk for v0.
+                    </p>
+                    <div class="meta">Revisit if · eval suites grow large enough to be slow</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Assumption · expected_citations matching lives in T-29</h3>
+                    <p>
+                        <code>EvalCase.expected_citations</code> is stored as <code>list[str]</code>
+                        and passed through untouched. The actual matching against registered
+                        citations (via the existing <code>citation_id()</code> /
+                        <code>canonicalize_locator()</code> helpers) belongs to the
+                        <code>coverage</code>/<code>faithfulness</code> checks. Note the SPEC's
+                        illustrative form <code>source#research_and_development</code> differs from
+                        what <code>citation_id</code> emits (<code>source#field=research_and_development</code>);
+                        T-29 will need to settle that — out of scope here, flagged so it isn't lost.
+                    </p>
+                    <div class="meta">Decide with · T-29 owner · when faithfulness lands</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>Assumption · expected_clarification is tri-state</h3>
+                    <p>
+                        Modeled as <code>bool | None = None</code> so <code>None</code> means "don't
+                        assert." This avoids forcing a misleading "should not clarify" row onto every
+                        case that simply omitted the field. The <code>cases.yaml</code> scaffold shows
+                        <code>false</code>, which still works — only omission is treated as no-op.
+                    </p>
+                    <div class="meta">Correct in review · if you'd rather absent == false</div>
+                </div>
+
+                <div class="future-item">
+                    <h3>The reigner eval CLI — T-21</h3>
+                    <p>
+                        Printing the scorecard, wiring <code>--case</code>/<code>--check</code> flags,
+                        and reading <code>checks</code> from <code>reigner.yaml</code>'s
+                        <code>EvalConfig</code> are T-21's job. This task hands T-21 a ready
+                        <code>render_scorecard</code> so the CLI is a thin caller.
+                    </p>
+                    <div class="meta">Decide with · T-21 owner · later</div>
+                </div>
+            </section>
+        </div>
+    </body>
+</html>
