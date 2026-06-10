@@ -10,6 +10,11 @@ inherited (do not write it).
 
 Fill in the three TODOs (model + both prompts), then wire this class into
 `extractors/pipeline.py`. See SPEC.md §8.2 and the MapReduceExtractor docstring.
+
+Need deterministic JSON artifacts (metadata, coverage flags computed from which
+sections filled — never asked of the model)? Override `post_process(sections,
+meta)` to return them. Guided mixed schemas relax JSON fields to optional, so a
+partial document never dead-letters; `post_process` is how you populate them.
 """
 
 from __future__ import annotations

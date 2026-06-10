@@ -269,9 +269,13 @@ def test_mixed_yields_layered_schema(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert by_name["constitution/fundamental_rights"].max_chars == 3500
     # The colliding domain section did not duplicate the baseline summary.
     assert sum(1 for s in schema.sections if s.name == "overview/topic_summary") == 1
-    # entity_path / json_artifacts come from the model untouched.
+    # entity_path comes from the model untouched.
     assert schema.entity_path == "{topic}/{version}"
-    assert any(j.name == "topic_metadata.json" for j in schema.json_artifacts)
+    # json_artifacts survive, but their fields are relaxed so a partial document
+    # never dead-letters — the field stays declared/typed, just not required.
+    meta = next(j for j in schema.json_artifacts if j.name == "topic_metadata.json")
+    assert "topic" in meta.fields
+    assert meta.required_field_names == set()
 
 
 def test_mixed_with_extractor_scaffolds_mapreduce_template(
@@ -323,6 +327,9 @@ def test_layer_mixed_schema_forces_optional_and_dedups() -> None:
     assert "key_concepts" in names  # baseline prepended
     domain = next(s for s in sections if s["name"] == "judiciary/court_structure")
     assert domain["required"] is False
+    # JSON artifacts with declared fields are relaxed to never-required.
+    artifact = next(j for j in merged["json_artifacts"] if j["name"] == "topic_metadata.json")
+    assert artifact["required_fields"] == []
 
 
 def test_strip_fences_unwraps_markdown_block() -> None:

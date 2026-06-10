@@ -217,8 +217,14 @@ def _layer_mixed_schema(yaml_text: str) -> str:
     :meth:`ArtifactSchema.generic_default`'s sections as a baseline (one required
     summary any document can fill, plus optional generics) and appends the
     model's domain sections **forced optional** and **deduped** against the
-    baseline. ``entity_path`` and ``json_artifacts`` are left untouched — only
-    ``sections`` are layered.
+    baseline.
+
+    The same "nothing rigidly required" rule extends to JSON artifacts: declared
+    ``fields`` are required by default, so a generated ``json_artifacts`` entry
+    with fields would dead-letter any document the extractor can't fully populate
+    — the exact failure the mixed branch exists to avoid. Each artifact is
+    therefore relaxed to ``required_fields: []`` (fields stay declared and
+    type-checked when present, just not mandatory). ``entity_path`` is untouched.
     """
     data = yaml.safe_load(yaml_text)
     if not isinstance(data, dict):
@@ -234,6 +240,11 @@ def _layer_mixed_schema(yaml_text: str) -> str:
         if isinstance(s, dict) and s.get("name") not in baseline_names
     ]
     data["sections"] = baseline + domain
+
+    for artifact in data.get("json_artifacts") or []:
+        if isinstance(artifact, dict) and artifact.get("fields"):
+            artifact["required_fields"] = []  # mixed: never dead-letter on JSON fields
+
     return yaml.safe_dump(data, sort_keys=False)
 
 
