@@ -5,7 +5,11 @@ T-15 lands the document loaders. T-16 lands the IngestionPipeline runner
 and the ingestion-side writers (ArtifactWriter re-export + Bm25IndexWriter).
 """
 
-from reigner.ingestion.extractor import LLMExtractor, resolve_adapter
+from reigner.ingestion.extractor import (
+    LLMExtractor,
+    MapReduceExtractor,
+    resolve_adapter,
+)
 from reigner.ingestion.loaders import (
     JsonLoader,
     LoadedDocument,
@@ -41,6 +45,7 @@ __all__ = [
     "LLMExtractor",
     "LoadedDocument",
     "Loader",
+    "MapReduceExtractor",
     "MdLoader",
     "PdfLoader",
     "PipelineWriter",

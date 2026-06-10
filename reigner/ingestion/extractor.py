@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import Any, ClassVar
 
 from reigner.artifacts import ArtifactSchema
@@ -354,3 +355,218 @@ def _payload_snapshot(result: ExtractionResult) -> dict[str, Any]:
         "sections": dict(result.sections),
         "json_artifacts": dict(result.json_artifacts),
     }
+
+
+# ---------------------------------------------------------------------------
+# MapReduceExtractor
+# ---------------------------------------------------------------------------
+
+
+class MapReduceExtractor(LLMExtractor):
+    """Whole-document extractor for sources too big for one model call.
+
+    Subclass this instead of :class:`LLMExtractor` when a document must be read
+    in full but doesn't fit in a single call. The base owns the domain-agnostic
+    map-reduce machinery and implements :meth:`extract` itself as a template
+    method — the subclass no longer writes ``extract``. The flow is::
+
+        preprocess_pdf -> _chunk_pages -> _map -> reduce -> summarize
+                       -> (enforce max_chars) -> post_process -> ExtractionResult
+
+    What the subclass supplies:
+
+    * ``MAP_PROMPT`` — formatted with ``{section_spec}`` (rendered from
+      ``self.schema``) plus any keys from :meth:`prompt_context`. Each chunk is
+      sent with this prompt; the model returns a JSON object mapping section
+      name -> extracted content. Keys that aren't schema sections are dropped.
+    * ``REDUCE_PROMPT`` — formatted with ``{section}``, ``{max_chars}``, plus
+      :meth:`prompt_context` keys. The default per-section reduce calls the
+      model with this and reads ``{"content": "..."}`` back.
+    * :meth:`summarize` (optional) — a *cross-section* hook that runs after
+      reduce to synthesize derived sections (e.g. a required overall summary)
+      from the already-reduced sections. Default is a no-op. May stash derived
+      non-section values (a title, say) into ``meta`` for :meth:`post_process`.
+    * :meth:`post_process` (optional) — turns the final sections into JSON
+      artifacts deterministically. Default returns ``{}``.
+
+    Override seams with useful defaults:
+
+    * :meth:`reduce` — the single method to override for a different reduce
+      strategy (e.g. one whole-section-set pass) without touching chunk/map.
+    * :meth:`prompt_context` — extra ``.format`` keys for the prompt templates.
+    * ``MAP_EXCLUDE`` — section names left out of the rendered section spec
+      because they're produced by :meth:`summarize`, not the map.
+
+    Guarantees: every page is seen (a page larger than ``chunk_chars`` becomes
+    its own over-budget chunk rather than being split or dropped), and every
+    final section is hard-bounded to its schema ``max_chars``.
+
+    Concurrency: map fan-out is **sequential** in v1 so the inherited
+    ``_run_usage`` accumulation stays correct. Per-run context is threaded
+    explicitly through ``meta`` rather than stored on ``self`` — the pipeline
+    shares one extractor instance across documents, so per-run state on the
+    instance would race. Bounded-parallel map is deferred (see issue drafts).
+    """
+
+    MAP_PROMPT: ClassVar[str] = ""
+    REDUCE_PROMPT: ClassVar[str] = ""
+    # Cap on the text sent to one map call; the document is processed in as many
+    # of these windows as it takes.
+    chunk_chars: ClassVar[int] = 100_000
+    # Guard on the joined fragments handed to one reduce call.
+    reduce_input_chars: ClassVar[int] = 80_000
+    # Sections produced by summarize() rather than the map — omitted from the
+    # rendered section spec so the model isn't asked to fill them per chunk.
+    MAP_EXCLUDE: ClassVar[frozenset[str]] = frozenset()
+
+    # ---- Template method (subclass does not override extract) ---------------
+
+    async def extract(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
+        full_text = await self.preprocess_pdf(raw)
+        chunks = self._chunk_pages(full_text)
+        fragments = await self._map(chunks, meta)
+        sections = await self.reduce(fragments, meta)
+        sections.update(await self.summarize(sections, meta))
+        sections = self._enforce_max_chars(sections)
+        json_artifacts = self.post_process(sections, meta)
+        return ExtractionResult(sections=sections, json_artifacts=json_artifacts)
+
+    # ---- Subclass seams -----------------------------------------------------
+
+    def prompt_context(self, meta: dict[str, Any]) -> dict[str, Any]:
+        """Extra ``.format`` keys for ``MAP_PROMPT`` / ``REDUCE_PROMPT``.
+
+        Default is empty. Override to feed per-document context (e.g.
+        ``{"filename": meta.get("filename", "unknown")}``).
+        """
+        return {}
+
+    async def summarize(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, str]:
+        """Cross-section hook: derive new sections from the reduced ones.
+
+        Runs after :meth:`reduce`. Returns a mapping of derived section name ->
+        content that is merged into the result (e.g. a required overall summary
+        synthesized from all the topical sections). Default is a no-op. May
+        mutate ``meta`` to stash derived values (a title, say) that
+        :meth:`post_process` then reads.
+        """
+        return {}
+
+    def post_process(
+        self, sections: dict[str, str], meta: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        """Turn the final sections into JSON artifacts deterministically.
+
+        Default returns ``{}``. Override to compute coverage flags, metadata,
+        etc. from which sections got filled — no model guesswork.
+        """
+        return {}
+
+    # ---- Overridable reduce (the single seam for a different strategy) ------
+
+    async def reduce(
+        self, fragments_by_section: dict[str, list[str]], meta: dict[str, Any]
+    ) -> dict[str, str]:
+        """Default reduce: loop per section, bounding each to its ``max_chars``.
+
+        Override this one method (and nothing in chunk/map) for a different
+        strategy — e.g. a single pass over the whole section set.
+        """
+        sections: dict[str, str] = {}
+        for name, frags in fragments_by_section.items():
+            sections[name] = await self._reduce_section(name, frags, meta)
+        return sections
+
+    # ---- Machinery ----------------------------------------------------------
+
+    def _chunk_pages(self, text: str) -> list[str]:
+        """Pack pages into ``<=chunk_chars`` windows; never split a page.
+
+        Pages arrive ``\\f``-separated from :meth:`preprocess_pdf`. A single
+        page larger than ``chunk_chars`` becomes its own over-budget chunk: the
+        whole page is still seen by the model, nothing is silently truncated.
+        """
+        chunks: list[str] = []
+        buf = ""
+        for page in text.split("\f"):
+            page = page.strip()
+            if not page:
+                continue
+            if buf and len(buf) + len(page) > self.chunk_chars:
+                chunks.append(buf)
+                buf = page
+            else:
+                buf = f"{buf}\n\n{page}" if buf else page
+        if buf:
+            chunks.append(buf)
+        return chunks
+
+    async def _map(self, chunks: list[str], meta: dict[str, Any]) -> dict[str, list[str]]:
+        """Sequentially map each chunk; collect per-section fragments.
+
+        Section names the model invents (not present in ``self.schema``) are
+        dropped; empty/whitespace fragments are ignored.
+        """
+        prompt = self.MAP_PROMPT.format(
+            section_spec=self._section_spec(), **self.prompt_context(meta)
+        )
+        fragments: dict[str, list[str]] = defaultdict(list)
+        for chunk in chunks:
+            partial = await self.call_model(prompt, chunk)
+            for name, value in partial.items():
+                if self.schema.section(name) is None:
+                    continue  # ignore invented section names
+                if isinstance(value, str) and value.strip():
+                    fragments[name].append(value.strip())
+        return dict(fragments)
+
+    async def _reduce_section(self, name: str, frags: list[str], meta: dict[str, Any]) -> str:
+        """Condense one section's fragments to fit its ``max_chars``.
+
+        A single fragment that already fits is returned as-is (no model call).
+        Otherwise the fragments are merged via ``REDUCE_PROMPT``. The final
+        ``max_chars`` bound is guaranteed by :meth:`_enforce_max_chars`.
+        """
+        spec = self.schema.section(name)
+        cap = spec.max_chars if spec and spec.max_chars else None
+        joined = "\n\n---\n\n".join(frags)[: self.reduce_input_chars]
+        if len(frags) == 1 and (cap is None or len(joined) <= cap):
+            return joined
+        prompt = self.REDUCE_PROMPT.format(
+            section=name,
+            max_chars=cap if cap is not None else "",
+            **self.prompt_context(meta),
+        )
+        response = await self.call_model(prompt, joined)
+        return str(response.get("content", "")).strip()
+
+    def _enforce_max_chars(self, sections: dict[str, str]) -> dict[str, str]:
+        """Hard-bound every section to its schema ``max_chars`` (final guard)."""
+        bounded: dict[str, str] = {}
+        for name, body in sections.items():
+            spec = self.schema.section(name)
+            if spec is not None and spec.max_chars is not None:
+                bounded[name] = body[: spec.max_chars]
+            else:
+                bounded[name] = body
+        return bounded
+
+    def _section_spec(self) -> str:
+        """Render the schema's named sections into prompt text for the map.
+
+        Glob sections (no fixed name) and ``MAP_EXCLUDE`` sections are omitted.
+        """
+        lines: list[str] = []
+        for spec in self.schema.sections:
+            if spec.is_glob or spec.name in self.MAP_EXCLUDE:
+                continue
+            limit = f"<={spec.max_chars} chars" if spec.max_chars else "no limit"
+            lines.append(f"- {spec.name} ({limit})")
+        return "\n".join(lines)
+
+    # ---- Provenance ---------------------------------------------------------
+
+    def _prompt_hash(self) -> str:
+        """Hash both prompts so ``cache_key`` reflects map + reduce changes."""
+        combined = f"{self.MAP_PROMPT}\x00{self.REDUCE_PROMPT}"
+        return hashlib.sha256(combined.encode("utf-8")).hexdigest()
