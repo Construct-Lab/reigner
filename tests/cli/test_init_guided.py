@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
+from rich.console import Console
 from typer.testing import CliRunner
 
 from reigner.cli.__main__ import app
@@ -45,6 +47,25 @@ json_artifacts:
       revenue: notatype
 """
 
+# A model-shaped schema for the mixed branch: domain sections default to
+# required:true, and one collides with the generic baseline (overview/...) to
+# exercise dedup.
+_DOMAIN_SCHEMA = """\
+entity_path: "{topic}/{version}"
+sections:
+  - name: overview/topic_summary
+    required: true
+  - name: constitution/fundamental_rights
+    required: true
+    max_chars: 3500
+  - name: judiciary/court_structure
+    required: true
+json_artifacts:
+  - name: topic_metadata.json
+    fields:
+      topic: str
+"""
+
 
 class StubAdapter:
     """Returns canned text, routed by which system prompt it sees."""
@@ -71,7 +92,7 @@ def _drive(
     cwd: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    answers: tuple[str, ...] = ("Finance filings", "PDFs", "metric lookups", "strict"),
+    answers: tuple[str, ...] = ("Finance filings", "PDFs", "metric lookups", "strict", "uniform"),
     confirm: bool = True,
     adapter: StubAdapter | None = None,
     env_key: str | None = "ANTHROPIC_API_KEY",
@@ -208,6 +229,100 @@ def test_detect_provider_gemini_google_alias(monkeypatch: pytest.MonkeyPatch) ->
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("GOOGLE_API_KEY", "x")
     assert _detect_provider() == ("gemini", "gemini-3.5-flash")
+
+
+def test_guided_asks_uniformity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The interview collects a fifth answer — corpus uniformity."""
+    from reigner.cli._guided import GuidedAnswers, _collect_answers
+
+    answers = iter(("Law", "PDFs", "Q&A", "strict", "mixed"))
+    monkeypatch.setattr("reigner.cli._guided.RichPrompt.ask", lambda *a, **k: next(answers))
+    result = _collect_answers(Console())
+    assert isinstance(result, GuidedAnswers)
+    assert result.uniformity == "mixed"
+
+
+def test_mixed_yields_layered_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """mixed → one required summary + optional generic baseline + optional,
+    deduped domain sections."""
+    stub = StubAdapter(schema_texts=(_DOMAIN_SCHEMA,))
+    answers = ("Indian law", "primer, constitution, manual", "beginner Q&A", "strict", "mixed")
+    result, _ = _drive(["init", "demo"], tmp_path, monkeypatch, answers=answers, adapter=stub)
+    assert result.exit_code == 0, result.stdout
+
+    from reigner.artifacts.schema import ArtifactSchema
+
+    schema = ArtifactSchema.from_yaml(tmp_path / "demo" / "schema.yaml")
+    by_name = {s.name: s for s in schema.sections}
+
+    # Exactly one required section, the universal summary.
+    required = [s.name for s in schema.sections if s.required]
+    assert required == ["overview/topic_summary"]
+
+    # The generic baseline is present …
+    assert "key_concepts" in by_name
+    assert "notable_passages" in by_name
+    # … and the domain sections survived, but forced optional.
+    assert by_name["constitution/fundamental_rights"].required is False
+    assert by_name["judiciary/court_structure"].required is False
+    # Domain max_chars is preserved through the merge.
+    assert by_name["constitution/fundamental_rights"].max_chars == 3500
+    # The colliding domain section did not duplicate the baseline summary.
+    assert sum(1 for s in schema.sections if s.name == "overview/topic_summary") == 1
+    # entity_path / json_artifacts come from the model untouched.
+    assert schema.entity_path == "{topic}/{version}"
+    assert any(j.name == "topic_metadata.json" for j in schema.json_artifacts)
+
+
+def test_mixed_with_extractor_scaffolds_mapreduce_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub = StubAdapter(schema_texts=(_DOMAIN_SCHEMA,))
+    answers = ("Indian law", "mixed docs", "Q&A", "strict", "mixed")
+    result, _ = _drive(
+        ["init", "demo"], tmp_path, monkeypatch, answers=answers, adapter=stub, confirm=True
+    )
+    assert result.exit_code == 0, result.stdout
+    extractor = (tmp_path / "demo" / "extractors" / "my_extractor.py").read_text()
+    assert "MapReduceExtractor" in extractor
+    assert "MAP_PROMPT" in extractor and "REDUCE_PROMPT" in extractor
+
+
+def test_uniform_with_extractor_keeps_single_shot_stub(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The uniform path is unchanged — the single-shot stub, not map-reduce."""
+    result, _ = _drive(["init", "demo"], tmp_path, monkeypatch, confirm=True)
+    assert result.exit_code == 0, result.stdout
+    extractor = (tmp_path / "demo" / "extractors" / "my_extractor.py").read_text()
+    assert "MapReduceExtractor" not in extractor
+
+
+def test_uniform_schema_is_not_layered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """uniform keeps the model schema verbatim — no generic baseline injected."""
+    result, _ = _drive(["init", "demo"], tmp_path, monkeypatch)
+    assert result.exit_code == 0, result.stdout
+    from reigner.artifacts.schema import ArtifactSchema
+
+    schema = ArtifactSchema.from_yaml(tmp_path / "demo" / "schema.yaml")
+    names = {s.name for s in schema.sections}
+    assert names == {"document_summary"}  # exactly the model's _VALID_SCHEMA
+    assert "key_concepts" not in names
+
+
+def test_layer_mixed_schema_forces_optional_and_dedups() -> None:
+    """Unit test for the dict-level merge, independent of the CLI flow."""
+    from reigner.cli._guided import _layer_mixed_schema
+
+    merged = yaml.safe_load(_layer_mixed_schema(_DOMAIN_SCHEMA))
+    sections = merged["sections"]
+    required = [s["name"] for s in sections if s.get("required")]
+    assert required == ["overview/topic_summary"]
+    names = [s["name"] for s in sections]
+    assert names.count("overview/topic_summary") == 1  # deduped
+    assert "key_concepts" in names  # baseline prepended
+    domain = next(s for s in sections if s["name"] == "judiciary/court_structure")
+    assert domain["required"] is False
 
 
 def test_strip_fences_unwraps_markdown_block() -> None:
