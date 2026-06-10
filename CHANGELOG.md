@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-06-10
+
+### Bug Fixes
+
+- Add Bm25IndexWriter to default ingest scaffold
+- Normalize tool schemas for OpenAI strict mode ([#81](https://github.com/Construct-Lab/reigner/issues/81))
+- Skip OpenAI strict for tools with Any-typed args ([#81](https://github.com/Construct-Lab/reigner/issues/81))
+- Close out request_clarification call with a tool Turn ([#83](https://github.com/Construct-Lab/reigner/issues/83))
+- Mixed schema relaxes json_artifact fields so partial docs don't dead-letter
+
+### Documentation
+
+- Track .env loading + documentation site tasks (T-74/75/76)
+- Add docs/USAGE.md end-to-end usage guide
+- Add full reigner.yaml reference and plugin examples to USAGE.md
+- File v1 multimodal ingestion follow-ups (#86, #87)
+- Add large and non-uniform corpora section to USAGE
+
+### Features
+
+- Session fork, replay + tree (T-25)
+- HTTP server transport (SSE)
+- Auto-load project .env at CLI startup
+- Implement reigner init --guided default mode
+- Add MapReduceExtractor base class for whole-document extraction
+- Loud truncation guard in LLMExtractor.call_model
+- Add ArtifactSchema.generic_default() preset for non-uniform corpora
+- Guided init asks corpus uniformity; mixed branch layers schema
+- Add post_process stub to map-reduce template
+
 ## [0.4.0] - 2026-05-25
 
 ### Bug Fixes
@@ -13,6 +43,10 @@ All notable changes to this project will be documented in this file.
 - Session store ([#67](https://github.com/Construct-Lab/reigner/issues/67))
 - Plugin system
 - Bundled plugins (metrics, pii_redact)
+
+### Miscellaneous Tasks
+
+- Release v0.4.0
 
 ## [0.3.0] - 2026-05-22
 
