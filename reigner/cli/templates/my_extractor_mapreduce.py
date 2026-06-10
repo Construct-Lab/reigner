@@ -75,3 +75,21 @@ Output ONLY the JSON object."""
             compiled[: self.reduce_input_chars],
         )
         return {"overview/topic_summary": str(response.get("summary", "")).strip()}
+
+    def post_process(
+        self, sections: dict[str, str], meta: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        # Deterministic JSON artifacts — computed from which sections actually
+        # filled, never asked of the model. Can't hallucinate, can't dead-letter.
+        # Adapt the keys below to the json_artifacts your schema.yaml declares.
+        filled = [name for name, body in sections.items() if body.strip()]
+        coverage_score = round(len(filled) / max(len(self.schema.sections), 1), 3)
+        return {
+            "metadata.json": {
+                "source_document": meta.get("filename", "unknown"),
+                "sections_filled": len(filled),
+                "coverage_score": coverage_score,
+                # TODO: add the fields your json_artifacts declare, e.g. a
+                # per-concept boolean: "rights_covered": bool(sections.get(...)).
+            },
+        }
