@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from typing import Any
 
 import pytest
@@ -14,7 +15,9 @@ from reigner.harness.adapters.base import (
 from reigner.ingestion import (
     ExtractionError,
     ExtractionResult,
+    InputOverflowError,
     LLMExtractor,
+    MapReduceExtractor,
     TransientError,
     ValidationError,
     resolve_adapter,
@@ -409,6 +412,80 @@ async def test_preprocess_pdf_raises_helpful_error_when_pymupdf_missing(
     extractor = _Extractor(adapter=StubAdapter(responses=[]))
     with pytest.raises(ImportError, match="reigner\\[ingestion\\]"):
         await extractor.preprocess_pdf(b"%PDF-1.4 fake")
+
+
+# ---- Overflow guard -------------------------------------------------------
+
+
+class _GuardExtractor(_Extractor):
+    """Tiny ceiling so the guard tests don't build 200k-char strings."""
+
+    max_input_chars = 100
+
+
+async def test_warn_mode_warns_but_sends_full_text() -> None:
+    adapter = StubAdapter(responses=["{}"])
+    extractor = _GuardExtractor(adapter=adapter)  # overflow_mode defaults to "warn"
+    oversized = "x" * 250
+
+    with pytest.warns(UserWarning, match="over the 100 ceiling"):
+        await extractor.call_model(prompt="p", input_text=oversized)
+
+    # The whole document still reached the adapter — no silent drop.
+    sent = adapter.calls[0][0].messages[0].content
+    assert sent == oversized
+
+
+async def test_error_mode_raises_input_overflow_error() -> None:
+    class ErrorExtractor(_GuardExtractor):
+        overflow_mode = "error"
+
+    adapter = StubAdapter(responses=[])  # call_model raises before the adapter
+    extractor = ErrorExtractor(adapter=adapter)
+
+    with pytest.raises(InputOverflowError, match="over the 100 ceiling"):
+        await extractor.call_model(prompt="p", input_text="x" * 250)
+    assert adapter.calls == []
+
+
+async def test_truncate_mode_cuts_tail_and_says_so() -> None:
+    class TruncateExtractor(_GuardExtractor):
+        overflow_mode = "truncate"
+
+    adapter = StubAdapter(responses=["{}"])
+    extractor = TruncateExtractor(adapter=adapter)
+
+    with pytest.warns(UserWarning, match="truncated input from 250 to 100"):
+        await extractor.call_model(prompt="p", input_text="x" * 250)
+
+    sent = adapter.calls[0][0].messages[0].content
+    assert sent == "x" * 100
+
+
+async def test_within_ceiling_does_not_warn() -> None:
+    adapter = StubAdapter(responses=["{}"])
+    extractor = _GuardExtractor(adapter=adapter)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning becomes a test failure
+        await extractor.call_model(prompt="p", input_text="x" * 100)  # == ceiling
+
+
+async def test_mapreduce_extractor_does_not_trip_on_oversized_input() -> None:
+    class _MR(MapReduceExtractor):
+        schema = _basic_schema()
+        MAP_PROMPT = "map {section_spec}"
+        REDUCE_PROMPT = "reduce {section} {max_chars}"
+
+    adapter = StubAdapter(responses=["{}"])
+    extractor = _MR(adapter=adapter)
+    assert extractor.max_input_chars is None  # opted out by design
+
+    oversized = "x" * 500_000
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # a guard warning would fail the test
+        await extractor.call_model(prompt="p", input_text=oversized)
+
+    assert adapter.calls[0][0].messages[0].content == oversized
 
 
 # ---- __init__ wiring ------------------------------------------------------

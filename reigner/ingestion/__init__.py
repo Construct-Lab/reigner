@@ -22,6 +22,7 @@ from reigner.ingestion.pipeline import IngestionPipeline
 from reigner.ingestion.results import (
     ExtractionError,
     ExtractionResult,
+    InputOverflowError,
     TransientError,
     ValidationError,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "ExtractionResult",
     "IngestionPipeline",
     "IngestionReport",
+    "InputOverflowError",
     "JsonLoader",
     "LLMExtractor",
     "LoadedDocument",
