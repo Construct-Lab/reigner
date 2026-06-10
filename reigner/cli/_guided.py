@@ -25,10 +25,12 @@ import asyncio
 import os
 import tempfile
 from dataclasses import dataclass
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Final
 
 import typer
+import yaml
 from rich.console import Console
 from rich.prompt import Prompt as RichPrompt
 
@@ -48,6 +50,12 @@ _DETECT: Final[list[tuple[tuple[str, ...], ProviderName, str]]] = [
 ]
 
 _STRICTNESS_CHOICES: Final = ["strict", "balanced", "lenient"]
+_UNIFORMITY_CHOICES: Final = ["uniform", "mixed"]
+
+# The static map-reduce extractor template, scaffolded in place of the
+# single-shot stub when the corpus is mixed (see _read_template / run_guided).
+# It lives outside templates/blank so the normal scaffold walk never copies it.
+_MAPREDUCE_TEMPLATE: Final = "my_extractor_mapreduce.py"
 
 _ROLE_SYS: Final = """\
 You are scaffolding a Reigner project's REIGNER.md — the single instruction
@@ -92,12 +100,18 @@ Output ONLY the YAML. No code fences, no preamble, no commentary."""
 
 @dataclass(frozen=True)
 class GuidedAnswers:
-    """The four SPEC §14 inputs collected from the interactive Q&A."""
+    """The inputs collected from the interactive Q&A (SPEC §14).
+
+    ``uniformity`` selects the schema shape: ``"uniform"`` (the default) keeps
+    the model-generated schema as-is; ``"mixed"`` layers it onto a generic
+    baseline so a heterogeneous corpus doesn't dead-letter on required sections.
+    """
 
     domain: str
     sources: str
     questions: str
     strictness: str
+    uniformity: str = "uniform"
 
     def as_brief(self) -> str:
         return (
@@ -144,7 +158,7 @@ def _print_no_key(console: Console, name: str) -> None:
 
 
 def _collect_answers(console: Console) -> GuidedAnswers:
-    console.print("  Let's tailor your agent. Four quick questions.\n")
+    console.print("  Let's tailor your agent. Five quick questions.\n")
     domain = RichPrompt.ask("[bold]?[/bold] What domain will this agent work over")
     sources = RichPrompt.ask("[bold]?[/bold] What do your source documents look like")
     questions = RichPrompt.ask("[bold]?[/bold] What kinds of questions will users ask")
@@ -153,11 +167,17 @@ def _collect_answers(console: Console) -> GuidedAnswers:
         choices=_STRICTNESS_CHOICES,
         default="balanced",
     )
+    uniformity = RichPrompt.ask(
+        "[bold]?[/bold] Is your corpus uniform (same kind of document) or mixed",
+        choices=_UNIFORMITY_CHOICES,
+        default="uniform",
+    )
     return GuidedAnswers(
         domain=domain.strip(),
         sources=sources.strip(),
         questions=questions.strip(),
         strictness=strictness,
+        uniformity=uniformity,
     )
 
 
@@ -187,6 +207,40 @@ async def _call(adapter: ModelAdapter, system: str, user_text: str) -> str:
     )
     action = await adapter.call(prompt, [])
     return action.text or ""
+
+
+def _layer_mixed_schema(yaml_text: str) -> str:
+    """Rewrite a generated schema into the layered mixed-corpus shape.
+
+    A mixed corpus has no single required-section list that fits every document,
+    so a rigid schema dead-letters most of it. This prepends
+    :meth:`ArtifactSchema.generic_default`'s sections as a baseline (one required
+    summary any document can fill, plus optional generics) and appends the
+    model's domain sections **forced optional** and **deduped** against the
+    baseline. ``entity_path`` and ``json_artifacts`` are left untouched — only
+    ``sections`` are layered.
+    """
+    data = yaml.safe_load(yaml_text)
+    if not isinstance(data, dict):
+        raise ValueError(f"schema YAML must be a mapping, got {type(data).__name__}")
+
+    baseline = [
+        {"name": s.name, "required": s.required} for s in ArtifactSchema.generic_default().sections
+    ]
+    baseline_names = {s["name"] for s in baseline}
+    domain = [
+        {**s, "required": False}  # the model defaults to required:true — force it off
+        for s in (data.get("sections") or [])
+        if isinstance(s, dict) and s.get("name") not in baseline_names
+    ]
+    data["sections"] = baseline + domain
+    return yaml.safe_dump(data, sort_keys=False)
+
+
+def _read_template(rel: str) -> str:
+    """Read a static template file shipped alongside the blank scaffold."""
+    with as_file(files("reigner.cli.templates") / rel) as path:
+        return Path(path).read_text()
 
 
 def _validate_schema(yaml_text: str) -> None:
@@ -223,6 +277,9 @@ async def _generate(
         )
         schema_yaml = _strip_fences(await _call(adapter, _SCHEMA_SYS, user))
         try:
+            if answers.uniformity == "mixed":
+                schema_yaml = _layer_mixed_schema(schema_yaml)
+                console.print("[dim]  ↳ layered for mixed corpus[/dim]")
             _validate_schema(schema_yaml)
             console.print("[dim]  ↳ schema validated[/dim]")
             return role_md, schema_yaml
@@ -279,16 +336,23 @@ def run_guided(name: str, *, force: bool) -> None:
         raise typer.Exit(1) from exc
 
     console.print()
+    stub = "extractors/my_extractor.py"
     include_extractor = typer.confirm(
         "Scaffold extractors/my_extractor.py? It's runnable Python you'll fill in later",
         default=False,
     )
-    skip = set() if include_extractor else {"extractors/my_extractor.py"}
+    skip = set() if include_extractor else {stub}
+
+    overrides = {"REIGNER.md": role_md, "schema.yaml": schema_yaml}
+    # A mixed corpus needs whole-document extraction; offer the map-reduce
+    # skeleton instead of the single-shot stub.
+    if include_extractor and answers.uniformity == "mixed":
+        overrides[stub] = _read_template(_MAPREDUCE_TEMPLATE)
 
     _scaffold(
         target,
         force=force,
-        overrides={"REIGNER.md": role_md, "schema.yaml": schema_yaml},
+        overrides=overrides,
         skip=skip,
     )
     console.print()
