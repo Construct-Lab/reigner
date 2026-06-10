@@ -20,9 +20,10 @@ import asyncio
 import hashlib
 import json
 import re
+import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from reigner.artifacts import ArtifactSchema
 from reigner.harness.adapters import (
@@ -35,6 +36,7 @@ from reigner.harness.state import Prompt, Turn
 from reigner.ingestion.results import (
     ExtractionError,
     ExtractionResult,
+    InputOverflowError,
     TransientError,
     ValidationError,
 )
@@ -109,6 +111,9 @@ class LLMExtractor(ABC):
       ``extract()`` decides how (and whether) to format it.
     * ``max_retries`` (default 2) — transient retries inside one ``run``.
     * ``base_backoff_seconds`` (default 1.0) — exponential backoff base.
+    * ``max_input_chars`` (default 200_000) — single-shot input ceiling; see
+      :meth:`call_model`. Set to ``None`` to disable the overflow guard.
+    * ``overflow_mode`` (default ``"warn"``) — what the guard does on overflow.
     * ``pricing`` — optional ``{model_full_id: {"input": $/Mtok,
       "output": $/Mtok}}``. None ⇒ ``cost_usd`` is reported as 0.0.
 
@@ -127,6 +132,11 @@ class LLMExtractor(ABC):
     max_retries: ClassVar[int] = 2
     base_backoff_seconds: ClassVar[float] = 1.0
     pricing: ClassVar[dict[str, dict[str, float]] | None] = None
+    # Single-shot input ceiling (chars, not tokens — adapters expose no
+    # context-window estimate; see harness/adapters/base.py). None disables the
+    # guard, which is exactly how MapReduceExtractor opts out.
+    max_input_chars: ClassVar[int | None] = 200_000
+    overflow_mode: ClassVar[Literal["warn", "error", "truncate"]] = "warn"
 
     def __init__(self, adapter: ModelAdapter | None = None) -> None:
         if adapter is not None:
@@ -196,16 +206,31 @@ class LLMExtractor(ABC):
     async def call_model(self, prompt: str, input_text: str) -> dict[str, Any]:
         """Single-shot call expecting a JSON object back.
 
+        This is **single-shot and does not chunk**: the entire ``input_text``
+        goes in one request. For documents too large to read in one call,
+        subclass :class:`MapReduceExtractor` — it chunks below the limit by
+        design and so never trips the overflow guard.
+
+        Before sending, :meth:`_guard_input_size` checks ``len(input_text)``
+        against ``max_input_chars`` and, on overflow, acts per
+        ``overflow_mode``: ``"warn"`` (default) shouts but sends the full text,
+        ``"error"`` raises :class:`InputOverflowError`, ``"truncate"`` cuts the
+        tail and says so. The point is to make a too-big single-shot call
+        *loud* rather than let it silently lose the document tail.
+
         Wraps the harness adapter in degenerate "no tools, single user turn"
         mode. Retries on :class:`TransientAdapterError` with exponential
         backoff up to ``self.max_retries`` additional attempts.
 
         Raises:
+            InputOverflowError: when input exceeds ``max_input_chars`` and
+                ``overflow_mode="error"``.
             TransientError: after retries exhausted on a transient adapter
                 error.
             ExtractionError: on any non-transient adapter error or when the
                 model's response isn't a JSON object.
         """
+        input_text = self._guard_input_size(input_text)
         adapter_prompt = Prompt(
             stable=prompt,
             dynamic_context={},
@@ -257,6 +282,46 @@ class LLMExtractor(ABC):
             doc.close()
 
     # ---- Internals ----------------------------------------------------------
+
+    def _guard_input_size(self, input_text: str) -> str:
+        """Loud overflow guard. Returns the text to actually send.
+
+        Measures ``len(input_text)`` only (not the system prompt) against
+        ``max_input_chars``. ``max_input_chars`` is a *proxy* threshold, not the
+        model's real context window — so ``warn`` flags risk without claiming a
+        drop happened; only ``truncate`` actually cuts the tail.
+
+        * ``warn`` (default): :func:`warnings.warn`, returns the full text —
+          never a silent drop.
+        * ``error``: raises :class:`InputOverflowError`.
+        * ``truncate``: cuts to ``max_input_chars`` and warns how much went.
+        """
+        cap = self.max_input_chars
+        n = len(input_text)
+        if cap is None or n <= cap:
+            return input_text
+
+        hint = "Use MapReduceExtractor for whole-document extraction."
+        if self.overflow_mode == "error":
+            raise InputOverflowError(
+                f"call_model received {n:,} chars, over the {cap:,} ceiling "
+                f"(overflow_mode='error'). {hint}"
+            )
+        if self.overflow_mode == "truncate":
+            warnings.warn(
+                f"call_model truncated input from {n:,} to {cap:,} chars "
+                f"({n - cap:,} chars of the tail dropped). {hint}",
+                stacklevel=2,
+            )
+            return input_text[:cap]
+        # warn (default): shout, but send the whole thing.
+        warnings.warn(
+            f"call_model received {n:,} chars, over the {cap:,} ceiling. Sent in "
+            f"full, but this may exceed the model's context window (the provider "
+            f"will then reject or truncate it). {hint}",
+            stacklevel=2,
+        )
+        return input_text
 
     def _parse_json_response(self, text: str) -> dict[str, Any]:
         body = _strip_code_fence(text.strip())
@@ -410,6 +475,12 @@ class MapReduceExtractor(LLMExtractor):
 
     MAP_PROMPT: ClassVar[str] = ""
     REDUCE_PROMPT: ClassVar[str] = ""
+    # Opt out of LLMExtractor's single-shot overflow guard: map-reduce already
+    # chunks below the limit by design (``chunk_chars`` / ``reduce_input_chars``
+    # bound every call_model call), so the guard would only ever false-alarm —
+    # e.g. on an over-budget single page. The smoke alarm is for the single-shot
+    # path it tells users to escape *to* this class from.
+    max_input_chars: ClassVar[int | None] = None
     # Cap on the text sent to one map call; the document is processed in as many
     # of these windows as it takes.
     chunk_chars: ClassVar[int] = 100_000

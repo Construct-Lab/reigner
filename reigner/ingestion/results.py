@@ -2,12 +2,14 @@
 
 See SPEC.md §8.2 ("Standard error patterns") and issue #14.
 
-Three error types form a hierarchy under :class:`ExtractionError`:
+Four error types form a hierarchy under :class:`ExtractionError`:
 
 * :class:`TransientError` — retried by the pipeline (rate limits, 5xx, network).
 * :class:`ValidationError` — the model produced output that doesn't fit the
   schema; the malformed payload is preserved on ``.payload`` for dead-letter
   inspection.
+* :class:`InputOverflowError` — input handed to a single-shot ``call_model``
+  exceeded the configured ceiling and ``overflow_mode="error"`` refused it.
 * :class:`ExtractionError` (raised directly) — every other permanent failure
   (unparseable JSON, prompt errors, runtime exceptions in user ``extract()``).
 
@@ -50,6 +52,18 @@ class TransientError(ExtractionError):
     those internally and only re-raises as ``TransientError`` once retries are
     exhausted. The pipeline (T-16) decides whether to retry the whole document
     later (network outage, sustained rate limit) or dead-letter it.
+    """
+
+
+class InputOverflowError(ExtractionError):
+    """Single-shot input exceeded the ceiling and ``overflow_mode="error"``.
+
+    Raised by :meth:`LLMExtractor.call_model` when ``len(input_text)`` is over
+    ``max_input_chars`` and the extractor is configured to refuse rather than
+    warn or truncate. Gets its own catchable type — distinct from unparseable
+    JSON or schema failures — so callers can route an oversized document to
+    :class:`MapReduceExtractor` instead of dead-lettering it. The pipeline still
+    catches it under the :class:`ExtractionError` umbrella.
     """
 
 
