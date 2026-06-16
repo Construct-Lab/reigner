@@ -1,0 +1,73 @@
+"""``coverage`` eval check — did the agent retrieve the right artifacts? (SPEC §15.1).
+
+Distinct from ``faithfulness`` (which scores *citing*), coverage scores
+*retrieving*: for a case whose ``expected_citations`` name the artifacts that
+contain the answer, did the agent actually read/grep those sources? An agent can
+fail coverage by guessing without retrieval even when its prose happens to be
+right.
+
+Deterministic — it reads only ``run.events``. Ground truth is the *source* of
+each expected citation: the part of the ``citation_id`` string before ``#``
+(e.g. ``"AAPL/2024/metrics.json#field=rnd"`` → ``"AAPL/2024/metrics.json"``).
+"Retrieved" means a :class:`~reigner.harness.events.ToolCallEvent` carried that
+path in a ``path`` / ``file_path`` argument — the keys used by
+``read_artifact_file``, ``get_json_field``, and ``grep_artifact``.
+
+A retrieved path covers an expected source when they are equal or one is a
+path-segment prefix of the other (so reading a directory or a file under it
+both count).
+
+Verdicts:
+
+- ``na``   — the case declares no ``expected_citations`` (nothing to require).
+- ``pass`` — every expected source was retrieved.
+- ``fail`` — one or more sources were never retrieved; the detail lists them.
+"""
+
+from __future__ import annotations
+
+from reigner.eval.cases import EvalCase
+from reigner.eval.checks import CaseRun, CheckResult, check
+from reigner.harness.events import ToolCallEvent
+
+# Tool arguments that name an artifact path (read_artifact_file / get_json_field
+# use ``path``; grep_artifact uses ``file_path``).
+_PATH_KEYS = ("path", "file_path")
+
+
+def _expected_source(citation: str) -> str:
+    """The source path of an expected citation (everything before ``#``)."""
+    return citation.split("#", 1)[0]
+
+
+def _retrieved_paths(run: CaseRun) -> set[str]:
+    paths: set[str] = set()
+    for event in run.events:
+        if isinstance(event, ToolCallEvent):
+            for key in _PATH_KEYS:
+                value = event.args.get(key)
+                if isinstance(value, str) and value:
+                    paths.add(value)
+    return paths
+
+
+def _covers(retrieved: str, source: str) -> bool:
+    a, b = retrieved.rstrip("/"), source.rstrip("/")
+    return a == b or b.startswith(a + "/") or a.startswith(b + "/")
+
+
+@check("coverage")
+def coverage(case: EvalCase, run: CaseRun) -> CheckResult:
+    """Fail if any expected-citation source was never retrieved; ``na`` if none."""
+    sources = {_expected_source(c) for c in case.expected_citations}
+    if not sources:
+        return CheckResult("coverage", "na", "no expected citations")
+
+    retrieved = _retrieved_paths(run)
+    uncovered = sorted(s for s in sources if not any(_covers(p, s) for p in retrieved))
+    if uncovered:
+        return CheckResult("coverage", "fail", "uncovered: " + ", ".join(uncovered))
+    return CheckResult("coverage", "pass")
+
+
+__all__ = ["coverage"]

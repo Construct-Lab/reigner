@@ -10,6 +10,15 @@ Public surface:
   the seam the T-29 checks register against (``checks.py``).
 """
 
+# Importing these modules registers their @check analyzers (SPEC §15.1) so
+# get_check can resolve them by name. Imported for side effects only.
+from reigner.eval import (  # noqa: E402, F401  (must follow the symbols above)
+    coverage,
+    entity_resolution,
+    faithfulness,
+    latency_cost,
+    repeated_calls,
+)
 from reigner.eval.cases import EvalCase, load_cases
 from reigner.eval.checks import (
     CaseRun,
