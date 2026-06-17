@@ -39,7 +39,14 @@ from typing import TYPE_CHECKING, Any
 
 from reigner.eval.cases import EvalCase, load_cases
 from reigner.eval.checks import CaseRun, CheckFn, CheckResult, get_check
-from reigner.harness.events import ClarificationEvent, ErrorEvent, FinalAnswerEvent
+from reigner.harness.events import (
+    CitationEvent,
+    ClarificationEvent,
+    ErrorEvent,
+    FinalAnswerEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
 from reigner.tools.registry import Profile
 
 if TYPE_CHECKING:
@@ -249,9 +256,109 @@ def _cell(result: CheckResult) -> str:
     return "✗" + (f" — {result.detail}" if result.detail else "")
 
 
+# ---------------------------------------------------------------------------
+# Detailed report — scorecard plus a per-case breakdown (query, response,
+# tool-call trace, citations, and each check's verdict). Like render_scorecard
+# it is pure over a SuiteResult, so the CLI (`reigner eval --report`) and tests
+# share one renderer.
+# ---------------------------------------------------------------------------
+
+_STATUS_MARK = {"pass": "✓", "fail": "✗", "na": "n/a"}
+
+
+def render_report(result: SuiteResult, *, date: str | None = None) -> str:
+    """Render a SuiteResult as a full markdown report (scorecard + detail)."""
+    parts = [
+        "# Eval report",
+        "",
+        render_scorecard(result, date=date),
+        "",
+        "---",
+        "",
+        "## Per-case detail",
+        "",
+    ]
+    parts.extend(_case_detail(cr) for cr in result.cases)
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def _case_detail(cr: CaseResult) -> str:
+    run = cr.run
+    status = "PASSED" if cr.passed else "FAILED"
+    lines = [
+        f"### {cr.case.id} — {status}",
+        "",
+        f"- **Query:** {cr.case.query}",
+        f"- **Response:** {_response_line(run)}",
+        f"- **Cost:** {_total_tokens(run)} tokens · {run.elapsed:.1f}s",
+        "- **Trace:**",
+    ]
+    lines.extend(_trace_lines(run))
+    lines.append("- **Citations:**")
+    lines.extend(_citation_lines(run))
+    lines.append("- **Checks:**")
+    for r in cr.results:
+        detail = f" — {r.detail}" if r.detail else ""
+        lines.append(f"    - {_STATUS_MARK[r.status]} `{r.name}`{detail}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _response_line(run: CaseRun) -> str:
+    if run.final is not None:
+        return run.answer_text
+    clarified = any(isinstance(e, ClarificationEvent) for e in run.events)
+    return "_(clarified — no final answer)_" if clarified else "_(no final answer)_"
+
+
+def _total_tokens(run: CaseRun) -> int:
+    total = run.usage.get("total") if isinstance(run.usage, dict) else None
+    return total if isinstance(total, int) else 0
+
+
+def _trace_lines(run: CaseRun) -> list[str]:
+    out: list[str] = []
+    step = 0
+    for e in run.events:
+        if isinstance(e, ToolCallEvent):
+            step += 1
+            args = ", ".join(f"{k}={_short(v)}" for k, v in e.args.items())
+            out.append(f"    {step}. → `{e.name}({args})`")
+        elif isinstance(e, ToolResultEvent):
+            flags = [f for f, on in (("truncated", e.truncated), ("cached", e.cached)) if on]
+            suffix = f" [{', '.join(flags)}]" if flags else ""
+            out.append(f"       ← result{suffix}")
+        elif isinstance(e, ClarificationEvent):
+            step += 1
+            out.append(f"    {step}. ⁇ clarify: {e.question}")
+        elif isinstance(e, ErrorEvent):
+            out.append(f"    ! error: {e.error}")
+    if step == 0:
+        out.append("    _(no tool calls)_")
+    return out
+
+
+def _citation_lines(run: CaseRun) -> list[str]:
+    cites = [e for e in run.events if isinstance(e, CitationEvent)]
+    if not cites:
+        return ["    - _(none)_"]
+    out: list[str] = []
+    for c in cites:
+        loc = "&".join(f"{k}={v}" for k, v in c.locator.items())
+        ref = f"{c.source}#{loc}" if loc else c.source
+        out.append(f"    - `{ref}` = {c.value!r}")
+    return out
+
+
+def _short(value: Any, limit: int = 60) -> str:
+    text = repr(value)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 __all__ = [
     "CaseResult",
     "EvalSuite",
     "SuiteResult",
+    "render_report",
     "render_scorecard",
 ]

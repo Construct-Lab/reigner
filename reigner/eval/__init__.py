@@ -28,7 +28,13 @@ from reigner.eval.checks import (
     get_check,
     registered_checks,
 )
-from reigner.eval.runner import CaseResult, EvalSuite, SuiteResult, render_scorecard
+from reigner.eval.runner import (
+    CaseResult,
+    EvalSuite,
+    SuiteResult,
+    render_report,
+    render_scorecard,
+)
 
 __all__ = [
     "CaseResult",
@@ -42,5 +48,6 @@ __all__ = [
     "get_check",
     "load_cases",
     "registered_checks",
+    "render_report",
     "render_scorecard",
 ]

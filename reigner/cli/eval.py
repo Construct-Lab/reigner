@@ -28,6 +28,7 @@ from reigner.eval import (
     EvalSuite,
     SuiteResult,
     registered_checks,
+    render_report,
     render_scorecard,
 )
 from reigner.eval.cases import EvalCase
@@ -68,6 +69,11 @@ def _eval(
     json_output: bool = typer.Option(
         False, "--json", help="Emit the result as JSON instead of the markdown scorecard."
     ),
+    report: bool = typer.Option(
+        False,
+        "--report",
+        help="Emit a detailed markdown report (query, response, trace, citations) per case.",
+    ),
     config: str = typer.Option(
         _DEFAULT_CONFIG, "--config", "-c", help="Path to reigner.yaml (defaults to ./reigner.yaml)."
     ),
@@ -75,6 +81,9 @@ def _eval(
     """Run the eval suite against the configured harness and print a scorecard."""
     if profile not in _PROFILES:
         typer.echo(f"✗ --profile must be one of {', '.join(_PROFILES)}; got {profile!r}", err=True)
+        raise typer.Exit(EXIT_USAGE)
+    if json_output and report:
+        typer.echo("✗ pass at most one of --json / --report", err=True)
         raise typer.Exit(EXIT_USAGE)
 
     config_path = Path(config)
@@ -98,6 +107,8 @@ def _eval(
 
     if json_output:
         print(json.dumps(_as_dict(result), indent=2))
+    elif report:
+        print(render_report(result))
     else:
         print(render_scorecard(result))
 
