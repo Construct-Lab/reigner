@@ -75,9 +75,7 @@ def test_scorecard_empty_suite() -> None:
 
 def _report_suite() -> SuiteResult:
     answered = CaseRun(
-        final=FinalAnswerEvent(
-            seq=3, session_id="s", turn=0, text="R&D was $1,234.", metadata={}
-        ),
+        final=FinalAnswerEvent(seq=3, session_id="s", turn=0, text="R&D was $1,234.", metadata={}),
         events=[
             ToolCallEvent(
                 seq=0,
