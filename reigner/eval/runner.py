@@ -3,13 +3,13 @@
 ``EvalSuite.run(harness, checks=[...])`` runs each :class:`~reigner.eval.cases.EvalCase`
 through the harness and produces a :class:`SuiteResult`. Evaluation has two tiers:
 
-1. **Intrinsic** — always evaluated, no T-29 dependency. The cheap declarative
-   assertions a case carries directly: ``forbidden_phrases`` (substring scan of
-   the final answer) and ``expected_clarification`` (did a ``ClarificationEvent``
-   fire?). Each emits a :class:`~reigner.eval.checks.CheckResult`.
+1. **Intrinsic** — always evaluated, no dependency on the named checks. The cheap
+   declarative assertions a case carries directly: ``forbidden_phrases`` (substring
+   scan of the final answer) and ``expected_clarification`` (did a
+   ``ClarificationEvent`` fire?). Each emits a :class:`~reigner.eval.checks.CheckResult`.
 2. **Named** — the analyzers listed in ``checks=[...]``, resolved from the
-   :func:`~reigner.eval.checks.check` registry. These are T-29's five
-   (``faithfulness`` etc.); this module only runs them.
+   :func:`~reigner.eval.checks.check` registry (``faithfulness`` etc.); this module
+   only runs them.
 
 Run mechanics:
 
@@ -107,7 +107,7 @@ class EvalSuite:
     ) -> SuiteResult:
         """Run every case through ``harness`` and score it.
 
-        ``checks`` names the registered analyzers (T-29) to run on top of the
+        ``checks`` names the registered analyzers to run on top of the
         always-on intrinsic assertions. Unknown names raise ``KeyError`` *before*
         any case runs, so a typo never costs a model call.
         """
@@ -168,7 +168,7 @@ class EvalSuite:
 
 
 # ---------------------------------------------------------------------------
-# Intrinsic tier — always evaluated, no T-29 dependency.
+# Intrinsic tier — always evaluated, independent of the named checks.
 # ---------------------------------------------------------------------------
 
 
@@ -208,7 +208,7 @@ def _expected_clarification(case: EvalCase, run: CaseRun) -> CheckResult:
 
 # ---------------------------------------------------------------------------
 # Scorecard — SPEC §15.2 markdown table. Co-located so it's testable without
-# the CLI (T-21); T-21 just calls render_scorecard on the SuiteResult.
+# the CLI, which just calls render_scorecard on the SuiteResult.
 # ---------------------------------------------------------------------------
 
 

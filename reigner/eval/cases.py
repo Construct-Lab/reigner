@@ -15,11 +15,10 @@ The fields mirror the ``eval/cases.yaml`` scaffold produced by ``reigner init``:
 of an omitted key) asserts nothing, so a case that never opted in does not get a
 spurious "should not have clarified" row. ``expected_citations`` is carried
 through untouched — matching it against registered citations is the
-``coverage``/``faithfulness`` checks' job (T-29), not the case's.
+``coverage``/``faithfulness`` checks' job, not the case's.
 
 ``max_tokens`` / ``max_seconds`` are optional per-case budgets the
-``latency_cost`` check (T-29) gates on; omitted (``None``) means report-only, no
-gate.
+``latency_cost`` check gates on; omitted (``None``) means report-only, no gate.
 """
 
 from __future__ import annotations

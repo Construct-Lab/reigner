@@ -1,8 +1,8 @@
-"""End-to-end tests for EvalSuite.run and the two-tier evaluation (T-28).
+"""End-to-end tests for EvalSuite.run and the two-tier evaluation.
 
 Uses a stub adapter so runs are deterministic and free. Named checks are
 registered with the real ``@check`` decorator against a per-test snapshot of
-the registry, so these tests never leak into (or depend on) T-29's checks.
+the registry, so these tests never leak into (or depend on) the built-in checks.
 """
 
 from __future__ import annotations

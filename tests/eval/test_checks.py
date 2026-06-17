@@ -1,4 +1,4 @@
-"""Unit tests for the five built-in eval checks (T-29, SPEC §15.1).
+"""Unit tests for the five built-in eval checks (SPEC §15.1).
 
 Checks are pure functions over a :class:`CaseRun`, so these tests construct run
 records by hand — no live harness, no model calls. Each check is exercised on

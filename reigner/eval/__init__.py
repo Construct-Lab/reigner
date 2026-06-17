@@ -7,7 +7,7 @@ Public surface:
 - :class:`CaseResult` / :class:`SuiteResult` — structured results.
 - :func:`render_scorecard` — the SPEC §15.2 markdown scorecard.
 - :class:`CaseRun` / :class:`CheckResult` / :func:`check` / :func:`get_check` —
-  the seam the T-29 checks register against (``checks.py``).
+  the seam the checks register against (``checks.py``).
 """
 
 # Importing these modules registers their @check analyzers (SPEC §15.1) so

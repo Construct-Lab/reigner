@@ -1,4 +1,4 @@
-"""Tests for render_scorecard / render_report — markdown output (T-28, T-29)."""
+"""Tests for render_scorecard / render_report — the SPEC §15.2 markdown output."""
 
 from __future__ import annotations
 
