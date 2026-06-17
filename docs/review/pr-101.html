@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Walkthrough — Eval checks + reigner eval CLI</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b22;
+    --panel-2: #1c232c;
+    --border: #2a313c;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #79c0ff;
+    --accent-2: #a5d6ff;
+    --good: #56d364;
+    --warn: #d29922;
+    --bad:  #f85149;
+    --code-bg: #0b0f14;
+    --tag-bg: #1f2630;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+  code { background: var(--tag-bg); padding: 1px 5px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Layout */
+  .layout { display: flex; min-height: 100vh; }
+  nav.sidebar {
+    position: sticky; top: 0; align-self: flex-start;
+    width: 280px; height: 100vh; overflow-y: auto;
+    background: var(--panel); border-right: 1px solid var(--border);
+    padding: 28px 18px;
+  }
+  nav.sidebar .brand { font-weight: 600; font-size: 15px; margin-bottom: 4px; color: var(--accent-2); }
+  nav.sidebar .subtitle { font-size: 12px; color: var(--muted); margin-bottom: 22px; }
+  nav.sidebar ol { list-style: none; padding: 0; margin: 0; counter-reset: section; }
+  nav.sidebar ol li { counter-increment: section; margin: 2px 0; }
+  nav.sidebar ol li a {
+    display: block; padding: 7px 10px; border-radius: 6px;
+    color: var(--text); font-size: 13px;
+    border-left: 2px solid transparent;
+  }
+  nav.sidebar ol li a::before {
+    content: counter(section, decimal-leading-zero) "  ";
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  nav.sidebar ol li a:hover { background: var(--panel-2); text-decoration: none; }
+  nav.sidebar ol li a.active {
+    background: var(--panel-2); border-left-color: var(--accent);
+    color: var(--accent-2);
+  }
+
+  main { flex: 1; padding: 40px 56px 120px; max-width: 980px; }
+  header.page-header { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+  header.page-header h1 { margin: 0 0 6px; font-size: 26px; }
+  header.page-header .meta { color: var(--muted); font-size: 13px; }
+  header.page-header .meta span + span::before { content: " · "; color: var(--border); }
+
+  section.story-section {
+    padding: 38px 0; border-bottom: 1px solid var(--border);
+  }
+  section.story-section:last-of-type { border-bottom: none; }
+  section.story-section h2 {
+    margin: 0 0 6px; font-size: 22px; color: var(--accent-2);
+  }
+  section.story-section .section-tag {
+    display: inline-block; font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 18px;
+  }
+  section.story-section h3 {
+    margin: 28px 0 10px; font-size: 16px; color: var(--text);
+  }
+  section.story-section p { margin: 10px 0; }
+
+  /* Pillboxes */
+  .pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    background: var(--tag-bg); border: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+  .pill.good { color: var(--good); border-color: rgba(86,211,100,0.35); }
+  .pill.warn { color: var(--warn); border-color: rgba(210,153,34,0.35); }
+  .pill.bad  { color: var(--bad);  border-color: rgba(248,81,73,0.35); }
+  .pill.accent { color: var(--accent-2); border-color: rgba(121,192,255,0.35); }
+
+  /* Why / Decision blocks */
+  .callout {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px; border-radius: 6px;
+    margin: 14px 0;
+  }
+  .callout.why    { border-left-color: var(--accent); }
+  .callout.tradeoff { border-left-color: var(--warn); }
+  .callout.deferred { border-left-color: var(--muted); }
+  .callout strong { color: var(--accent-2); }
+  .callout.tradeoff strong { color: var(--warn); }
+  .callout.deferred strong { color: var(--muted); }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse; margin: 14px 0;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left; padding: 9px 12px;
+    border-bottom: 1px solid var(--border); vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td code { white-space: nowrap; }
+
+  /* Diagrams (ASCII-ish) */
+  .diagram {
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: 18px; border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.5; color: var(--accent-2);
+    overflow-x: auto; white-space: pre;
+  }
+
+  .file-ref {
+    display: inline-block; font-size: 12px; color: var(--muted);
+    background: var(--tag-bg); padding: 2px 8px; border-radius: 4px;
+    margin-right: 6px;
+  }
+
+  ul.compact { margin: 6px 0; padding-left: 22px; }
+  ul.compact li { margin: 4px 0; }
+
+  .toc-toggle { display: none; }
+
+  @media (max-width: 880px) {
+    .layout { flex-direction: column; }
+    nav.sidebar { position: relative; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 24px 20px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="brand">Reigner / T-29</div>
+    <div class="subtitle">Eval checks + reigner eval CLI</div>
+    <ol id="toc">
+      <li><a href="#context">The starting point</a></li>
+      <li><a href="#scope">What this PR sets out to do</a></li>
+      <li><a href="#shape">The shape of a check run</a></li>
+      <li><a href="#faithfulness">Faithfulness — the hard one</a></li>
+      <li><a href="#other-checks">The other four checks</a></li>
+      <li><a href="#cli">The reigner eval command</a></li>
+      <li><a href="#report">--report: the detailed walkthrough</a></li>
+      <li><a href="#deferred">What was deliberately deferred</a></li>
+      <li><a href="#tests">How it was tested</a></li>
+      <li><a href="#review">Reviewer's checklist</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="page-header">
+      <h1>Eval checks + <code>reigner eval</code> CLI</h1>
+      <div class="meta">
+        <span>T-29 · issue #29 · PR #101</span>
+        <span>branch <code>vishalj0501/t-29-feat-eval-checks</code></span>
+        <span>commit <code>f74535c</code></span>
+      </div>
+      <div class="pillrow" style="margin-top:14px;">
+        <span class="pill good">faithfulness</span>
+        <span class="pill good">repeated_calls</span>
+        <span class="pill good">entity_resolution</span>
+        <span class="pill good">coverage</span>
+        <span class="pill good">latency_cost</span>
+        <span class="pill accent">reigner eval</span>
+        <span class="pill accent">--report</span>
+      </div>
+    </header>
+
+    <section class="story-section" id="context">
+      <span class="section-tag">Where we were</span>
+      <h2>The starting point</h2>
+      <p>
+        #28 (already on <code>main</code>) built the eval <em>seam</em> but shipped
+        zero concrete checks. In <code>reigner/eval/</code> there was:
+        <code>checks.py</code> — <code>CaseRun</code> (a captured run record:
+        final answer, event stream, citations, elapsed, usage), <code>CheckResult</code>
+        (a ternary <code>pass</code>/<code>fail</code>/<code>na</code> verdict), and a
+        <code>@check</code> name→function registry; <code>runner.py</code> —
+        <code>EvalSuite.run()</code> and <code>render_scorecard()</code>; and
+        <code>cases.py</code> — the declarative <code>EvalCase</code>.
+      </p>
+      <p>
+        What was missing was the actual <em>judgement</em>: nothing scored a run.
+        The runner could drive a harness and render a table, but every column it
+        could show was a check that didn't exist yet, and there was no command-line
+        way to invoke any of it.
+      </p>
+      <div class="callout why">
+        <strong>Why this split:</strong> #28 deliberately froze the <em>shape</em> of a
+        check — <code>(EvalCase, CaseRun) -&gt; CheckResult</code> — so the five
+        analyzers could land with zero edits to the runner. T-29 is purely "fill in
+        the registry," which is why this PR touches no runner control flow beyond
+        adding a second renderer.
+      </div>
+    </section>
+
+    <section class="story-section" id="scope">
+      <span class="section-tag">What changed</span>
+      <h2>What this PR sets out to do</h2>
+      <p>
+        Five concrete checks, an optional per-case budget, the <code>reigner eval</code>
+        command, and a detailed report renderer. 12 files vs <code>main</code>:
+      </p>
+      <table>
+        <thead><tr><th>File</th><th>Role</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><code>eval/faithfulness.py</code></td><td>Numeric claims map to citations (token-based extraction)</td><td><span class="pill good">implemented</span></td></tr>
+          <tr><td><code>eval/repeated_calls.py</code></td><td>Flags identical <code>(name, args)</code> tool calls</td><td><span class="pill good">implemented</span></td></tr>
+          <tr><td><code>eval/entity_resolution.py</code></td><td>Ambiguous query: clarified vs guessed</td><td><span class="pill good">implemented</span></td></tr>
+          <tr><td><code>eval/coverage.py</code></td><td>Expected-citation sources were retrieved</td><td><span class="pill good">implemented</span></td></tr>
+          <tr><td><code>eval/latency_cost.py</code></td><td>Tokens + wall-clock; gates on optional budgets</td><td><span class="pill warn">no $ cost (deferred)</span></td></tr>
+          <tr><td><code>eval/cases.py</code></td><td>+ optional <code>max_tokens</code> / <code>max_seconds</code></td><td><span class="pill good">extended</span></td></tr>
+          <tr><td><code>eval/runner.py</code></td><td>+ <code>render_report()</code> (per-case markdown)</td><td><span class="pill good">extended</span></td></tr>
+          <tr><td><code>eval/__init__.py</code></td><td>Imports checks (registration) + exports</td><td><span class="pill good">wired</span></td></tr>
+          <tr><td><code>cli/eval.py</code></td><td>The <code>reigner eval</code> command</td><td><span class="pill good">implemented</span></td></tr>
+          <tr><td><code>cli/__main__.py</code></td><td>Registers <code>eval</code> (aliased import)</td><td><span class="pill good">wired</span></td></tr>
+          <tr><td><code>tests/eval/test_checks.py</code></td><td>24 tests — every check's pass/fail/na paths</td><td><span class="pill good">passing</span></td></tr>
+          <tr><td><code>tests/eval/test_scorecard.py</code></td><td>+2 tests for <code>render_report</code></td><td><span class="pill good">passing</span></td></tr>
+        </tbody>
+      </table>
+      <p>
+        All five checks are <strong>deterministic</strong> — pure analysis over the
+        captured <code>CaseRun</code>, no model calls. The seam supports async
+        (LLM-judged) checks; this PR deliberately doesn't use that.
+      </p>
+    </section>
+
+    <section class="story-section" id="shape">
+      <span class="section-tag">Architecture</span>
+      <h2>The shape of a check run</h2>
+      <p>
+        The runner captures one <code>CaseRun</code> per case and fans it out to every
+        resolved check. No check ever touches the live loop — they read a finished
+        record. Registration happens at import time via the <code>@check</code>
+        decorator; <code>eval/__init__.py</code> imports the five modules so the
+        registry is populated before <code>get_check()</code> resolves a name.
+      </p>
+      <div class="diagram">
+   EvalSuite._run_case (runner.py, from #28)
+        │  drives harness.session(profile).run_stream(query)
+        │  captures →  CaseRun{ final, events, citations, elapsed, usage }
+        ▼
+   ┌─────────────── for each resolved check fn ───────────────┐
+   │  fn(case, run) -> CheckResult(name, pass|fail|na, detail) │
+   └──────────────────────────────────────────────────────────┘
+        │
+        │   faithfulness    answer numbers      ⟷  citation values
+        │   coverage        expected sources    ⟷  tool-call paths
+        │   repeated_calls  (name, args) keys    →  any seen ≥ 2×
+        │   entity_resolution  ambiguous case    →  clarified vs answered
+        │   latency_cost    usage + elapsed      →  vs max_tokens/max_seconds
+        ▼
+   SuiteResult ──► render_scorecard()   (the §15.2 table)
+               └─► render_report()      (scorecard + per-case detail)   [new]
+
+   @check("name") at import  ──►  module-level registry  ──►  get_check(name)
+      </div>
+      <div class="callout why">
+        <strong>Why checks read a <code>CaseRun</code>, not the loop:</strong> every
+        §15.1 check is computable from a completed run. Decoupling the verdict from
+        the live loop makes each check a pure function — trivially unit-testable with
+        a hand-built record — and keeps the runner the only thing that drives a model.
+      </div>
+    </section>
+
+    <section class="story-section" id="faithfulness">
+      <span class="section-tag">The hard one</span>
+      <h2>Faithfulness — numbers must trace to citations</h2>
+      <p>
+        <span class="file-ref">eval/faithfulness.py</span>
+        The trust property (SPEC §22 Week-6 criterion 3): every number the agent
+        asserts in its answer must map to a registered citation. The check extracts
+        numbers from the answer, extracts numbers carried by the run's citations, and
+        fails on the first answer-number with no citation backing it. Matching is
+        scale-tolerant (so <code>"$31.4 billion"</code> matches a stored <code>31.4</code>)
+        with a relative epsilon.
+      </p>
+      <h3>Number extraction is token-based</h3>
+      <p>
+        The first implementation scanned the answer character-by-character with a
+        regex. That kept inventing numbers that were never claims. Running a real
+        model (<code>gpt-5.5</code>) over a real corpus surfaced three distinct
+        phantom-number bugs in a row:
+      </p>
+      <table>
+        <thead><tr><th>Answer text</th><th>Char-scan extracted</th><th>Reality</th></tr></thead>
+        <tbody>
+          <tr><td><code>… in 2022-23.</code></td><td><code>-23</code></td><td>fiscal-year range</td></tr>
+          <tr><td><code>… in 2022–23.</code> (en-dash)</td><td><code>23</code></td><td>fiscal-year range</td></tr>
+          <tr><td><code>Amity University (IR-E-U-0497) …</code></td><td><code>-497</code></td><td>institute id</td></tr>
+          <tr><td><code>**449 faculty**</code> (markdown)</td><td><em>nothing</em> → false n/a</td><td>a real claim, missed</td></tr>
+        </tbody>
+      </table>
+      <p>The fix was to stop scanning and instead tokenize, accepting a number only if a whole whitespace-delimited token is numeric:</p>
+<pre><code># strip wrapping punctuation/markup, then require the ENTIRE token to be numeric
+_EDGE_PUNCT = "()[]{}\"'.,;:!?–—-*_`#~"
+for token in text.split():
+    cleaned = token.strip(_EDGE_PUNCT)
+    m = _NUM_RE.fullmatch(cleaned)        # fullmatch, not search
+    if m is None:
+        continue
+    ...
+    if not scale and "." not in raw and 1900 &lt;= value &lt;= 2099:
+        continue                          # calendar year, not a metric</code></pre>
+      <div class="callout why">
+        <strong>Why token-based (the lead decision):</strong> a character-scanning
+        regex will always pull digit runs out of identifiers, version strings, and
+        date ranges — the bugs above are not edge cases, they're the <em>norm</em> for
+        prose a model writes. Requiring a whole token to be numeric (plus stripping
+        markdown edges and fiscal-year ranges first) is what makes the check usable on
+        real answers instead of only on hand-written test strings. Every row above is
+        now a regression test.
+      </div>
+      <div class="callout tradeoff">
+        <strong>Tradeoff accepted:</strong> faithfulness is <em>numeric-only</em> and
+        deterministic. It does not LLM-judge paraphrased qualitative claims, and a
+        number that coincidentally equals an unrelated citation value passes. This is
+        numeric faithfulness, not semantic — chosen so eval runs are reproducible and
+        free. A semantic check can be added later via the same async-capable seam.
+      </div>
+      <p>
+        Verdicts: <code>pass</code> when every number is cited; <code>fail</code> on the
+        first uncited one (named in the detail); <code>na</code> when the answer has no
+        numeric claims.
+      </p>
+    </section>
+
+    <section class="story-section" id="other-checks">
+      <span class="section-tag">The rest of the registry</span>
+      <h2>The other four checks</h2>
+
+      <h3>coverage — did it retrieve the answer's source?</h3>
+      <p>
+        <span class="file-ref">eval/coverage.py</span>
+        Distinct from faithfulness (which scores <em>citing</em>), coverage scores
+        <em>retrieving</em>. For each <code>expected_citations</code> entry it takes the
+        <strong>source</strong> (the part before <code>#</code>, e.g.
+        <code>IR-E-U-0497/2024/metrics.json</code>) and requires a retrieval
+        <code>ToolCallEvent</code> to have touched it via a <code>path</code> /
+        <code>file_path</code> arg (equal or a path-segment prefix). <code>na</code>
+        when the case lists no expected citations.
+      </p>
+      <div class="callout why">
+        <strong>Why retrieval, not citation:</strong> an agent can be right by luck.
+        Scoring whether it actually <em>read</em> the source artifact is a different,
+        stronger signal than whether the prose happened to match — and keeps coverage
+        from collapsing into a duplicate of faithfulness.
+      </div>
+
+      <h3>repeated_calls — loops &amp; redundant fetches</h3>
+      <p>
+        <span class="file-ref">eval/repeated_calls.py</span>
+        Builds an identity key <code>(tool_name, canonicalized args)</code> for every
+        <code>ToolCallEvent</code> (reusing <code>canonicalize_locator</code> so arg key
+        order doesn't matter) and fails if any key occurs ≥ 2×, naming the offender and
+        count. <code>na</code> when no tool calls were made.
+      </p>
+
+      <h3>entity_resolution — clarify vs guess</h3>
+      <p>
+        <span class="file-ref">eval/entity_resolution.py</span>
+        Scoped to ambiguous cases: <code>na</code> unless the case sets
+        <code>expected_clarification: true</code>; for those, <code>pass</code> if a
+        <code>ClarificationEvent</code> fired, <code>fail</code> if the agent answered
+        anyway (guessed). It complements — rather than duplicates — the runner's
+        always-on intrinsic <code>expected_clarification</code> check, which scores both
+        directions for any case that sets the flag.
+      </p>
+
+      <h3>latency_cost — budget per case</h3>
+      <p>
+        <span class="file-ref">eval/latency_cost.py</span>
+        Reports total tokens + elapsed seconds in its detail (e.g.
+        <code>"8.1k tok · 1.2s"</code>) and fails only if the case set
+        <code>max_tokens</code> / <code>max_seconds</code> and the run exceeded it.
+        Those two budgets are the only new fields on <code>EvalCase</code> in this PR
+        (validated: positive number or absent; <code>bool</code> rejected).
+      </p>
+      <div class="callout tradeoff">
+        <strong>Tradeoff accepted:</strong> the SPEC §15.2 scorecard shows a dollar
+        <code>Cost</code> column, but <code>TokenUsage</code> carries only token counts
+        and <code>CaseRun</code> has no model name — so a price isn't computable without
+        new pricing/plumbing. The check reports tokens + wall-clock rather than
+        fabricating a <code>$</code> figure.
+      </div>
+    </section>
+
+    <section class="story-section" id="cli">
+      <span class="section-tag">Command line</span>
+      <h2>The <code>reigner eval</code> command</h2>
+      <p>
+        <span class="file-ref">cli/eval.py</span>
+        Mirrors the other CLI commands (env load, <code>ConfigError</code> handling,
+        <code>--config/-c</code>). Cases come from <code>eval.cases</code> in
+        <code>reigner.yaml</code> (default <code>eval/cases.yaml</code>); checks are
+        resolved <code>--check</code> flags → <code>eval.checks</code> in config → all
+        registered. <code>--case</code> filters by id. Exit codes: <code>0</code> all
+        passed, <code>1</code> some failed, <code>2</code> usage error.
+      </p>
+      <div class="callout why">
+        <strong>Why fail-fast resolution order:</strong> bad <code>--profile</code>,
+        unknown <code>--case</code>, and unknown <code>--check</code> are all validated
+        <em>before</em> the harness is built — so a typo exits with a friendly message
+        and never costs a model call. The check names are resolved up front for the
+        same reason.
+      </div>
+      <p>
+        One small footgun handled: the module is <code>cli/eval.py</code>, so
+        <code>__main__.py</code> imports it as <code>eval as eval_cmd</code> to avoid
+        shadowing the <code>eval</code> builtin. The two repeatable list options
+        (<code>--case</code>, <code>--check</code>) use <code>Annotated[...]</code> so
+        the <code>typer.Option(...)</code> call isn't a mutable default (ruff B008).
+      </p>
+    </section>
+
+    <section class="story-section" id="report">
+      <span class="section-tag">Beyond the scorecard</span>
+      <h2><code>--report</code>: query, response, trace, citations</h2>
+      <p>
+        <span class="file-ref">eval/runner.py</span>
+        The scorecard answers "did it pass." <code>render_report()</code> answers "what
+        actually happened." It embeds the scorecard, then for each case emits the
+        query, the agent's response (or <code>(clarified)</code>), the ordered
+        tool-call trace, registered citations, the token/time cost, and every check's
+        verdict with its reason.
+      </p>
+      <div class="callout why">
+        <strong>Why it lives in <code>runner.py</code>, next to
+        <code>render_scorecard</code>:</strong> it's a pure function over
+        <code>SuiteResult</code>, so the CLI (<code>reigner eval --report</code>) and the
+        tests share one renderer with no model dependency. <code>--report</code> and
+        <code>--json</code> are mutually exclusive (passing both → usage error).
+      </div>
+    </section>
+
+    <section class="story-section" id="deferred">
+      <span class="section-tag">Out of scope, on purpose</span>
+      <h2>What was deliberately deferred</h2>
+      <ul class="compact">
+        <li><strong>Dollar cost in the scorecard.</strong> No pricing table and no model
+            name on <code>CaseRun</code>; <code>latency_cost</code> reports tokens +
+            wall-clock. Adding <code>$</code> later is purely additive.</li>
+        <li><strong>LLM-judged faithfulness.</strong> The seam is async-capable, but all
+            five checks stay deterministic for reproducibility. A semantic faithfulness
+            check can register alongside the numeric one without touching it.</li>
+        <li><strong>Cycle detection in <code>repeated_calls</code>.</strong> It flags
+            exact <code>(name, args)</code> duplicates, not repeating <em>sequences</em>
+            (A,B,A,B), and has no tolerance knob — one accidental re-fetch fails the
+            case. A threshold/cycle-aware variant is a clean follow-up.</li>
+        <li><strong>The eval-vs-clarification profile tension.</strong> The default
+            <code>eval</code> profile strips <code>request_clarification</code> for
+            determinism, so an <code>expected_clarification: true</code> case can't
+            clarify under it — evaluate those with <code>--profile read_only</code>.
+            Reconciling this in the registry is left for later.</li>
+      </ul>
+    </section>
+
+    <section class="story-section" id="tests">
+      <span class="section-tag">Verification</span>
+      <h2>How it was tested</h2>
+      <p>
+        26 new tests in this PR (verified by <code>grep -c 'def test_'</code>):
+        <strong>24</strong> in <code>tests/eval/test_checks.py</code> and
+        <strong>2</strong> added to <code>tests/eval/test_scorecard.py</code> for
+        <code>render_report</code>. The full <code>tests/eval/</code> suite is 48 tests;
+        the whole repo is 804 passing.
+      </p>
+      <ul class="compact">
+        <li><strong>Per check:</strong> pass / fail / na path for each of the five.</li>
+        <li><strong>Faithfulness regressions:</strong> scale-normalized match,
+            billions-stored citation, uncited → fail, no-claims → na, calendar years,
+            fiscal-year ranges (hyphen / slash / en-dash), ID-embedded digits, and
+            markdown-bolded numbers.</li>
+        <li><strong>Registration:</strong> all five names appear in
+            <code>registered_checks()</code>.</li>
+        <li><strong>Report rendering:</strong> an answered case (query / response /
+            trace / citation / verdict / cost all present) and a clarified case
+            (<code>(no final answer)</code>, <code>(no tool calls)</code>,
+            <code>(none)</code> citations).</li>
+      </ul>
+      <p>
+        Checks are tested against hand-built <code>CaseRun</code> fixtures — no live
+        harness, no model — which is the payoff of the pure-function design. The
+        end-to-end path (<code>reigner ingest</code> → <code>reigner eval</code>) was
+        additionally exercised against a real corpus with a live model; that run is
+        what surfaced the faithfulness bugs above.
+      </p>
+    </section>
+
+    <section class="story-section" id="review">
+      <span class="section-tag">For the reviewer</span>
+      <h2>Reviewer's checklist</h2>
+      <p>Highest-leverage things to spot-check:</p>
+      <ul class="compact">
+        <li>Read <code>faithfulness._numbers()</code> against the four phantom-number
+            rows above — confirm token-based extraction + the fiscal-year-range strip +
+            the year heuristic actually cover each, and that the regression tests assert
+            them.</li>
+        <li>Sanity-check the scale-tolerant match (<code>_FACTORS</code> / relative
+            epsilon): a genuinely wrong number must still <code>fail</code>, not slip
+            through a scale factor.</li>
+        <li>Confirm <code>coverage</code>'s path matching is segment-aware — that
+            <code>AAPL/2024</code> doesn't spuriously "cover" <code>AAPL/2024x/...</code>.</li>
+        <li>Verify the CLI resolves checks/cases and validates <code>--profile</code>
+            <em>before</em> <code>Harness.from_config</code> — no model call on a typo
+            (the three usage-error paths exit <code>2</code>).</li>
+        <li>Note the default <code>--profile eval</code> strips clarification: an
+            ambiguous case will <em>fail</em> under it. Confirm that's the documented,
+            intended behavior, not a bug.</li>
+        <li>Check <code>eval/__init__.py</code> imports the five check modules — without
+            those imports the <code>@check</code> decorators never run and
+            <code>get_check</code> can't resolve them.</li>
+      </ul>
+      <div class="callout why">
+        <strong>Mental model to carry in:</strong> the runner and seam are #28's; this PR
+        is the judgement layer. The one decision that carries the most weight is
+        token-based number extraction in faithfulness — it's the difference between a
+        check that works on real model prose and one that only works on tidy test
+        strings.
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  // Sidebar active-section highlighting.
+  const links = document.querySelectorAll('nav.sidebar a');
+  const sections = Array.from(links).map(a => document.querySelector(a.getAttribute('href')));
+  const setActive = () => {
+    const y = window.scrollY + 120;
+    let idx = 0;
+    sections.forEach((s, i) => { if (s && s.offsetTop <= y) idx = i; });
+    links.forEach((a, i) => a.classList.toggle('active', i === idx));
+  };
+  window.addEventListener('scroll', setActive, { passive: true });
+  setActive();
+</script>
+</body>
+</html>
