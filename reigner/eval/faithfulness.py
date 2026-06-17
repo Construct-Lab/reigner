@@ -16,7 +16,7 @@ epsilon for float comparison.
 Two documented heuristics keep the check usable without an LLM judge:
 
 - Extraction is token-based: only whole numeric tokens count, so digits fused
-  into an identifier ("IR-E-U-0497") or word are never read as claims.
+  into an identifier ("SKU-0497") or word are never read as claims.
 - Bare four-digit integers in 1900–2099 with no scale/decimal are treated as
   calendar **years**, not citable metrics, and skipped. Fiscal-/academic-year
   ranges ("2022-23", "2022/2023", "2022–23") are stripped first so the trailing
@@ -42,7 +42,7 @@ from reigner.eval.checks import CaseRun, CheckResult, check
 # A numeric *token*: optional currency, sign, thousands separators, decimal,
 # optional scale word, optional percent. Matched against a whole whitespace-
 # delimited token via fullmatch so a number fused into an identifier or word
-# ("IR-E-U-0497", "Top10", "v2") is never mistaken for a claim — the recurring
+# ("SKU-0497", "Top10", "v2") is never mistaken for a claim — the recurring
 # false-positive of a character-scanning regex.
 _NUM_RE = re.compile(
     r"[$₹€£]?"

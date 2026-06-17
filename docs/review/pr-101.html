@@ -308,7 +308,7 @@
       <p>
         The first implementation scanned the answer character-by-character with a
         regex. That kept inventing numbers that were never claims. Running a real
-        model (<code>gpt-5.5</code>) over a real corpus surfaced three distinct
+        model over a real corpus surfaced three distinct
         phantom-number bugs in a row:
       </p>
       <table>
@@ -316,8 +316,8 @@
         <tbody>
           <tr><td><code>… in 2022-23.</code></td><td><code>-23</code></td><td>fiscal-year range</td></tr>
           <tr><td><code>… in 2022–23.</code> (en-dash)</td><td><code>23</code></td><td>fiscal-year range</td></tr>
-          <tr><td><code>Amity University (IR-E-U-0497) …</code></td><td><code>-497</code></td><td>institute id</td></tr>
-          <tr><td><code>**449 faculty**</code> (markdown)</td><td><em>nothing</em> → false n/a</td><td>a real claim, missed</td></tr>
+          <tr><td><code>Record (SKU-0497) …</code></td><td><code>-497</code></td><td>identifier</td></tr>
+          <tr><td><code>**1,234 units**</code> (markdown)</td><td><em>nothing</em> → false n/a</td><td>a real claim, missed</td></tr>
         </tbody>
       </table>
       <p>The fix was to stop scanning and instead tokenize, accepting a number only if a whole whitespace-delimited token is numeric:</p>
@@ -364,7 +364,7 @@ for token in text.split():
         Distinct from faithfulness (which scores <em>citing</em>), coverage scores
         <em>retrieving</em>. For each <code>expected_citations</code> entry it takes the
         <strong>source</strong> (the part before <code>#</code>, e.g.
-        <code>IR-E-U-0497/2024/metrics.json</code>) and requires a retrieval
+        <code>AAPL/2024/metrics.json</code>) and requires a retrieval
         <code>ToolCallEvent</code> to have touched it via a <code>path</code> /
         <code>file_path</code> arg (equal or a path-segment prefix). <code>na</code>
         when the case lists no expected citations.

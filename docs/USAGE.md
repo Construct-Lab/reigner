@@ -803,7 +803,7 @@ registered check.
 
 ```bash
 reigner eval                          # all cases, all checks → scorecard
-reigner eval --case amity_faculty     # one case (repeatable)
+reigner eval --case apple_rnd_2024    # one case (repeatable)
 reigner eval --check faithfulness     # one check (repeatable)
 reigner eval --profile read_only      # full | read_only | eval (default: eval)
 reigner eval --json                   # structured JSON instead of the scorecard
@@ -815,10 +815,10 @@ A case is one query with optional expectations:
 ```yaml
 # eval/cases.yaml
 cases:
-  - id: amity_faculty
-    query: "How many faculty members does Amity University have?"
+  - id: apple_rnd_2024
+    query: "What were Apple's R&D expenses in 2024?"
     expected_citations:
-      - "IR-E-U-0497/2024/metrics.json#field=faculty_count"
+      - "AAPL/2024/metrics.json#field=research_and_development"
     forbidden_phrases: ["I think", "approximately"]
     expected_clarification: false
     max_tokens: 20000          # optional latency_cost budget
@@ -828,12 +828,12 @@ cases:
 The scorecard (representative — needs a model):
 
 ```
-## Eval results — 2026-06-17
+## Eval results — 2026-05-06
 
 | Case | faithfulness | repeated_calls | entity_resolution | coverage | latency_cost |
 |---|---|---|---|---|---|
-| amity_faculty | ✓ | ✓ | n/a | ✓ | ✓ (5.2k tok · 7.8s) |
-| ambiguous_uni | n/a | ✓ | ✓ (clarified) | n/a | ✓ (0 tok · 4.0s) |
+| apple_rnd_2024 | ✓ | ✓ | n/a | ✓ | ✓ (8.1k tok · 1.2s) |
+| ambiguous_revenue | n/a | ✓ | ✓ (clarified) | n/a | ✓ (0 tok · 0.4s) |
 
 2 cases · 2 passed · 0 failed
 ```

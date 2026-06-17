@@ -76,7 +76,7 @@ def test_scorecard_empty_suite() -> None:
 def _report_suite() -> SuiteResult:
     answered = CaseRun(
         final=FinalAnswerEvent(
-            seq=3, session_id="s", turn=0, text="Amity has 449 faculty.", metadata={}
+            seq=3, session_id="s", turn=0, text="R&D was $1,234.", metadata={}
         ),
         events=[
             ToolCallEvent(
@@ -84,23 +84,23 @@ def _report_suite() -> SuiteResult:
                 session_id="s",
                 turn=0,
                 name="get_json_field",
-                args={"path": "IR-E-U-0497/2024/metrics.json", "fields": ["faculty_count"]},
+                args={"path": "AAPL/2024/metrics.json", "fields": ["research_and_development"]},
                 call_id="c0",
             ),
             CitationEvent(
                 seq=1,
                 session_id="s",
                 turn=0,
-                source="IR-E-U-0497/2024/metrics.json",
-                locator={"field": "faculty_count"},
-                value=449,
+                source="AAPL/2024/metrics.json",
+                locator={"field": "research_and_development"},
+                value=1234,
             ),
         ],
         citations=[
             Citation(
-                source="IR-E-U-0497/2024/metrics.json",
-                locator={"field": "faculty_count"},
-                value=449,
+                source="AAPL/2024/metrics.json",
+                locator={"field": "research_and_development"},
+                value=1234,
                 turn=0,
             )
         ],
@@ -110,7 +110,7 @@ def _report_suite() -> SuiteResult:
     return SuiteResult(
         cases=[
             CaseResult(
-                case=EvalCase(id="amity_faculty", query="How many faculty at Amity?"),
+                case=EvalCase(id="apple_rnd_2024", query="What were Apple's R&D expenses?"),
                 run=answered,
                 results=[CheckResult("faithfulness", "pass"), CheckResult("coverage", "pass")],
             )
@@ -123,11 +123,11 @@ def test_report_includes_scorecard_query_response_and_trace() -> None:
     assert "# Eval report" in md
     assert "## Eval results — 2026-06-09" in md  # scorecard embedded
     assert "## Per-case detail" in md
-    assert "### amity_faculty — PASSED" in md
-    assert "- **Query:** How many faculty at Amity?" in md
-    assert "- **Response:** Amity has 449 faculty." in md
+    assert "### apple_rnd_2024 — PASSED" in md
+    assert "- **Query:** What were Apple's R&D expenses?" in md
+    assert "- **Response:** R&D was $1,234." in md
     assert "→ `get_json_field(" in md  # trace
-    assert "`IR-E-U-0497/2024/metrics.json#field=faculty_count` = 449" in md  # citation
+    assert "`AAPL/2024/metrics.json#field=research_and_development` = 1234" in md  # citation
     assert "✓ `faithfulness`" in md  # check verdict
     assert "5100 tokens · 1.2s" in md
 

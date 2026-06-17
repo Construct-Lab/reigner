@@ -1,7 +1,7 @@
 """`reigner eval` — run the eval suite and print a scorecard (SPEC §13, §15).
 
     reigner eval                         all cases, configured (or all) checks
-    reigner eval --case amity_faculty    run one case (repeatable)
+    reigner eval --case apple_rnd_2024   run one case (repeatable)
     reigner eval --check faithfulness    run one check (repeatable)
     reigner eval --json                  ND-JSON-free structured result on stdout
 

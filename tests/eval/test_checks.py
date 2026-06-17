@@ -132,18 +132,18 @@ def test_faithfulness_ignores_fiscal_year_ranges() -> None:
 
 
 def test_faithfulness_reads_markdown_bolded_numbers() -> None:
-    # Models routinely bold the figure ("**449**"); it must still be verified.
-    run = _run(text="Amity University has **449 faculty members**.", citations=[_citation(449)])
+    # Models routinely bold the figure ("**1,234**"); it must still be verified.
+    run = _run(text="The total was **1,234 units**.", citations=[_citation(1234)])
     assert faithfulness(_case(), run).status == "pass"
 
-    uncited = _run(text="Amity University has **450 faculty members**.", citations=[_citation(449)])
+    uncited = _run(text="The total was **1,235 units**.", citations=[_citation(1234)])
     assert faithfulness(_case(), uncited).status == "fail"
 
 
 def test_faithfulness_ignores_digits_inside_identifiers() -> None:
-    # "IR-E-U-0497" must not yield the phantom claim -497 / 497; only 325 counts.
+    # "SKU-0497" must not yield the phantom claim -497 / 497; only 325 counts.
     run = _run(
-        text="Amity University (IR-E-U-0497) has 325 full-time PhD students.",
+        text="Record SKU-0497 lists 325 units in stock.",
         citations=[_citation(325)],
     )
     assert faithfulness(_case(), run).status == "pass"
