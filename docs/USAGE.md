@@ -84,7 +84,7 @@ output in Section 3 is marked representative.
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
 | Skills (on-demand modules) | ⏳ | `role.skills:` in `reigner.yaml` | [Section 5](#5-known-gaps--not-yet-wired) |
-| Eval suite | 🟡 | Python API (no CLI yet) | [Section 5](#5-known-gaps--not-yet-wired) |
+| Eval — scorecard / report | ✅ | `reigner eval [--report]` | [Section 3.8](#38-evaluate-your-agent--reigner-eval) |
 
 ---
 
@@ -794,6 +794,80 @@ next.
 
 ---
 
+### 3.8 Evaluate your agent — `reigner eval`
+
+`reigner eval` runs an eval suite against your configured harness and prints a
+markdown scorecard. Cases live in `eval/cases.yaml` (one query plus expectations);
+checks come from `--check` flags, else `eval.checks` in `reigner.yaml`, else every
+registered check.
+
+```bash
+reigner eval                          # all cases, all checks → scorecard
+reigner eval --case apple_rnd_2024    # one case (repeatable)
+reigner eval --check faithfulness     # one check (repeatable)
+reigner eval --profile read_only      # full | read_only | eval (default: eval)
+reigner eval --json                   # structured JSON instead of the scorecard
+reigner eval --report                 # detailed per-case markdown (below)
+```
+
+A case is one query with optional expectations:
+
+```yaml
+# eval/cases.yaml
+cases:
+  - id: apple_rnd_2024
+    query: "What were Apple's R&D expenses in 2024?"
+    expected_citations:
+      - "AAPL/2024/metrics.json#field=research_and_development"
+    forbidden_phrases: ["I think", "approximately"]
+    expected_clarification: false
+    max_tokens: 20000          # optional latency_cost budget
+    max_seconds: 30            # optional latency_cost budget
+```
+
+The scorecard (representative — needs a model):
+
+```
+## Eval results — 2026-05-06
+
+| Case | faithfulness | repeated_calls | entity_resolution | coverage | latency_cost |
+|---|---|---|---|---|---|
+| apple_rnd_2024 | ✓ | ✓ | n/a | ✓ | ✓ (8.1k tok · 1.2s) |
+| ambiguous_revenue | n/a | ✓ | ✓ (clarified) | n/a | ✓ (0 tok · 0.4s) |
+
+2 cases · 2 passed · 0 failed
+```
+
+**The five built-in checks** (all deterministic — no model calls; `na` = inapplicable):
+
+| Check | Passes when |
+|---|---|
+| `faithfulness` | every numeric claim in the answer maps to a registered citation |
+| `repeated_calls` | no identical `(tool, args)` call was issued twice |
+| `entity_resolution` | an ambiguous case (`expected_clarification: true`) clarified instead of guessing |
+| `coverage` | every `expected_citations` source was retrieved via a tool call |
+| `latency_cost` | within `max_tokens` / `max_seconds` if set (else report-only) |
+
+Two **intrinsic** checks always run alongside them: `forbidden_phrases` and
+`expected_clarification`.
+
+`--report` adds a per-case breakdown after the scorecard — the query, the agent's
+response, the ordered tool-call trace, registered citations, cost, and each check's
+verdict — useful for seeing *why* a case passed or failed.
+
+**Exit codes:** `0` all cases passed · `1` some case failed · `2` usage error
+(missing config/cases, unknown `--case`/`--check`, bad `--profile`). Usage errors
+are caught *before* the harness is built, so a typo never costs a model call.
+
+> **Profile note:** the default `eval` profile strips `request_clarification` for
+> determinism, so an `expected_clarification: true` case can't clarify under it —
+> run those with `--profile read_only`.
+
+**How to test:** `reigner eval --case <id> --profile read_only` against an ingested
+project, or the deterministic check logic directly via `pytest tests/eval/`.
+
+---
+
 ## 4. Configuration reference
 
 ### `reigner.yaml`
@@ -909,9 +983,11 @@ sessions:
 
 plugins: []                 # list[dotted-path] · default [] · see Section 3.7
 
-eval:                       # optional · runnable from Python today; `reigner eval` CLI pending (§5)
+eval:                       # optional · used by `reigner eval` (§3.8)
   cases: eval/cases.yaml    # str · default "eval/cases.yaml"
-  checks: []                # list[str] · named checks to run (faithfulness, …) — pending #29
+  checks: []                # list[str] · names to run; [] = all registered
+                            #   (faithfulness, repeated_calls, entity_resolution,
+                            #    coverage, latency_cost). --check overrides this.
 ```
 
 Three footguns the schema enforces, worth calling out:
@@ -964,33 +1040,10 @@ tracking issue.
 
 - **`reigner session` CLI** — ⏳ no CLI; fork/replay/tree are Python-API only
   today ([Section 3.5](#35-sessions-fork--replay--tree--python-api)).
-- **Eval** — 🟡 the suite + runner shipped
-  ([#28](https://github.com/Construct-Lab/reigner/issues/28)). Build an `EvalSuite`
-  from `eval/cases.yaml`, run it against a harness, and render the SPEC §15.2
-  scorecard — all from Python. The always-on **intrinsic** checks
-  (`forbidden_phrases`, `expected_clarification`) work today; the named analytical
-  checks (`faithfulness`, `coverage`, …) are pending
-  ([#29](https://github.com/Construct-Lab/reigner/issues/29)) and the `reigner eval`
-  CLI is pending ([#21](https://github.com/Construct-Lab/reigner/issues/21)).
-
-  ```python
-  import asyncio
-  from reigner.harness.agent import Harness
-  from reigner.eval import EvalSuite, render_scorecard
-
-  async def main() -> None:
-      harness = Harness.from_config("reigner.yaml")
-      suite = EvalSuite.from_yaml("eval/cases.yaml")
-      results = await suite.run(harness, checks=[])  # named checks once #29 lands
-      print(render_scorecard(results))
-
-  asyncio.run(main())
-  ```
-
-  Each case runs in a fresh `profile="eval"` session; a case that clarifies or
-  errors is captured (it never aborts the suite). `expected_clarification: true`
-  cases need `suite.run(harness, profile="read_only")` since the `eval` profile
-  strips clarification.
+- **`reigner session` / eval Python API** — the eval suite is also usable
+  directly from Python (`EvalSuite.from_yaml(...).run(harness, checks=[...])` →
+  `render_scorecard` / `render_report`); see [Section 3.8](#38-evaluate-your-agent--reigner-eval)
+  for the CLI. Each case runs in a fresh session and never aborts the suite.
 - **`reigner init --recipe`** — ⏳ `--help` says *"not yet bundled"*; the
   `recipes/` package ships empty. Use `--blank` (or `--guided`) for now.
 - **Skills** (`role.skills:`) — ⏳ the on-demand skill loader package is empty;

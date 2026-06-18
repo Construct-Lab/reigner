@@ -1,10 +1,10 @@
-"""Eval check contract and registry — the seam T-29 plugs into.
+"""Eval check contract and registry — the seam concrete checks plug into.
 
 SPEC §15. This module owns the *shape* of a check and how a check is discovered
 by name; it deliberately ships **no concrete checks**. The five analyzers
 (``faithfulness``, ``repeated_calls``, ``entity_resolution``, ``coverage``,
-``latency_cost`` — SPEC §15.1) are T-29's job and register themselves here via
-the :func:`check` decorator, so they land with zero edits to the runner.
+``latency_cost`` — SPEC §15.1) live in their own modules and register themselves
+here via the :func:`check` decorator, so they land with zero edits to the runner.
 
 The three pieces:
 
@@ -90,7 +90,7 @@ _REGISTRY: dict[str, CheckFn] = {}
 def check(name: str) -> Callable[[CheckFn], CheckFn]:
     """Register a check function under ``name`` (SPEC §15.1).
 
-    Used by T-29::
+    Used by each analyzer module::
 
         @check("faithfulness")
         async def faithfulness(case: EvalCase, run: CaseRun) -> CheckResult:
@@ -113,8 +113,8 @@ def check(name: str) -> Callable[[CheckFn], CheckFn]:
 def get_check(name: str) -> CheckFn:
     """Resolve a registered check by name, or raise a helpful ``KeyError``.
 
-    The error lists every registered name so a typo (or a missing T-29 import)
-    is obvious at the call site.
+    The error lists every registered name so a typo (or a missing check-module
+    import) is obvious at the call site.
     """
     try:
         return _REGISTRY[name]

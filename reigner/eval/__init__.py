@@ -7,9 +7,18 @@ Public surface:
 - :class:`CaseResult` / :class:`SuiteResult` — structured results.
 - :func:`render_scorecard` — the SPEC §15.2 markdown scorecard.
 - :class:`CaseRun` / :class:`CheckResult` / :func:`check` / :func:`get_check` —
-  the seam the T-29 checks register against (``checks.py``).
+  the seam the checks register against (``checks.py``).
 """
 
+# Importing these modules registers their @check analyzers (SPEC §15.1) so
+# get_check can resolve them by name. Imported for side effects only.
+from reigner.eval import (  # noqa: E402, F401  (must follow the symbols above)
+    coverage,
+    entity_resolution,
+    faithfulness,
+    latency_cost,
+    repeated_calls,
+)
 from reigner.eval.cases import EvalCase, load_cases
 from reigner.eval.checks import (
     CaseRun,
@@ -19,7 +28,13 @@ from reigner.eval.checks import (
     get_check,
     registered_checks,
 )
-from reigner.eval.runner import CaseResult, EvalSuite, SuiteResult, render_scorecard
+from reigner.eval.runner import (
+    CaseResult,
+    EvalSuite,
+    SuiteResult,
+    render_report,
+    render_scorecard,
+)
 
 __all__ = [
     "CaseResult",
@@ -33,5 +48,6 @@ __all__ = [
     "get_check",
     "load_cases",
     "registered_checks",
+    "render_report",
     "render_scorecard",
 ]

@@ -1,4 +1,4 @@
-"""Tests for EvalCase parsing and YAML loading (T-28)."""
+"""Tests for EvalCase parsing and YAML loading."""
 
 from __future__ import annotations
 
