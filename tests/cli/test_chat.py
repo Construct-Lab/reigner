@@ -1,4 +1,4 @@
-"""Behavior tests for `reigner chat` (T-19).
+"""Behavior tests for `reigner chat`.
 
 Covers headless modes (``--print``, ``--print --json``), config error
 surfacing, and the interactive REPL via prompt_toolkit's pipe-input harness.
@@ -8,7 +8,10 @@ offline.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -82,38 +85,213 @@ def test_missing_reigner_yaml_errors_cleanly(
 # ---------------------------------------------------------------------------
 
 
+async def _wait_for(predicate, *, timeout: float = 2.0) -> bool:
+    """Poll ``predicate`` on the running event loop until true or timeout."""
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
+@dataclass
+class _BlockingFirstAdapter:
+    """Adapter whose first ``call`` blocks on an Event, then scripts actions.
+
+    Lets a test hold the first model call open so a mid-run keystroke has a
+    real in-flight run to land on, then release it to let the loop finish.
+    """
+
+    actions: list
+    release: asyncio.Event
+    name: str = "fake"
+    model: str = "fake-1"
+    supports_prompt_caching: bool = False
+    calls: list = field(default_factory=list)
+    _blocked: bool = False
+
+    async def call(self, prompt, tools):  # type: ignore[no-untyped-def]
+        self.calls.append(prompt)
+        if not self._blocked:
+            self._blocked = True
+            await self.release.wait()
+        nxt = self.actions.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+
 @pytest.mark.asyncio
-async def test_repl_runs_one_query_and_exits(
-    make_session, monkeypatch: pytest.MonkeyPatch, capsys
-) -> None:
-    """Drive the REPL through prompt_toolkit's pipe-input + dummy output."""
+async def test_repl_runs_one_query(make_session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A submitted query runs to a final answer; the prompt stays live after."""
+    from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
     from reigner.cli import chat as chat_module
+    from reigner.harness.events import FinalAnswerEvent
     from tests.cli.conftest import _final
 
     session = make_session([_final("repl answer")])
-
-    # Pretend stdin is a TTY so the REPL doesn't refuse to start.
     monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
 
     with create_pipe_input() as inp:
-        # `ask\n` → submit query.  `/exit\n` → leave the REPL.
-        inp.send_text("ask\n/exit\n")
-
-        # Pin prompt_toolkit's defaults to our pipe + dummy output for this test.
-        from prompt_toolkit.application import create_app_session
-
+        inp.send_text("ask\n")
         with create_app_session(input=inp, output=DummyOutput()):
-            await chat_module._run_repl(session)
+            repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+            done = await _wait_for(
+                lambda: any(isinstance(e, FinalAnswerEvent) for e in session.events())
+            )
+            repl_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait_for(repl_task, timeout=2.0)
 
-    # The fake adapter recorded one Prompt call → the query made it through.
+    assert done, "run never produced a final answer"
     assert len(session.harness.adapter.calls) == 1
-    # Session's event log has a FinalAnswerEvent for the run.
-    from reigner.harness.events import FinalAnswerEvent
 
-    assert any(isinstance(e, FinalAnswerEvent) for e in session.events())
+
+@pytest.mark.asyncio
+async def test_repl_exit_command(make_session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`/exit` typed at the idle prompt leaves the REPL without a model call."""
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from reigner.cli import chat as chat_module
+
+    session = make_session()
+    monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
+
+    with create_pipe_input() as inp:
+        inp.send_text("/exit\n")
+        with create_app_session(input=inp, output=DummyOutput()):
+            await asyncio.wait_for(chat_module._run_repl(session), timeout=2.0)
+
+    assert session.harness.adapter.calls == []
+
+
+@pytest.mark.asyncio
+async def test_repl_queues_next_question_midrun(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mid-run Enter queues the typed text as a separate next question.
+
+    The first run answers on its own, then the queued question runs as a fresh
+    turn — two distinct model calls, two final answers — rather than folding
+    into the first run's trajectory.
+    """
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from reigner.cli import chat as chat_module
+    from reigner.config import SettingsConfig
+    from reigner.harness.agent import Harness
+    from reigner.harness.events import FinalAnswerEvent, SteeringAcceptedEvent
+    from tests.cli.conftest import _final
+
+    release = asyncio.Event()
+    # One scripted final answer per question; the blocking adapter parks the
+    # first call so q2 can be typed while q1 is genuinely in flight.
+    adapter = _BlockingFirstAdapter(
+        actions=[_final("answer-1"), _final("answer-2")], release=release
+    )
+    session = Harness(adapter=adapter, role="TEST", settings=SettingsConfig()).session()
+
+    monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
+
+    with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
+        repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+
+        inp.send_text("q1\n")
+        assert await _wait_for(lambda: bool(adapter.calls)), "q1 never started"
+
+        # Plain Enter mid-run → queued as the NEXT question, not a steer.
+        inp.send_text("q2\n")
+
+        # Release q1; it answers, then q2 runs on its own as a second turn.
+        release.set()
+        got_both = await _wait_for(
+            lambda: sum(isinstance(e, FinalAnswerEvent) for e in session.events()) >= 2
+        )
+        assert got_both, "second question never ran as its own turn"
+        answers = [e.text for e in session.events() if isinstance(e, FinalAnswerEvent)]
+        assert answers == ["answer-1", "answer-2"]
+        assert len(adapter.calls) == 2
+        # It was a separate question, never a steer of q1's run.
+        assert not any(isinstance(e, SteeringAcceptedEvent) for e in session.events())
+        assert session._state.pending_steering == []
+
+        repl_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(repl_task, timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_repl_captures_midrun_steer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression + steer: Alt+Enter (Esc-then-Enter) steers the in-flight run.
+
+    The prompt must stay live during the run (it did not before — the prompt
+    app stopped before ``await task``), so the typed text reaches the steering
+    queue and is drained as a user turn at the loop's next boundary.
+    """
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from reigner.cli import chat as chat_module
+    from reigner.config import SettingsConfig
+    from reigner.harness.adapters.base import ModelAction, TokenUsage, ToolCall
+    from reigner.harness.agent import Harness
+    from reigner.harness.events import SteeringAcceptedEvent
+    from tests.cli.conftest import _final
+
+    release = asyncio.Event()
+    # Iteration 1 issues a pseudo-tool (save_note) so the loop continues past
+    # the in-flight model call to a second boundary where the steer drains.
+    note_action = ModelAction(
+        is_final_answer=False,
+        text=None,
+        tool_calls=[ToolCall(id="c1", name="save_note", args={"text": "noting"})],
+        usage=TokenUsage.empty(),
+        stop_reason="tool_calls",
+    )
+    adapter = _BlockingFirstAdapter(actions=[note_action, _final("done")], release=release)
+    session = Harness(adapter=adapter, role="TEST", settings=SettingsConfig()).session()
+
+    monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
+
+    with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
+        repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+
+        # Submit the query, then wait until its model call is genuinely in
+        # flight — the blocking adapter records the call, then parks on
+        # `release`. Only now is the run "running".
+        inp.send_text("ask\n")
+        started = await _wait_for(lambda: bool(adapter.calls))
+        assert started, "first model call never started"
+
+        # Steer WHILE the run is in flight via Alt+Enter — sent on the wire as
+        # ESC + CR ("\x1b\r"), which is also how "Esc then Enter" arrives. The
+        # buffer text must reach the steering queue, not the question queue.
+        inp.send_text("redirect\x1b\r")
+        captured = await _wait_for(lambda: bool(session._state.pending_steering))
+        assert captured, "mid-run steer was not captured"
+        assert session._state.pending_steering[0] == ("redirect", "queue")
+
+        # Release the blocked call; the queued steer drains at the next turn.
+        release.set()
+        drained = await _wait_for(
+            lambda: any(isinstance(e, SteeringAcceptedEvent) for e in session.events())
+        )
+        assert drained, "queued steer was not drained at the next boundary"
+        steer_ev = next(e for e in session.events() if isinstance(e, SteeringAcceptedEvent))
+        assert steer_ev.mode == "queue"
+        assert steer_ev.message == "redirect"
+
+        repl_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(repl_task, timeout=2.0)
 
 
 def test_repl_refuses_without_tty(patch_build_session, monkeypatch: pytest.MonkeyPatch) -> None:

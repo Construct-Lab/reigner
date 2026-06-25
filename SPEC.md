@@ -389,14 +389,16 @@ The next single turn uses the oracle adapter; subsequent turns revert. Emits `Or
 
 ### 5.6 Steering
 
-`session.steer(message, mode)` enqueues a user message that's delivered at the next tool boundary:
+`session.steer(message, mode)` enqueues a user message that's delivered at the next iteration boundary:
 
-- `mode="interrupt"`: delivered after the current tool call completes; remaining queued tool calls in this iteration are dropped.
-- `mode="queue"`: delivered after the current iteration finishes naturally.
+- `mode="queue"`: delivered after the current iteration finishes naturally — the message is folded into history as a user turn before the next model call.
+- `mode="interrupt"`: reserved on the API for a future preemption path; in v0 it behaves identically to `queue` (no mid-turn preemption — see below).
 
 Enqueued steering messages persist on `Session.pending_steering` until consumed. Emits `SteeringAcceptedEvent` when consumed.
 
-The CLI's `chat` REPL uses this: pressing Enter mid-run sends a `mode="interrupt"` message; pressing Alt+Enter queues it.
+**No mid-turn preemption in v0 — by design, not omission.** A queued steer never aborts the in-flight model call. Preemption (a streaming adapter whose call can be cancelled mid-stream, with the partial action discarded) earns its keep in long, exploratory agent runs; Reigner is a bounded retrieval agent (`max_iterations: 25`, short grounded turns), where preemption would save roughly one model call at the cost of threading cancellation through the deliberately legible loop. It stays parked under issue #48 until run-length evidence justifies it.
+
+The CLI's `chat` REPL keeps the prompt live while a run streams and offers two distinct mid-run actions. Idle `Enter` submits a fresh query. Mid-run `Enter` is **type-ahead**: the typed text queues as the *next question* and runs as its own turn once the current answer lands (it does not touch the in-flight run). `Alt+Enter` — or `Esc` then `Enter`, which needs no terminal Option-as-Meta — *steers* the in-flight run via `session.steer(..., "queue")`, folding the text into the current loop. Neither preempts.
 
 ---
 
@@ -1060,7 +1062,10 @@ reigner ingest [--pipeline <module:obj>] [--source <path>]
     Run an ingestion pipeline; logs progress, idempotent.
 
 reigner chat
-    Interactive REPL with steering. Enter = interrupt-steer; Alt+Enter = queue-steer.
+    Interactive REPL. The prompt stays live during a run: idle Enter submits,
+    mid-run Enter queues the typed text as the next question (type-ahead), and
+    Alt+Enter (or Esc then Enter) steers the in-flight run. No mid-turn
+    preemption (§5.6).
 
 reigner chat --print "<query>" [--json]
     One-shot run. --print emits final answer to stdout. --json emits the event

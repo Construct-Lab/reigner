@@ -458,15 +458,22 @@ REPL controls:
 
 | Key / command | Action |
 |---|---|
-| `Enter` | Submit a prompt — or, while a run is in flight, **steer** it (interrupt mode). |
-| `Alt+Enter` | Steer the in-flight run in **queue** mode (apply after the current step). |
+| `Enter` | Submit a prompt — or, while a run is in flight, **queue it as your next question** (runs as its own turn after the current answer). |
+| `Alt+Enter` (or `Esc` then `Enter`) | **Steer** the in-flight run: fold the typed text into the *current* answer at the loop's next boundary. |
 | `Ctrl+C` | Cancel the current run. |
 | `/exit`, `/quit`, `Ctrl+D` | Quit the REPL. |
 
-> Steering's `interrupt` mode is partially wired
-> ([#48](https://github.com/Construct-Lab/reigner/issues/48)): today it queues
-> rather than truly preempting the in-flight model call. `queue` works as
-> described.
+The prompt stays live while a run streams, so there are two distinct mid-run
+actions. **Enter** is type-ahead: your next question waits in line and runs as
+its own turn once the current answer lands (like queuing a follow-up in Claude
+Code / ChatGPT). **Alt+Enter** — or **Esc then Enter**, which works on terminals
+without Option-as-Meta — *steers* the running answer instead, folding your text
+into the current run as a user turn at its next iteration boundary.
+
+> Neither action **preempts** the in-flight model call — there is deliberately
+> no mid-turn interrupt for a bounded retrieval agent. Real-time
+> interrupt-preemption stays parked under
+> [#48](https://github.com/Construct-Lab/reigner/issues/48).
 
 **One-shot** (stdout is just the final answer — scriptable):
 
@@ -1114,8 +1121,12 @@ tracking issue.
   the config key is accepted but does nothing yet.
 - **`reigner serve --mcp`** — ⏳ exits with a "not yet implemented" message
   ([Section 3.6](#36-serve-the-agent--reigner-serve)).
-- **Real-time steering interrupt** — 🟡 `mode="interrupt"` currently behaves like
-  `queue` at the loop layer ([#48](https://github.com/Construct-Lab/reigner/issues/48)).
+- **Real-time steering interrupt-preemption** — ⏳ deliberately not built.
+  Mid-run interaction works end-to-end (the prompt stays live during a run):
+  **Enter** type-aheads your next question, **Alt+Enter** steers the current
+  answer. Neither aborts the in-flight model call — preemption is parked as a
+  conscious non-goal for a bounded retrieval agent
+  ([#48](https://github.com/Construct-Lab/reigner/issues/48)).
 
 This doc is a hand-verified snapshot — when a track lands, its row here and in
 [Section 2](#2-feature-status) should be updated to match.
