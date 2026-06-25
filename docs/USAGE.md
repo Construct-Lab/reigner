@@ -79,7 +79,7 @@ output in Section 3 is marked representative.
 | Chat — one-shot / JSON | ✅ | `reigner chat --print Q [--json]` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
 | Inspect role/config/tools | ✅ | `reigner inspect {role,config,tools}` | [Section 3.4](#34-inspect-the-project--reigner-inspect) |
 | Inspect artifacts/index | ✅ | `reigner inspect {artifacts,index}` | [Section 3.4](#34-inspect-the-project--reigner-inspect) |
-| Sessions — fork/replay/tree | 🟡 | Python API (no CLI yet) | [Section 3.5](#35-sessions-fork--replay--tree--python-api) |
+| Sessions — list/show/tree/fork/replay | ✅ | `reigner session …` | [Section 3.5](#35-sessions-list--show--tree--fork--replay--reigner-session) |
 | Serve — HTTP / SSE | ✅ | `reigner serve --http` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
@@ -570,17 +570,72 @@ $ reigner inspect index
 docs: 2 · vocab: 418 · sections: 9
 ```
 
-### 3.5 Sessions: fork / replay / tree — Python API
+### 3.5 Sessions: list / show / tree / fork / replay — `reigner session`
 
 Sessions are durable JSONL logs under `./.reigner/sessions/`, written
 automatically by every `chat` run. They're **forkable and replayable** — the
 foundation for A/B/C comparison of `REIGNER.md`/model/tool variants.
 
-🟡 **The fork/replay/tree logic ships, but there is no `reigner session` CLI
-yet** — the CLI commands are tracked in
-[#21](https://github.com/Construct-Lab/reigner/issues/21) (still open). For now
-the capability lives in the Python API. Forking and replay are methods on a
-`Session`; listing and lineage live on `SessionStore` and the `tree` helpers:
+The `reigner session` command exposes the seven session operations. Every
+`<id>` argument accepts an **unambiguous prefix** (`a1b2` resolves to
+`a1b2c3d4…` when exactly one session matches), so you rarely type a full id:
+
+```bash
+reigner session list                       # table of every session (+ --json)
+reigner session show a1b2                  # one session's rounds + citations (+ --json)
+reigner session tree a1b2                  # the fork lineage, queried node marked (+ --json)
+reigner session fork a1b2 --at-turn 2      # branch a child at round 2 (no model call)
+reigner session replay a1b2 --at-turn 2    # re-run round 2 live (spends tokens)
+reigner session replay a1b2 --with-role ./ALT.md   # ...against a different ROLE
+reigner session export a1b2 --to out.jsonl # portable single-file export (+ sidecar meta)
+reigner session import out.jsonl           # read an exported session back in
+```
+
+`session show <id>` is also reachable as `reigner inspect session <id>` — one
+implementation, discoverable from either verb. The read commands (`list`,
+`show`, `tree`) touch only the store on disk; only `replay` calls the model.
+
+#### Fork — branch a conversation without spending tokens
+
+`fork` snapshots a session up to round N and writes a new child whose history is
+identical up to that point. No model call happens — it's pure bookkeeping on
+disk — so it works offline and costs nothing. Use it to explore a different
+follow-up question from a shared prefix:
+
+```bash
+# branch off after round 2, then ask the child something new:
+reigner session fork 2536 --at-turn 2          # → ✓ forked 2536 → 0a8c666b…
+reigner session show 0a8c                       # confirm the child carries rounds 1–2
+reigner chat -c reigner.yaml --session 0a8c     # continue the branch live
+```
+
+Each fork shows up under the parent in `session tree`, so you can keep several
+competing follow-ups side by side and compare their answers later.
+
+#### Replay — re-run a recorded round live (spends tokens)
+
+`replay` forks at round N, re-issues that round's recorded query, and runs it to
+completion on the child — leaving the original untouched and diff-able. This is
+the only session command that calls the model, so it needs your API key in the
+environment / `./.env` and bills against it:
+
+```bash
+# re-run round 1 against the configured ROLE:
+reigner session replay 2536 --at-turn 1
+
+# A/B the same round against a different ROLE without touching the original
+# (the headline feature) — point --with-role at an edited copy:
+cp REIGNER.md ALT.md            # edit ALT.md, then:
+reigner session replay 2536 --at-turn 1 --with-role ALT.md
+```
+
+`--at-turn` defaults to the last round when omitted. Every replay creates a new
+child you can then `show` / `tree` against the original, so iterating on a ROLE
+becomes: edit, replay `--with-role`, diff, repeat.
+
+The same capability is available from the Python API. Forking and replay are
+methods on a `Session`; listing and lineage live on `SessionStore` and the
+`tree` helpers:
 
 ```python
 from reigner.harness.agent import Harness
@@ -593,9 +648,20 @@ await session.run("What does Orbit cost?")  # the loop is async
 branch = session.fork(at_turn=2)
 await branch.run("...and how is data secured?")
 
-# Replay the first N turns (e.g. to re-run them under a different model:
-# build a Harness with the other model, load the session into it, replay).
+# Replay round 2 live against the configured ROLE (this spends tokens).
 restored = await session.replay(at_turn=2)
+```
+
+To replay against a *different* ROLE (what `--with-role` does on the CLI), build
+a harness with the override role and load the session into it before replaying.
+The override is a keyword arg on `from_config`; the same seam will later carry a
+model override:
+
+```python
+from reigner.harness.agent import Harness, Session
+
+alt = Harness.from_config("reigner.yaml", role_file="ALT.md")
+restored = await Session.load(session.id, harness=alt).replay(at_turn=2)
 ```
 
 Browse and visualize what's on disk:
@@ -1038,12 +1104,10 @@ as `REIGNER.md`):
 Short list of what the scaffolding promises but doesn't do yet. Each links its
 tracking issue.
 
-- **`reigner session` CLI** — ⏳ no CLI; fork/replay/tree are Python-API only
-  today ([Section 3.5](#35-sessions-fork--replay--tree--python-api)).
-- **`reigner session` / eval Python API** — the eval suite is also usable
-  directly from Python (`EvalSuite.from_yaml(...).run(harness, checks=[...])` →
-  `render_scorecard` / `render_report`); see [Section 3.8](#38-evaluate-your-agent--reigner-eval)
-  for the CLI. Each case runs in a fresh session and never aborts the suite.
+- **eval Python API** — the eval suite is also usable directly from Python
+  (`EvalSuite.from_yaml(...).run(harness, checks=[...])` → `render_scorecard` /
+  `render_report`); see [Section 3.8](#38-evaluate-your-agent--reigner-eval) for
+  the CLI. Each case runs in a fresh session and never aborts the suite.
 - **`reigner init --recipe`** — ⏳ `--help` says *"not yet bundled"*; the
   `recipes/` package ships empty. Use `--blank` (or `--guided`) for now.
 - **Skills** (`role.skills:`) — ⏳ the on-demand skill loader package is empty;

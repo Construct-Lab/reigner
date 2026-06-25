@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from reigner.cli import _meta, chat, ingest, init, inspect, serve
+from reigner.cli import _meta, chat, ingest, init, inspect, serve, session
 from reigner.cli import eval as eval_cmd
 
 app = typer.Typer(
@@ -20,6 +20,7 @@ ingest.register(app)
 inspect.register(app)
 serve.register(app)
 eval_cmd.register(app)
+session.register(app)
 
 
 def main() -> None:
