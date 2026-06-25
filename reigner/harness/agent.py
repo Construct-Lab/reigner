@@ -80,6 +80,8 @@ class Harness:
         cls,
         path: str | Path,
         tools: list[RunnableTool] | None = None,
+        *,
+        role_file: str | Path | None = None,
     ) -> Harness:
         """Build a :class:`Harness` from a ``reigner.yaml`` file.
 
@@ -88,6 +90,9 @@ class Harness:
         - Model and oracle adapters are resolved via a lazy provider switch.
         - ``role.file`` is read from disk if present (resolved relative to the
           config file). Skill composition belongs to T-30 and is deferred.
+          ``role_file`` overrides which file supplies the ROLE — used by
+          ``reigner session replay --with-role`` to A/B an instruction variant
+          against the same recorded query (SPEC §11.2).
         - ``tools.custom`` dotted paths are imported.
         - ``tools.artifacts`` is wired to a real :class:`ArtifactStore`;
           the six SPEC §6.4 read tools are appended to ``wired_tools``.
@@ -120,7 +125,7 @@ class Harness:
             else None
         )
 
-        role_text = _load_role(cfg)
+        role_text = _load_role(cfg, role_file)
 
         artifact_tools: list[RunnableTool] = []
         if cfg.tools.artifacts is not None:
@@ -628,12 +633,27 @@ def build_fs_tools(cfg: ReignerConfig) -> list[RunnableTool]:
     return list(fs.tools())
 
 
-def _load_role(cfg: ReignerConfig) -> str:
-    """Read ``cfg.role.file`` from disk, returning ``""`` if it's missing.
+def _load_role(cfg: ReignerConfig, role_file: str | Path | None = None) -> str:
+    """Read the ROLE file from disk, returning ``""`` if it's missing.
 
-    Skill composition (T-30) layers on top of this string later; for T-17 we
+    Defaults to ``cfg.role.file`` (resolved relative to the config). When
+    ``role_file`` is given it overrides that path — the replay override seam
+    (SPEC §11.2) — and is resolved relative to the current directory unless
+    already absolute. A missing override path is an error (unlike the default,
+    whose absence is tolerated): asking to replay against a specific ROLE that
+    doesn't exist should fail loudly rather than silently run with an empty one.
+
+    Skill composition (T-30) layers on top of this string later; for now we
     just slurp the file verbatim so a basic Harness has a usable role.
     """
+    if role_file is not None:
+        override = Path(role_file)
+        if not override.exists():
+            raise ConfigError(f"role file not found: {override}")
+        try:
+            return override.read_text()
+        except OSError as e:
+            raise ConfigError(f"cannot read role file {override}: {e}") from e
     role_path = cfg.resolve(cfg.role.file)
     if not role_path.exists():
         return ""

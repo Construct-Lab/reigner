@@ -1,7 +1,9 @@
 """`reigner inspect` — introspect what the harness sees.
 
-Five subcommands today: ``artifacts``, ``role``, ``tools``, ``index``,
-``config``. Deferred: ``session`` (owned by ``reigner session``).
+Six subcommands: ``artifacts``, ``role``, ``tools``, ``index``, ``config``,
+and ``session`` — the last an alias for ``reigner session show <id>``, the
+canonical home for session detail (so there's one implementation, reachable
+from either verb).
 
 Each subcommand loads ``reigner.yaml`` (default ``./reigner.yaml``; override
 with ``--config / -c``) via :meth:`ReignerConfig.load`. ``inspect role``
@@ -46,7 +48,19 @@ def register(app: typer.Typer) -> None:
     sub.command("tools")(_inspect_tools)
     sub.command("index")(_inspect_index)
     sub.command("config")(_inspect_config)
+    sub.command("session")(_inspect_session)
     app.add_typer(sub)
+
+
+def _inspect_session(
+    session_id: str = typer.Argument(..., metavar="ID", help="Session id (or unambiguous prefix)."),
+    config: str = typer.Option(_DEFAULT_CONFIG, "--config", "-c"),
+    json_output: bool = typer.Option(False, "--json", help="Emit the detail as JSON."),
+) -> None:
+    """Show a session's rounds + citations — alias for `reigner session show`."""
+    from reigner.cli.session import _show
+
+    _show(session_id=session_id, config=config, json_output=json_output)
 
 
 # ---------------------------------------------------------------------------
