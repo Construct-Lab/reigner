@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-06-26
+
+### Features
+
+- Eval suite + runner ([#28](https://github.com/Construct-Lab/reigner/issues/28))
+- Eval checks + reigner eval CLI ([#101](https://github.com/Construct-Lab/reigner/issues/101))
+- Reigner session CLI (list/show/tree/fork/replay/export/import) ([#102](https://github.com/Construct-Lab/reigner/issues/102))
+- Mid-run REPL type-ahead and steering ([#48](https://github.com/Construct-Lab/reigner/issues/48)) ([#103](https://github.com/Construct-Lab/reigner/issues/103))
+
 ## [0.5.0] - 2026-06-10
 
 ### Bug Fixes
@@ -31,6 +40,10 @@ All notable changes to this project will be documented in this file.
 - Add ArtifactSchema.generic_default() preset for non-uniform corpora
 - Guided init asks corpus uniformity; mixed branch layers schema
 - Add post_process stub to map-reduce template
+
+### Miscellaneous Tasks
+
+- Release v0.5.0
 
 ## [0.4.0] - 2026-05-25
 
