@@ -1,4 +1,4 @@
-"""`reigner chat` — interactive REPL and headless one-shot modes (T-19).
+"""`reigner chat` — interactive REPL and headless one-shot modes.
 
 Three modes from one Typer command:
 
@@ -6,22 +6,30 @@ Three modes from one Typer command:
 - ``reigner chat --print "<q>"``         one-shot; stdout = final answer text.
 - ``reigner chat --print "<q>" --json``  one-shot; ND-JSON of every event.
 
-The REPL streams the harness event protocol (SPEC §5.2). Mid-run Enter sends
-``mode="interrupt"``; Alt+Enter sends ``mode="queue"`` (SPEC §5.6). The
-underlying loop's steering consumption lands with T-06; until then the keys
-still enqueue correctly via the wrapper on ``Session.steer``.
+The REPL streams the harness event protocol (SPEC §5.2). The prompt stays live
+while a run is in flight, giving two distinct mid-run actions:
+
+- **Enter** queues the typed text as the *next question* — the current run
+  answers on its own, then the queued question runs as a fresh turn (type-ahead,
+  like queuing a follow-up in Claude Code / ChatGPT).
+- **Alt+Enter** (or **Esc then Enter**, which needs no Option-as-Meta) *steers*
+  the in-flight run (SPEC §5.6): the text folds into the current loop as a user
+  turn at its next boundary, bending this answer rather than starting a new one.
+
+Idle Enter submits a fresh query. There is intentionally no mid-turn preemption
+— neither action aborts the in-flight model call (see issue #48).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from typing import Any
 
 import typer
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application import in_terminal
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -170,30 +178,48 @@ async def _run_repl(session: Session) -> None:
     console = Console()
     running = asyncio.Event()
     current_task: dict[str, asyncio.Task[None] | None] = {"task": None}
+    input_q: asyncio.Queue[str] = asyncio.Queue()
 
     kb = KeyBindings()
 
     @kb.add("enter")
     def _on_enter(event: Any) -> None:
+        # Idle: submit the query (the consumer runs it). Mid-run: queue it as
+        # the NEXT question — the current run answers on its own, then the
+        # consumer pulls this one and runs it as a fresh turn (type-ahead).
         buf = event.app.current_buffer
         text = buf.text.strip()
+        buf.reset()
         if not text:
             return
+        if text in {"/exit", "/quit"}:
+            event.app.exit()
+            return
+        input_q.put_nowait(text)
         if running.is_set():
-            asyncio.create_task(session.steer(text, "interrupt"))
-            buf.reset()
-        else:
-            event.app.exit(result=text)
+            console.print(f"[dim]⌁ queued — runs after the current answer:[/dim] {text}")
 
     @kb.add("escape", "enter")
-    def _on_alt_enter(event: Any) -> None:
+    def _on_steer(event: Any) -> None:
+        # Alt+Enter — or Esc then Enter, which works on every terminal even
+        # without Option-as-Meta. Steers the IN-FLIGHT run: the text folds into
+        # the current loop as a user turn at its next boundary, bending this
+        # answer rather than starting a new one. No effect when idle.
         buf = event.app.current_buffer
         text = buf.text.strip()
-        if not text:
+        if not text or not running.is_set():
             return
+        buf.reset()
+        asyncio.ensure_future(session.steer(text, "queue"))
+
+    @kb.add("c-d")
+    def _on_ctrl_d(event: Any) -> None:
+        # Idle on an empty buffer: EOF → quit. Mid-run: swallow it so a stray
+        # Ctrl+D doesn't tear down the live prompt.
         if running.is_set():
-            asyncio.create_task(session.steer(text, "queue"))
-            buf.reset()
+            return
+        if not event.app.current_buffer.text:
+            event.app.exit(exception=EOFError())
 
     @kb.add("c-c")
     def _on_ctrl_c(event: Any) -> None:
@@ -206,38 +232,47 @@ async def _run_repl(session: Session) -> None:
     prompt: PromptSession[str] = PromptSession(message="› ", key_bindings=kb)
 
     console.print(
-        "[dim]reigner chat — Enter submits; mid-run Enter steers (interrupt); "
-        "Alt+Enter steers (queue); /exit or Ctrl+D to quit.[/dim]"
+        "[dim]reigner chat — Enter submits (mid-run: queues your next "
+        "question); Alt+Enter / Esc-then-Enter steers the running answer; "
+        "Ctrl+C cancels; /exit or Ctrl+D to quit.[/dim]"
     )
 
-    while True:
-        try:
-            with patch_stdout(raw=True):
-                query = await prompt.prompt_async()
-        except (EOFError, KeyboardInterrupt):
-            console.print("[dim]bye.[/dim]")
-            return
-
-        if query is None:
-            continue
-        query = query.strip()
-        if not query:
-            continue
-        if query in {"/exit", "/quit"}:
-            console.print("[dim]bye.[/dim]")
-            return
-
-        running.set()
-        task = asyncio.create_task(_drive_run(session, query, console))
-        current_task["task"] = task
-        try:
-            await task
-        except asyncio.CancelledError:
-            async with in_terminal():
-                console.print("[yellow]· run cancelled[/yellow]")
-        finally:
+    async def _consume() -> None:
+        # Drive runs off the input queue while the prompt stays live. Output
+        # streams above the prompt via the surrounding patch_stdout. Each query
+        # is echoed as it starts so type-ahead questions are easy to follow.
+        while True:
+            query = await input_q.get()
+            console.print(f"[dim]›[/dim] {query}")
+            running.set()
+            run_task = asyncio.ensure_future(_drive_run(session, query, console))
+            current_task["task"] = run_task
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                running.clear()
+                current_task["task"] = None
+                if run_task.cancelled():
+                    # Ctrl+C cancelled this run — report and keep the REPL alive.
+                    console.print("[yellow]· run cancelled[/yellow]")
+                    continue
+                # The consumer itself is being torn down (REPL shutdown).
+                run_task.cancel()
+                raise
             running.clear()
             current_task["task"] = None
+
+    with patch_stdout(raw=True):
+        consumer = asyncio.ensure_future(_consume())
+        try:
+            await prompt.prompt_async()
+        except (EOFError, KeyboardInterrupt):
+            pass
+        finally:
+            consumer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consumer
+    console.print("[dim]bye.[/dim]")
 
 
 async def _drive_run(session: Session, query: str, console: Console) -> None:
@@ -248,8 +283,9 @@ async def _drive_run(session: Session, query: str, console: Console) -> None:
     except asyncio.CancelledError:
         raise
     except Exception as e:  # noqa: BLE001 — REPL must survive any harness error
-        async with in_terminal():
-            console.print(f"[red]✗ run failed:[/red] {e!r}")
+        # patch_stdout is active while this runs, so a plain print renders
+        # cleanly above the live prompt.
+        console.print(f"[red]✗ run failed:[/red] {e!r}")
 
 
 # ---------------------------------------------------------------------------
