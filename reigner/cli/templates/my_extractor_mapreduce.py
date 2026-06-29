@@ -9,7 +9,7 @@ chunking, fan-out, reduction, and the final size guard, so `extract()` is
 inherited (do not write it).
 
 Fill in the three TODOs (model + both prompts), then wire this class into
-`extractors/pipeline.py`. See SPEC.md §8.2 and the MapReduceExtractor docstring.
+`extractors/pipeline.py`. See the MapReduceExtractor docstring for the contract.
 
 Need deterministic JSON artifacts (metadata, coverage flags computed from which
 sections filled — never asked of the model)? Override `post_process(sections,
@@ -26,6 +26,8 @@ from reigner.ingestion import MapReduceExtractor
 
 
 class MyExtractor(MapReduceExtractor):
+    """Map-reduce extractor for a mixed corpus; fill in the model and prompts."""
+
     schema = ArtifactSchema.from_yaml("schema.yaml")
     model = "..."  # TODO: e.g. "openai:gpt-5.5" or "anthropic:claude-sonnet-4-6"
     max_retries = 2
@@ -64,11 +66,11 @@ Return a single JSON object: {{"summary": "<the overview>"}}.
 Output ONLY the JSON object."""
 
     def prompt_context(self, meta: dict[str, Any]) -> dict[str, Any]:
-        # Feeds {filename} into MAP_PROMPT / REDUCE_PROMPT.
+        """Provide ``{filename}`` (and friends) to the map/reduce prompts."""
         return {"filename": meta.get("filename", "unknown")}
 
     async def summarize(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, str]:
-        # Synthesize the required summary from the already-reduced sections.
+        """Synthesize the required summary section from the reduced sections."""
         compiled = "\n\n".join(f"## {name}\n{body}" for name, body in sections.items())
         response = await self.call_model(
             self.SUMMARY_PROMPT.format(filename=meta.get("filename", "unknown")),
@@ -79,6 +81,7 @@ Output ONLY the JSON object."""
     def post_process(
         self, sections: dict[str, str], meta: dict[str, Any]
     ) -> dict[str, dict[str, Any]]:
+        """Compute deterministic JSON artifacts from the filled sections."""
         # Deterministic JSON artifacts — computed from which sections actually
         # filled, never asked of the model. Can't hallucinate, can't dead-letter.
         # Adapt the keys below to the json_artifacts your schema.yaml declares.

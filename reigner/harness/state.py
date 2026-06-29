@@ -1,14 +1,11 @@
 """Per-session mutable state for the agent loop.
 
-See SPEC.md §5.1 (Session vs Harness split), §5.3 (the loop), §5.4 (G1, G6, G7),
-§5.6 (steering), and issue #3.
-
 This module is the foundational data layer the loop reads and writes each
 iteration. It deliberately stays minimal: data structures, prompt assembly,
 context-pressure measurement, and the steering queue. Truncation, compaction,
-nudges, and the tool-result cache live in T-06 (`harness/{truncation,compaction,
-nudges,cache}.py`); state exposes the data those modules will mutate but does
-not implement them itself.
+nudges, and the tool-result cache live in `harness/{truncation,compaction,
+nudges,cache}.py`; state exposes the data those modules mutate but does not
+implement them itself.
 """
 
 from __future__ import annotations
@@ -93,7 +90,7 @@ class Prompt:
     """Adapter-agnostic prompt produced by `build_prompt` (G1).
 
     Split intentionally so providers that support prompt caching can mark
-    `stable` as cacheable. T-04 adapters translate to provider-specific shapes.
+    `stable` as cacheable. Adapters translate to provider-specific shapes.
     """
 
     stable: str
@@ -105,7 +102,7 @@ class Prompt:
     `iters_remaining`, `now`, `answer_id`, plus any G7 injections."""
 
     messages: list[Turn]
-    """Conversation history in order. Already compacted if T-06 ran."""
+    """Conversation history in order. Already compacted if compaction ran."""
 
 
 # ---------------------------------------------------------------------------
@@ -142,14 +139,14 @@ class AgentState:
     """Per-session container the loop reads and writes each iteration.
 
     Lifecycle: created when a Session starts, mutated by the loop and by
-    user-facing APIs (`steer`, `save_note`), persisted via the session store
-    (T-24). One AgentState per Session — never shared.
+    user-facing APIs (`steer`, `save_note`), persisted via the session store.
+    One AgentState per Session — never shared.
     """
 
     # --- identity / immutable-ish config --------------------------------
     session_id: str
     role: str
-    """Composed REIGNER.md text + active skill blocks. T-30/T-31 produce it."""
+    """Composed REIGNER.md text + active skill blocks."""
 
     registry: ToolRegistry = field(default_factory=ToolRegistry)
     """Owning registry. Loop calls `registry.for_profile(profile)` per turn to
@@ -162,7 +159,7 @@ class AgentState:
     adapter: ModelAdapter | None = None
     oracle_adapter: ModelAdapter | None = None
 
-    # --- budgets / thresholds (defaults track SPEC §13) -----------------
+    # --- budgets / thresholds -------------------------------------------
     max_iterations: int = 25
     context_budget_tokens: int = 100_000
     max_session_notes: int = 20
@@ -189,14 +186,15 @@ class AgentState:
     distinguish 'nudge and continue' from 'nudge already fired, now bail'."""
 
     oracle_armed: bool = False
-    """SPEC §5.5: True when ``escalate_to_oracle`` has been invoked and the
-    next iteration should use ``oracle_adapter``. Cleared after one iteration
-    so escalation is strictly single-turn."""
+    """True when ``escalate_to_oracle`` has been invoked and the next iteration
+    should use ``oracle_adapter``. Cleared after one iteration so escalation is
+    strictly single-turn."""
 
     # ------------------------------------------------------------------
     # History / scratchpad mutation
     # ------------------------------------------------------------------
     def append_turn(self, turn: Turn) -> None:
+        """Append a turn to the conversation history."""
         self.history.append(turn)
 
     def add_note(self, text: str) -> Note:
@@ -217,7 +215,7 @@ class AgentState:
 
         Citations are uncapped: a multi-fact answer may need many, and silent
         FIFO eviction would let early citations vanish — the faithfulness
-        check (T-29) would then flag those claims as hallucinations. Dedup is
+        check would then flag those claims as hallucinations. Dedup is
         cheap and the right behavior when the model re-registers the same
         fact across turns. Returns the existing citation on re-registration
         so callers see what's actually stored.
@@ -230,18 +228,19 @@ class AgentState:
         return citation
 
     # ------------------------------------------------------------------
-    # Steering (§5.6)
+    # Steering
     # ------------------------------------------------------------------
     def enqueue_steering(self, message: str, mode: SteeringMode = "interrupt") -> None:
         """Append a user steering message. Called by Session.steer.
 
-        Mode is stored alongside the message; the loop (T-05) decides whether
-        to drop in-flight tool calls (`interrupt`) or let the iteration finish
+        Mode is stored alongside the message; the loop decides whether to drop
+        in-flight tool calls (`interrupt`) or let the iteration finish
         (`queue`) when it consumes the queue.
         """
         self.pending_steering.append((message, mode))
 
     def has_pending_steering(self) -> bool:
+        """Return whether any steering messages are queued."""
         return bool(self.pending_steering)
 
     def consume_steering(self) -> list[tuple[str, SteeringMode]]:
@@ -254,13 +253,16 @@ class AgentState:
     # Error tracking (G4 hook)
     # ------------------------------------------------------------------
     def record_tool_error(self) -> None:
+        """Increment the consecutive-error counter (G4)."""
         self._consecutive_errors += 1
 
     def record_tool_success(self) -> None:
+        """Reset the consecutive-error counter and clear the nudge latch."""
         self._consecutive_errors = 0
         self.error_nudge_injected = False
 
     def consecutive_errors(self) -> int:
+        """Return the current consecutive-error count."""
         return self._consecutive_errors
 
     # ------------------------------------------------------------------

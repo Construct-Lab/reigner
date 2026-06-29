@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class AnthropicAdapter:
+    """Model adapter for Anthropic Claude via the ``anthropic`` SDK."""
+
     model: str = "claude-opus-4-7"
     api_key: str | None = None
     max_tokens: int = 4096
@@ -53,6 +55,15 @@ class AnthropicAdapter:
         return self._client
 
     async def call(self, prompt: Prompt, tools: list[ToolSpec]) -> ModelAction:
+        """Call Claude with the prompt and tools, returning a ModelAction.
+
+        Args:
+            prompt: The harness prompt (stable prefix + turns).
+            tools: Tool specs to expose to the model this turn.
+
+        Returns:
+            The provider response normalized into a :class:`ModelAction`.
+        """
         client = self._get_client()
         payload: dict[str, Any] = {
             "model": self.model,

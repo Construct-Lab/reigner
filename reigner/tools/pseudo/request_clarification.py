@@ -1,7 +1,7 @@
 """request_clarification pseudo-tool — pause the loop to ask the user.
 
-The loop (T-05) intercepts the call, emits a `ClarificationEvent` carrying
-the question and any candidates, and sets `state.done = True` to pause the
+The loop intercepts the call, emits a `ClarificationEvent` carrying the
+question and any candidates, and sets `state.done = True` to pause the
 session. The UI (CLI, web, MCP) renders the question and routes the user's
 reply back as the next turn.
 

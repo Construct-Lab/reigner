@@ -1,8 +1,8 @@
 """stop pseudo-tool — graceful early termination of the session.
 
-The loop (T-05) intercepts the call, appends `reason` as an assistant turn,
-emits a `FinalAnswerEvent` with `text=reason` and `metadata={"stop": True}`,
-and sets `state.done = True`. The session ends without a forced final-answer
+The loop intercepts the call, appends `reason` as an assistant turn, emits a
+`FinalAnswerEvent` with `text=reason` and `metadata={"stop": True}`, and sets
+`state.done = True`. The session ends without a forced final-answer
 hallucination.
 
 The body raises because dispatch happens before invocation.

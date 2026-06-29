@@ -1,10 +1,10 @@
 """`reigner init` — scaffold a Reigner project.
 
-Three modes per SPEC §14:
+Three modes:
 
 - ``--guided``  : interactive Q&A → model-generated REIGNER.md + schema.yaml.
   This is the default — bare ``reigner init <name>`` runs it.
-- ``--recipe``  : copy a recipe's bundled scaffolds (stubbed until T-32).
+- ``--recipe``  : copy a recipe's bundled scaffolds (not yet bundled).
 - ``--blank``   : empty stubs only (offline, fully working).
 
 The guided flow lives in :mod:`reigner.cli._guided`; it reuses the scaffolder
@@ -29,9 +29,7 @@ from reigner.config import ReignerConfig
 NAME_RE: Final = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
 _STUB_RECIPE: Final = (
-    "✗ Recipes are not yet bundled (tracked in T-32).\n"
-    "  Use --blank for now:\n"
-    "    reigner init {name} --blank"
+    "✗ Recipes are not yet bundled.\n  Use --blank for now:\n    reigner init {name} --blank"
 )
 
 # Filenames within the blank template that should be rendered with substitutions.
@@ -44,6 +42,7 @@ _KEEP_MARKER: Final = ".gitkeep"
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``init`` command on the given Typer app."""
     app.command("init")(_init)
 
 
@@ -83,7 +82,7 @@ def _init(
         _print_success(target)
         return
 
-    # Guided is the SPEC §14 default: it runs for an explicit --guided and for
+    # Guided is the default: it runs for an explicit --guided and for
     # bare `reigner init <name>`. Imported lazily so blank/recipe paths don't
     # pay for the model-adapter import surface.
     from reigner.cli._guided import run_guided

@@ -1,4 +1,4 @@
-"""The ``Plugin`` base class and its seven hook methods (SPEC §12).
+"""The ``Plugin`` base class and its seven hook methods.
 
 Plugins are extension points for behaviour the core package can't anticipate —
 audit logging, telemetry, redaction, rate limiting. Subclass :class:`Plugin`

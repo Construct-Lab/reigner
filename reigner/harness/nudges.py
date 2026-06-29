@@ -1,7 +1,6 @@
 """Iteration and error nudges (G3, G4).
 
-See SPEC.md §5.4 (G3, G4) and PRINCIPLES.md §6 (the agent is steerable, not
-silent).
+The agent is steerable, not silent.
 
 Nudges are short synthetic ``user``-role turns the loop appends before the
 next adapter call. They never reach the user — they're a budget-aware whisper

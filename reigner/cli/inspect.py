@@ -38,6 +38,7 @@ EXIT_USAGE = 2
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``inspect`` command group on the given Typer app."""
     sub = typer.Typer(
         name="inspect",
         help="Introspect role, artifacts, tools, and resolved config.",
@@ -226,8 +227,8 @@ def _inspect_role(
 ) -> None:
     """Print REIGNER.md content + resolved path + configured skills list.
 
-    Composed ROLE (file + active skills + dynamic context) is deferred to
-    T-31 when the skills loader lands; the header below signals that.
+    Composed ROLE (file + active skills + dynamic context) is deferred until
+    the skills loader lands; the header below signals that.
     """
     cfg = _load_config(Path(config))
     console = Console()
@@ -252,7 +253,7 @@ def _inspect_role(
         console.print("[dim]" + "─" * 40 + "[/dim]")
         console.print(
             "[dim](composed ROLE = REIGNER.md + active skill blocks + dynamic context — "
-            "skills loader lands with T-31; this prints the source file only.)[/dim]"
+            "the skills loader is not yet available; this prints the source file only.)[/dim]"
         )
 
 

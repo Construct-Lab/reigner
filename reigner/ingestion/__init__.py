@@ -1,8 +1,8 @@
 """Ingestion — pipeline, extractor, loaders, writers.
 
-T-14 lands the LLMExtractor base class and the ingestion error taxonomy.
-T-15 lands the document loaders. T-16 lands the IngestionPipeline runner
-and the ingestion-side writers (ArtifactWriter re-export + Bm25IndexWriter).
+Compiles raw documents into artifacts: loaders read sources, the extractor
+turns them into structured output, and the pipeline fans each result out to
+the artifact and index writers.
 """
 
 from reigner.ingestion.extractor import (

@@ -2,8 +2,7 @@
 
 v0 does not use Gemini's explicit `CachedContent` API — the stable prefix is
 re-sent inline each call. `supports_prompt_caching=False` reflects that. The
-plumbing for explicit caching is a follow-up (see SPEC §13 settings); not
-required to ship the loop.
+plumbing for explicit caching is a follow-up; not required to ship the loop.
 
 Gemini's schema validator rejects a handful of JSON Schema keywords; the
 boundary cleanup lives in `base.render_tool_for_gemini`.
@@ -33,6 +32,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class GeminiAdapter:
+    """Model adapter for Google Gemini via the ``google-genai`` SDK."""
+
     model: str = "gemini-2.0-flash"
     api_key: str | None = None
     name: str = "gemini"
@@ -56,6 +57,15 @@ class GeminiAdapter:
         return self._client
 
     async def call(self, prompt: Prompt, tools: list[ToolSpec]) -> ModelAction:
+        """Call Gemini with the prompt and tools, returning a ModelAction.
+
+        Args:
+            prompt: The harness prompt (stable prefix + turns).
+            tools: Tool specs to expose to the model this turn.
+
+        Returns:
+            The provider response normalized into a :class:`ModelAction`.
+        """
         client = self._get_client()
         config: dict[str, Any] = {"system_instruction": prompt.stable}
         if tools:

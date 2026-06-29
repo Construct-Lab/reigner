@@ -1,11 +1,11 @@
-"""`Bm25Index` — pure-Python BM25 over the JSON sidecar written by ingestion.
+r"""`Bm25Index` — pure-Python BM25 over the JSON sidecar written by ingestion.
 
 The sidecar is loaded once at construction. Three `@tool(readonly=True)`
 closures are returned by ``tools()``: ``bm25_search`` scores against the
 concatenated text, ``filtered_search`` returns id-sorted entries without
 scoring, and ``section_search`` scores against one named section per entry.
 
-Tokenization is intentionally simple: lowercase + ``\\w+`` Unicode word
+Tokenization is intentionally simple: lowercase + ``\w+`` Unicode word
 splitting. No stemming, no stopwords. Tokens correspond directly to source
 substrings so snippets and citations stay faithful.
 
@@ -316,6 +316,7 @@ class Bm25Index:
         }
 
     def tools(self) -> list[RunnableToolAdapter]:
+        """Build the three bm25 search tools as RunnableTool wrappers."""
         index = self
 
         @tool(readonly=True, cache=True)

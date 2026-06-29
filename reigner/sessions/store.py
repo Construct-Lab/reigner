@@ -1,6 +1,6 @@
 """Session store — durable JSONL persistence for agent conversations.
 
-SPEC.md §11. Sessions are durable, forkable, branchable JSON files on disk.
+Sessions are durable, forkable, branchable JSON files on disk.
 This module owns the disk format and the data layer; :class:`Session` wiring
 lives in :mod:`reigner.harness.agent`. Reconstruction and fork-tree navigation
 live in :mod:`reigner.sessions.replay` and :mod:`reigner.sessions.tree`.
@@ -67,18 +67,31 @@ class SessionMeta:
     schema_version: int = SCHEMA_VERSION
 
     def to_json(self) -> str:
+        """Serialize the metadata to indented JSON."""
         return json.dumps(asdict(self), indent=2, sort_keys=False)
 
     @classmethod
     def from_json(cls, raw: str) -> SessionMeta:
+        """Parse :class:`SessionMeta` from its JSON form.
+
+        Args:
+            raw: JSON text previously produced by :meth:`to_json`.
+
+        Returns:
+            The decoded metadata.
+
+        Raises:
+            ValueError: If the JSON root is not an object.
+            SchemaVersionMismatch: If the stored version is unsupported.
+        """
         data = json.loads(raw)
         if not isinstance(data, dict):
             raise ValueError("meta.json must be a JSON object")
         version = data.get("schema_version")
         if version == 1:
-            # T-25 changes the event transcript (query rows), not the metadata
-            # fields. Preserve v1 visibility for list/tree/inspection; state
-            # reconstruction still rejects v1 logs without UserQueryEvent.
+            # Schema v2 changes the event transcript (query rows), not the
+            # metadata fields. Preserve v1 visibility for list/tree/inspection;
+            # state reconstruction still rejects v1 logs without UserQueryEvent.
             data["schema_version"] = SCHEMA_VERSION
             return cls(**data)
         if version != SCHEMA_VERSION:
@@ -103,6 +116,7 @@ class SessionStore:
 
     @property
     def root(self) -> Path:
+        """The store's root directory."""
         return self._root
 
     # ------------------------------------------------------------------
@@ -133,6 +147,7 @@ class SessionStore:
     # Queries
     # ------------------------------------------------------------------
     def exists(self, session_id: str) -> bool:
+        """Return whether a session JSONL file exists for ``session_id``."""
         return self._jsonl_path(session_id).exists()
 
     def list(self) -> list[SessionMeta]:
@@ -245,6 +260,7 @@ class SessionStore:
             raise
 
     def set_title(self, session_id: str, title: str | None) -> SessionMeta:
+        """Set (or clear) a session's title and return the updated metadata."""
         meta = self.read_meta(session_id)
         meta.title = title
         meta.last_updated = _utcnow_iso()
@@ -280,9 +296,11 @@ class SessionStore:
     def export(self, session_id: str, dest_path: str | Path) -> Path:
         """Write the session's JSONL to ``dest_path`` plus a sidecar meta.
 
-        SPEC §11.2 takes a single ``.jsonl`` path; we honor that and emit
-        ``{dest}.meta.json`` next to it so ``title``/``created``/``parent_id``
-        survive the round trip. Returns the destination JSONL path.
+        Takes a single ``.jsonl`` path and emits ``{dest}.meta.json`` next to
+        it so ``title``/``created``/``parent_id`` survive the round trip.
+
+        Returns:
+            The destination JSONL path.
         """
         src = self._jsonl_path(session_id)
         if not src.exists():

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 def build_read_artifact_file(
     store: ArtifactStore,
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
-    """Build a @tool closure over ``store``. See SPEC §6.4."""
+    """Build a @tool closure over ``store`` for reading an artifact file."""
 
     @tool(readonly=True)
     async def read_artifact_file(path: str, offset: int = 0, limit: int = 4000) -> dict[str, Any]:

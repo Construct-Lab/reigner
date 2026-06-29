@@ -65,7 +65,17 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = []
+extend-select = ["D"]
+ignore = [
+    "D105",  # missing docstring in magic method (__repr__, __eq__, …)
+    "D107",  # missing docstring in __init__ (documented at class level)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
 
 [tool.ruff.format]
 quote-style = "double"

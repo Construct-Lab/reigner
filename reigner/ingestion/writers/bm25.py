@@ -1,4 +1,4 @@
-"""Bm25IndexWriter — JSON-sidecar dump consumed by Bm25Index.
+r"""Bm25IndexWriter — JSON-sidecar dump consumed by Bm25Index.
 
 Each entry has the shape::
 
@@ -31,6 +31,8 @@ from reigner.ingestion.results import ExtractionResult
 
 
 class Bm25IndexWriter:
+    """Pipeline writer that upserts entities into a bm25 JSON sidecar."""
+
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._lock = asyncio.Lock()
@@ -42,6 +44,13 @@ class Bm25IndexWriter:
         result: ExtractionResult,
         identifiers: dict[str, str],
     ) -> None:
+        """Upsert the entity's searchable entry into the sidecar atomically.
+
+        Args:
+            loaded: The source document, used for provenance (source/url).
+            result: The extraction whose sections become searchable text.
+            identifiers: Entity identity fields, joined to form the entry id.
+        """
         entry = _build_entry(loaded, result, identifiers)
         async with self._lock:
             await asyncio.to_thread(self._upsert, entry)

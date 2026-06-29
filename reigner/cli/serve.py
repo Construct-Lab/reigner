@@ -1,4 +1,4 @@
-"""`reigner serve` — run the agent as an HTTP (SSE) or MCP server (SPEC §16).
+"""`reigner serve` — run the agent as an HTTP (SSE) or MCP server.
 
 ``reigner serve --http`` boots a uvicorn process over the FastAPI app
 (:mod:`reigner.server.fastapi_app`), wiring one shared :class:`Harness` built
@@ -26,6 +26,7 @@ EXIT_USAGE = 2
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``serve`` command on the given Typer app."""
     app.command("serve")(_serve)
 
 

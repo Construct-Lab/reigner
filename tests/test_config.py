@@ -100,7 +100,7 @@ def test_unknown_settings_key_rejected(tmp_path: Path) -> None:
 
 def test_role_cascade_rejected_with_message(tmp_path: Path) -> None:
     body = MINIMAL_YAML + "role:\n  cascade: [recipe, user]\n"
-    with pytest.raises(ConfigError, match="SPEC.*cascade|cascade.*SPEC|cascade was removed"):
+    with pytest.raises(ConfigError, match="cascade is not supported"):
         ReignerConfig.load(_write(tmp_path, body))
 
 

@@ -1,11 +1,11 @@
-"""``latency_cost`` eval check — token budget + wall-clock per case (SPEC §15.1).
+"""``latency_cost`` eval check — token budget + wall-clock per case.
 
 Surfaces what a case cost and fails it only when an explicit budget is blown.
 The detail always reports total tokens and elapsed seconds (e.g.
 ``"8.1k tok · 1.2s"``); the optional ``max_tokens`` / ``max_seconds`` fields on
 :class:`~reigner.eval.cases.EvalCase` turn that into a pass/fail gate.
 
-Dollar cost (the SPEC §15.2 ``$`` column) is intentionally deferred:
+Dollar cost (the scorecard's ``$`` column) is intentionally deferred:
 ``TokenUsage`` carries only token counts and ``CaseRun`` does not record the
 model name, so a price can't be computed without a pricing table and extra
 plumbing. Reporting tokens + wall-clock is honest; adding dollars later is

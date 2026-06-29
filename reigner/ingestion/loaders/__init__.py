@@ -1,7 +1,6 @@
 """Loaders — read one source into ``(raw bytes, meta dict)``.
 
-See SPEC.md §8 ("The Ingestion System") and issue #15. Each loader
-handles one shape of source; the pipeline (T-16) does the routing.
+Each loader handles one shape of source; the pipeline does the routing.
 """
 
 from reigner.ingestion.loaders.base import LoadedDocument, Loader

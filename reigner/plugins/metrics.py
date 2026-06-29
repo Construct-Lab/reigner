@@ -1,4 +1,4 @@
-"""Emit OpenTelemetry spans around the loop (SPEC §12).
+"""Emit OpenTelemetry spans around the loop.
 
 A bare-bones observe plugin — an integration *point*, not a telemetry product.
 It opens one span per tool call and emits a short span for each observe-hook
@@ -66,6 +66,7 @@ class MetricsPlugin(Plugin):
     # --- tool-call span: opened in before, closed in after ----------------
 
     async def before_tool_call(self, call: ToolCall, state: AgentState) -> ToolCall:
+        """Open a span for the tool call, closed by :meth:`after_tool_call`."""
         span = self._tracer.start_span(f"reigner.tool.{call.name}")
         span.set_attribute("reigner.session_id", state.session_id)
         span.set_attribute("reigner.tool", call.name)
@@ -75,6 +76,7 @@ class MetricsPlugin(Plugin):
     async def after_tool_call(
         self, call: ToolCall, result: ToolResultEvent, state: AgentState
     ) -> ToolResultEvent:
+        """Close the tool-call span, annotating it with truncation/cache flags."""
         span = self._open.pop((state.session_id, call.id), None)
         if span is not None:
             span.set_attribute("reigner.truncated", result.truncated)
@@ -85,19 +87,23 @@ class MetricsPlugin(Plugin):
     # --- observe hooks: one short span each -------------------------------
 
     async def on_compaction(self, state: AgentState, level: int) -> None:
+        """Emit a span for a compaction pass."""
         self._emit("reigner.compaction", {"reigner.level": level})
 
     async def on_error(self, error: ErrorEvent, state: AgentState) -> None:
+        """Emit a span for an error event."""
         self._emit(
             "reigner.error",
             {"reigner.error": error.error, "reigner.recoverable": error.recoverable},
         )
 
     async def on_oracle_escalation(self, event: OracleEscalationEvent, state: AgentState) -> None:
+        """Emit a span for an oracle escalation."""
         self._emit(
             "reigner.oracle",
             {"reigner.from_model": event.from_model, "reigner.to_model": event.to_model},
         )
 
     async def on_steering(self, event: SteeringAcceptedEvent, state: AgentState) -> None:
+        """Emit a span for a steering message."""
         self._emit("reigner.steering", {"reigner.mode": event.mode})

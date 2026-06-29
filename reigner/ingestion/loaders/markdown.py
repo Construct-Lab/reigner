@@ -33,6 +33,14 @@ class MdLoader:
         self._meta_extractor = meta_extractor
 
     async def load(self, source: str | Path) -> LoadedDocument:
+        """Read a markdown file, parsing YAML front-matter when present.
+
+        Args:
+            source: Path to the markdown file.
+
+        Returns:
+            The raw bytes and metadata, including ``frontmatter`` if parseable.
+        """
         path = Path(source)
         raw = await asyncio.to_thread(path.read_bytes)
         meta: dict[str, Any] = {

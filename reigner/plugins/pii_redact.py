@@ -1,4 +1,4 @@
-"""Strip configured regex patterns out of anything bound for the model (SPEC §12).
+r"""Strip configured regex patterns out of anything bound for the model.
 
 A transform plugin. It rewrites two surfaces:
 

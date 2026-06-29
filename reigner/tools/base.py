@@ -1,17 +1,15 @@
 """@tool decorator, ToolSpec, and ToolResult — the foundation of the tool system.
 
-See SPEC.md §6 (Tool System) and PRINCIPLES.md §5 (MCP-clean by construction).
-
 The decorator's role is intentionally narrow: validate the signature against
 MCP-clean constraints at decoration time, generate the JSON Schema for the
 model, and attach a ToolSpec to the function via `__reigner_spec__`. It does
-not wrap or catch exceptions — the loop (T-05) owns exception → ErrorEvent
+not wrap or catch exceptions — the loop owns exception → ErrorEvent
 translation so tool failures stay visible in the event stream.
 
-Tool results should be self-describing per PRINCIPLES.md §2 (bounded outputs):
-`has_more`, `truncated`, `available_keys`, etc. The `ToolResult` alias here
-documents that convention without enforcing a shape — different tools need
-different self-description fields (see SPEC §6.4).
+Tool results should be self-describing and bounded: `has_more`, `truncated`,
+`available_keys`, etc. The `ToolResult` alias here documents that convention
+without enforcing a shape — different tools need different self-description
+fields.
 """
 
 from __future__ import annotations
@@ -26,9 +24,9 @@ from pydantic import create_model
 ToolResult = dict[str, Any]
 """Documented type alias for tool return values.
 
-PRINCIPLES.md §2 calls for bounded, self-describing results (`has_more`,
-`truncated`, `available_keys`). Not enforced as a class because the right
-self-description fields vary by tool.
+Calls for bounded, self-describing results (`has_more`, `truncated`,
+`available_keys`). Not enforced as a class because the right self-description
+fields vary by tool.
 """
 
 
@@ -46,7 +44,7 @@ class ToolSpec:
     Structurally satisfies `harness.state.ToolSpec` Protocol — `name`,
     `description`, `readonly`, and `json_schema()` are the surface AgentState
     reads. The remaining flags (`cache`, `truncate_chars`, `pseudo`) are
-    consumed by guardrails in T-06 and by profile filtering in the registry.
+    consumed by the loop guardrails and by profile filtering in the registry.
     """
 
     name: str
@@ -65,7 +63,7 @@ class ToolSpec:
     async def call(self, **kwargs: Any) -> Any:
         """Invoke the wrapped tool function.
 
-        Exceptions propagate. T-05 (the loop) wraps invocations and converts
+        Exceptions propagate. The loop wraps invocations and converts
         exceptions into `ErrorEvent` so failures stay observable.
         """
         return await self.func(**kwargs)
@@ -86,12 +84,15 @@ def tool(
     as `__reigner_spec__`. The original callable is returned unchanged — direct
     calls work in tests without going through the registry.
 
-    Args mirror SPEC §6.1:
-        readonly: eligible for G9 caching and G11 parallel execution.
-        cache: opt-in result caching keyed on (name, args).
-        truncate_chars: per-tool override of the G2 truncation budget.
-        description: overrides the function's docstring on the tool schema.
-        pseudo: intercepted locally by the loop (T-08); implies `readonly=True`.
+    Args:
+        readonly: Eligible for G9 caching and G11 parallel execution.
+        cache: Opt-in result caching keyed on (name, args).
+        truncate_chars: Per-tool override of the G2 truncation budget.
+        description: Overrides the function's docstring on the tool schema.
+        pseudo: Intercepted locally by the loop; implies `readonly=True`.
+
+    Returns:
+        A decorator that attaches a `ToolSpec` and returns the function as-is.
     """
 
     def decorator(func: F) -> F:
@@ -118,7 +119,7 @@ def _validate_signature(
     pseudo: bool,
     readonly: bool,
 ) -> None:
-    """Enforce MCP-clean constraints. PRINCIPLES.md §5 + SPEC §22 line 1240."""
+    """Enforce MCP-clean constraints on a tool function's signature."""
     name = func.__name__
     if not inspect.iscoroutinefunction(func):
         raise ToolDefinitionError(
@@ -188,32 +189,40 @@ class RunnableToolAdapter:
 
     @property
     def name(self) -> str:
+        """The tool's registered name."""
         return self.spec.name
 
     @property
     def description(self) -> str:
+        """The tool's description, shown to the model."""
         return self.spec.description
 
     @property
     def readonly(self) -> bool:
+        """Whether the tool is side-effect-free."""
         return self.spec.readonly
 
     @property
     def pseudo(self) -> bool:
+        """Whether the tool is intercepted locally by the loop."""
         return self.spec.pseudo
 
     @property
     def cache(self) -> bool:
+        """Whether the tool opts in to result caching."""
         return self.spec.cache
 
     @property
     def truncate_chars(self) -> int | None:
+        """Per-tool truncation budget override, if any."""
         return self.spec.truncate_chars
 
     def json_schema(self) -> dict[str, Any]:
+        """Return the JSON Schema for the tool's arguments."""
         return self.spec.json_schema()
 
     async def run(self, args: dict[str, Any]) -> Any:
+        """Invoke the wrapped tool with a dict of keyword arguments."""
         return await self.spec.func(**args)
 
 

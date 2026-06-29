@@ -1,4 +1,4 @@
-"""`reigner session` — manage durable sessions (SPEC §11).
+"""`reigner session` — manage durable sessions.
 
 Seven subcommands wrapping the sessions backend:
 
@@ -60,6 +60,7 @@ _QUEUED = "#b4541a"  # terracotta — the queried-node marker
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``session`` command group on the given Typer app."""
     sub = typer.Typer(
         name="session",
         help="Manage durable sessions: list, show, tree, fork, replay, export, import.",

@@ -69,7 +69,7 @@ def test_inspect_role_shows_skills(project: Path) -> None:
     result = _run(["inspect", "role"], project)
     assert result.exit_code == 0
     assert "citation_strict" in result.output
-    assert "T-31" in result.output  # deferral note
+    assert "not yet available" in result.output  # deferral note
 
 
 # ---------------------------------------------------------------------------

@@ -1,13 +1,9 @@
 """escalate_to_oracle pseudo-tool — single-turn escalation to a stronger model.
 
-The loop (T-05) intercepts the call, emits an `OracleEscalationEvent`, and
-swaps the model adapter for one turn. The next turn uses the more capable
-oracle model; subsequent turns revert to the primary adapter. Costs are
-surfaced in session metadata. SPEC §5.5.
-
-T-05 currently emits the event but defers the adapter swap — see issue #5
-brainstorm in `loop.py:_dispatch_pseudo`. T-08 ships the pseudo-tool surface
-so the model can call it and plugins/eval can observe the request.
+The loop intercepts the call, emits an `OracleEscalationEvent`, and swaps the
+model adapter for one turn. The next turn uses the more capable oracle model;
+subsequent turns revert to the primary adapter. Costs are surfaced in session
+metadata.
 
 The body raises because dispatch happens before invocation.
 """

@@ -24,6 +24,7 @@ session.register(app)
 
 
 def main() -> None:
+    """Entry point for the ``reigner`` console script."""
     app()
 
 

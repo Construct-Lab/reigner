@@ -1,6 +1,6 @@
 """Citation lineage — per-citation provenance record.
 
-SPEC §1 design principle 4: citations are first-class. The wire event
+Citations are first-class. The wire event
 (``harness.events.CitationEvent``) only carries the bare claim — source,
 locator, value. ``Citation`` adds the local-state fields the loop captures
 when it intercepts a ``register_citation`` call: the turn the citation was

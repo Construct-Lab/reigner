@@ -3,8 +3,6 @@
 Bare ``reigner ingest`` resolves ``extractors.pipeline:pipeline`` against
 the project root, so the top-level ``pipeline`` symbol below is the
 landing pad. Uncomment, adapt loaders/writers to your schema, and run.
-
-See SPEC.md §8 for the full ingestion contract.
 """
 
 # from reigner.artifacts import ArtifactSchema

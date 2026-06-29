@@ -1,4 +1,4 @@
-"""Fork-tree construction and navigation for durable sessions (SPEC §11, T-25)."""
+"""Fork-tree construction and navigation for durable sessions."""
 
 from __future__ import annotations
 

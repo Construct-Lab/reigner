@@ -1,4 +1,4 @@
-"""Read-side artifact tools — ArtifactStore plus the six SPEC §6.4 tools.
+"""Read-side artifact tools — ArtifactStore plus its six built-in tools.
 
 The store is the public surface; concrete tool functions are reached via
 ``ArtifactStore.tools()`` rather than imported directly, so consumers can't

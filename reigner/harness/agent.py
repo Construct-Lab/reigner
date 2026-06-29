@@ -1,14 +1,12 @@
-"""Public ``Harness`` and ``Session`` API (SPEC.md §5.1, issue #5).
+"""Public ``Harness`` and ``Session`` API.
 
 ``Harness`` is the immutable configured loop — model adapter, tools, role,
 and a :class:`SettingsConfig` carrying every loop-budget knob. ``Session`` is
 the mutable per-conversation container on top: it owns ``AgentState``, the
 tool-result cache, and the event log.
 
-T-17 reshape: the eleven loose budget fields that used to live on ``Harness``
-collapsed into ``settings: SettingsConfig``. ``SettingsConfig`` is now the
-single source of truth for defaults; ``Harness`` reads off it. See
-``docs/t-17-implementation-plan.html``.
+All loop-budget knobs live on ``settings: SettingsConfig``, which is the
+single source of truth for defaults; ``Harness`` reads off it.
 """
 
 from __future__ import annotations
@@ -54,7 +52,7 @@ class Harness:
 
     All loop budgets live on :attr:`settings`. Construct a custom
     :class:`SettingsConfig` and pass it in to override defaults — or pass
-    nothing and ride the defaults from SPEC §13.
+    nothing and ride the built-in defaults.
     """
 
     adapter: ModelAdapter
@@ -85,34 +83,33 @@ class Harness:
     ) -> Harness:
         """Build a :class:`Harness` from a ``reigner.yaml`` file.
 
-        Partial wiring in T-17 (post-T-09):
+        Wiring:
 
         - Model and oracle adapters are resolved via a lazy provider switch.
         - ``role.file`` is read from disk if present (resolved relative to the
-          config file). Skill composition belongs to T-30 and is deferred.
-          ``role_file`` overrides which file supplies the ROLE — used by
-          ``reigner session replay --with-role`` to A/B an instruction variant
-          against the same recorded query (SPEC §11.2).
+          config file). ``role_file`` overrides which file supplies the ROLE —
+          used by ``reigner session replay --with-role`` to A/B an instruction
+          variant against the same recorded query.
         - ``tools.custom`` dotted paths are imported.
         - ``tools.artifacts`` is wired to a real :class:`ArtifactStore`;
-          the six SPEC §6.4 read tools are appended to ``wired_tools``.
+          its six read tools are appended to ``wired_tools``.
         - ``tools.search`` is wired to the configured :class:`SearchIndex`
           backend (``type: "bm25"`` is the only one known today).
         - ``tools.fs`` is wired to :class:`reigner.tools.fs.FsTools` — the
-          raw filesystem surface (SPEC §6.4 FS tools). Off by default; only
-          registered when ``tools.fs`` is present in the config.
+          raw filesystem surface. Off by default; only registered when
+          ``tools.fs`` is present in the config.
         - Plugins (``cfg.plugins``) are resolved to a :class:`PluginHost` whose
-          hooks fire around the loop (SPEC §12).
+          hooks fire around the loop.
         - Sessions / eval sections parse but the runtime that consumes them
           isn't on Harness yet.
 
         Tool wiring order: ``[builtin tools, artifact tools, search tools,
-        fs tools, custom tools, *(tools or [])]``. Builtins (SPEC §6.4 pseudo-tools +
-        :func:`register_citation` from SPEC §1 principle 4) are auto-registered
-        first so any user tool that collides on name raises loudly rather than
-        silently shadowing a control verb. ``escalate_to_oracle`` is only
-        registered when ``cfg.oracle`` is set — registering it without an oracle
-        adapter would let the model invoke a verb that faults at dispatch time.
+        fs tools, custom tools, *(tools or [])]``. Builtins (the pseudo-tools +
+        :func:`register_citation`) are auto-registered first so any user tool
+        that collides on name raises loudly rather than silently shadowing a
+        control verb. ``escalate_to_oracle`` is only registered when
+        ``cfg.oracle`` is set — registering it without an oracle adapter would
+        let the model invoke a verb that faults at dispatch time.
         Names must be unique across sources — collisions raise
         :class:`ToolRegistrationError` from the registry.
         """
@@ -193,8 +190,19 @@ class Harness:
         session_id: str | None = None,
         profile: Profile = "full",
     ) -> Session:
-        # `state` is reserved for user-attached metadata (e.g. {"user_id": "u1"}
-        # per SPEC §4); persisted alongside the session by T-23.
+        """Create a new :class:`Session` bound to this harness.
+
+        Args:
+            state: Reserved for user-attached metadata (e.g. ``{"user_id":
+                "u1"}``); persisted alongside the session.
+            history: Optional seed conversation history.
+            session_id: Explicit session id; a random one is generated if None.
+            profile: Tool-permission profile for the session.
+
+        Returns:
+            A fresh session ready to accept input.
+        """
+        # `state` is reserved for user-attached metadata, persisted with the session.
         _ = state
         resolved_id = session_id or uuid.uuid4().hex
         parent_id = (
@@ -214,7 +222,7 @@ class Harness:
         """Import an exported session JSONL into the store, then load it.
 
         The returned :class:`Session` is fully live — its state is reconstructed
-        from the imported log (T-25), so ``run_stream``/``fork``/``replay`` work.
+        from the imported log, so ``run_stream``/``fork``/``replay`` work.
         """
         sid = self.store.import_(src_path)
         return Session.load(sid, harness=self)
@@ -258,7 +266,7 @@ class Session:
         self._events: list[Event] = []
         # Resume: if a session by this id is already on disk, preload its events
         # (so seq numbering continues) and reconstruct in-memory state from the
-        # log so the conversation continues from where it left off (T-25).
+        # log so the conversation continues from where it left off.
         if harness.store.exists(session_id):
             self._events.extend(harness.store.load_events(session_id))
             if self._events:
@@ -278,8 +286,8 @@ class Session:
     async def run_stream(self, query: str) -> AsyncIterator[Event]:
         """Stream events for a single query to completion.
 
-        Emits a ``UserQueryEvent`` (so the query is durable — reconstruction in
-        T-25 depends on it and uses it as the round boundary), appends the query
+        Emits a ``UserQueryEvent`` (so the query is durable — reconstruction
+        depends on it and uses it as the round boundary), appends the query
         as a Turn, then drives ``run_loop`` until it emits a terminal event.
         ``state.iterations`` is reset per call so ``max_iterations`` is a
         per-query budget, not a per-session one.
@@ -350,15 +358,19 @@ class Session:
     # Inspection
     # ------------------------------------------------------------------
     def history(self) -> list[Turn]:
+        """Return a copy of the conversation history."""
         return list(self._state.history)
 
     def notes(self) -> list[Note]:
+        """Return a copy of the session's saved notes."""
         return list(self._state.notes)
 
     def citations(self) -> list[Citation]:
+        """Return a copy of the session's registered citations."""
         return list(self._state.citations)
 
     def events(self) -> list[Event]:
+        """Return a copy of the session's event log."""
         return list(self._events)
 
     # ------------------------------------------------------------------
@@ -412,7 +424,7 @@ class Session:
     async def replay(self, at_turn: int) -> Session:
         """Re-run round ``at_turn`` live, returning a new child session.
 
-        SPEC §11.2. Forks at round ``at_turn`` (keeping rounds ``1..N-1``), then
+        Forks at round ``at_turn`` (keeping rounds ``1..N-1``), then
         re-issues that round's *recorded* query against this Harness's current
         model & ROLE and runs it to completion on the child. This session is
         untouched, so the original answer stays diff-able against the new branch
@@ -463,15 +475,15 @@ class Session:
     async def steer(self, message: str, mode: SteeringMode = "interrupt") -> None:
         """Enqueue a user steering message; consumed at the next loop boundary.
 
-        SPEC §5.6. The wrapper is intentionally minimal: it delegates to
+        The wrapper is intentionally minimal: it delegates to
         ``AgentState.enqueue_steering`` so the loop's consumption point
-        (``has_pending_steering`` / ``consume_steering`` — wired in T-06)
-        stays the single source of truth.
+        (``has_pending_steering`` / ``consume_steering``) stays the single
+        source of truth.
         """
         self._state.enqueue_steering(message, mode)
 
     # ------------------------------------------------------------------
-    # Persistence (T-24)
+    # Persistence
     # ------------------------------------------------------------------
     def save(self) -> SessionMeta:
         """Flush any unpersisted events plus the meta sidecar to disk.
@@ -505,7 +517,7 @@ class Session:
         """Load a stored session, reconstructing its state so it can be resumed.
 
         Reads the meta sidecar for ``parent_id``, preloads the event log, and
-        rebuilds history/notes/citations via deterministic replay (T-25). The
+        rebuilds history/notes/citations via deterministic replay. The
         returned session is fully live: ``run_stream``, ``fork``, and ``replay``
         all work. Raises :class:`SessionNotFound` if the id isn't on disk, or
         :class:`reigner.sessions.replay.ReplayError` if the log predates
@@ -637,14 +649,14 @@ def _load_role(cfg: ReignerConfig, role_file: str | Path | None = None) -> str:
     """Read the ROLE file from disk, returning ``""`` if it's missing.
 
     Defaults to ``cfg.role.file`` (resolved relative to the config). When
-    ``role_file`` is given it overrides that path — the replay override seam
-    (SPEC §11.2) — and is resolved relative to the current directory unless
-    already absolute. A missing override path is an error (unlike the default,
-    whose absence is tolerated): asking to replay against a specific ROLE that
-    doesn't exist should fail loudly rather than silently run with an empty one.
+    ``role_file`` is given it overrides that path — the replay override seam —
+    and is resolved relative to the current directory unless already absolute.
+    A missing override path is an error (unlike the default, whose absence is
+    tolerated): asking to replay against a specific ROLE that doesn't exist
+    should fail loudly rather than silently run with an empty one.
 
-    Skill composition (T-30) layers on top of this string later; for now we
-    just slurp the file verbatim so a basic Harness has a usable role.
+    Skill composition layers on top of this string later; for now we just
+    slurp the file verbatim so a basic Harness has a usable role.
     """
     if role_file is not None:
         override = Path(role_file)

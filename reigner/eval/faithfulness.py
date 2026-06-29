@@ -1,10 +1,10 @@
-"""``faithfulness`` eval check — numeric claims must be cited (SPEC §15.1).
+"""``faithfulness`` eval check — numeric claims must be cited.
 
 The trust property: every number the agent asserts in its final answer should
 trace to a registered citation. This check extracts the numeric claims from the
 answer text, extracts the numbers carried by the run's citations, and fails if
 any answer number has no citation backing it. Acceptance: it flags every
-hallucinated number (SPEC §22 Week-6 criterion 3).
+hallucinated number.
 
 Deterministic — no model call. Number extraction handles ``$``, ``%``, thousands
 separators, and scale words (``billion`` / ``million`` / ``k`` / ``bn`` …), so

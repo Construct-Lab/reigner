@@ -1,4 +1,4 @@
-"""Eval suite runner — runs cases against a harness and scores them (SPEC §15).
+"""Eval suite runner — runs cases against a harness and scores them.
 
 ``EvalSuite.run(harness, checks=[...])`` runs each :class:`~reigner.eval.cases.EvalCase`
 through the harness and produces a :class:`SuiteResult`. Evaluation has two tiers:
@@ -22,7 +22,7 @@ Run mechanics:
   the failure is captured into its :class:`~reigner.eval.checks.CaseRun`
   (``final=None``) and the remaining cases still run.
 
-Profile note: the named ``"eval"`` profile (SPEC §6.3) strips
+Profile note: the named ``"eval"`` profile strips
 ``request_clarification`` for determinism, so an ``expected_clarification: true``
 case cannot pass under it. Evaluate clarification behavior with
 ``profile="read_only"`` until the registry reconciles eval-vs-clarification.
@@ -80,10 +80,12 @@ class SuiteResult:
 
     @property
     def n_passed(self) -> int:
+        """Number of cases that passed."""
         return sum(1 for c in self.cases if c.passed)
 
     @property
     def n_failed(self) -> int:
+        """Number of cases that failed."""
         return sum(1 for c in self.cases if not c.passed)
 
 
@@ -95,7 +97,7 @@ class EvalSuite:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> EvalSuite:
-        """Load a suite from a ``cases.yaml`` file (SPEC §15, init scaffold)."""
+        """Load a suite from a ``cases.yaml`` file."""
         return cls(load_cases(path))
 
     async def run(
@@ -207,13 +209,13 @@ def _expected_clarification(case: EvalCase, run: CaseRun) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# Scorecard — SPEC §15.2 markdown table. Co-located so it's testable without
+# Scorecard — markdown table. Co-located so it's testable without
 # the CLI, which just calls render_scorecard on the SuiteResult.
 # ---------------------------------------------------------------------------
 
 
 def render_scorecard(result: SuiteResult, *, date: str | None = None) -> str:
-    """Render a :class:`SuiteResult` as the SPEC §15.2 markdown scorecard."""
+    """Render a :class:`SuiteResult` as a markdown scorecard."""
     day = date or datetime.now(UTC).date().isoformat()
     lines = [f"## Eval results — {day}", ""]
 

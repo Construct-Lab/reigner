@@ -3,8 +3,6 @@
 Subclass `LLMExtractor` and fill in `PROMPT` + `extract()`. Reigner handles
 adapters, retries, validation against your schema, and idempotency; the
 prompt and any preprocessing are yours.
-
-See SPEC.md §8.2 for the full contract.
 """
 
 # from reigner.ingestion import LLMExtractor, ExtractionResult

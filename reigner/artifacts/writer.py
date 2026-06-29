@@ -1,8 +1,7 @@
 """ArtifactWriter — the only sanctioned way to write to library/artifacts/.
 
 Atomic per-entity writes via a staging directory, schema-aware validation, and
-a manifest at `extraction_meta.json`. Never exposed as an agent tool. See
-SPEC.md §7.3 and §8 (layer C), issue #13.
+a manifest at `extraction_meta.json`. Never exposed as an agent tool.
 
 Atomicity protocol per `write_entity`:
   1. Stage to `<root>/.staging/<uuid>/` — fully written and validated there.
@@ -37,6 +36,12 @@ class ArtifactWriteError(RuntimeError):
 
 
 class ArtifactWriter:
+    """Schema-aware, atomic writer for an entity's compiled artifacts.
+
+    Bound to an artifact root and a schema; the only sanctioned way to write
+    under ``library/artifacts/``. Write-side only — never exposed as a tool.
+    """
+
     def __init__(self, root: str | Path, schema: ArtifactSchema) -> None:
         self.root = Path(root)
         self.schema = schema

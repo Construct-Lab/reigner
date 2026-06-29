@@ -1,15 +1,13 @@
 """LLMExtractor — base class for single-document extraction.
 
-See SPEC.md §8.2 ("Layer B — LLMExtractor") and issue #14.
-
 The base class owns everything that's the same regardless of domain: model
 adapter wiring, retry on transient adapter errors, schema validation against
 :class:`reigner.artifacts.ArtifactSchema`, deterministic idempotency keys,
 token + cost accounting, and a default ``preprocess_pdf``. The subclass owns
 ``PROMPT`` and ``extract()`` — the irreducibly domain-specific parts.
 
-The pipeline (T-16) calls :meth:`LLMExtractor.run` per document. ``run``
-calls the user's ``extract``, validates the result against ``schema``, and
+The pipeline calls :meth:`LLMExtractor.run` per document. ``run`` calls the
+user's ``extract``, validates the result against ``schema``, and
 returns an :class:`ExtractionResult` whose ``meta`` is ready to be handed to
 :meth:`reigner.artifacts.ArtifactWriter.write_entity` as the ``meta=`` arg.
 """
@@ -155,6 +153,7 @@ class LLMExtractor(ABC):
 
     @property
     def adapter(self) -> ModelAdapter:
+        """The resolved model adapter backing this extractor's calls."""
         return self._adapter
 
     async def run(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
@@ -190,16 +189,32 @@ class LLMExtractor(ABC):
     def cache_key(self, raw: bytes) -> str:
         """``source_hash:schema_version:prompt_hash`` — deterministic.
 
-        T-16 (pipeline) compares this against the ``extractor`` block in the
+        The pipeline compares this against the ``extractor`` block in the
         existing ``extraction_meta.json`` to decide whether to skip a source
         that's already been ingested with the same prompt + schema.
+
+        Args:
+            raw: The raw source bytes to key.
+
+        Returns:
+            A deterministic cache key for idempotency checks.
         """
         return f"{self._source_hash(raw)}:{self.schema.version}:{self._prompt_hash()}"
 
     # ---- Subclass implements ------------------------------------------------
 
     @abstractmethod
-    async def extract(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult: ...
+    async def extract(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
+        """Produce an :class:`ExtractionResult` from one document.
+
+        Args:
+            raw: The raw source bytes for the document.
+            meta: Loader-provided metadata (source, identifiers, …).
+
+        Returns:
+            The domain-specific sections and JSON artifacts for the entity.
+        """
+        ...
 
     # ---- Subclass uses ------------------------------------------------------
 
@@ -260,11 +275,20 @@ class LLMExtractor(ABC):
         raise TransientError(f"transient adapter error (unreachable); last error: {last_transient}")
 
     async def preprocess_pdf(self, raw: bytes) -> str:
-        """Default PDF → text using pymupdf.
+        r"""Default PDF → text using pymupdf.
 
-        Pages are joined by form-feed (``\\f``) so downstream consumers can
+        Pages are joined by form-feed (``\f``) so downstream consumers can
         recover page boundaries. Override for OCR, multi-column layouts, or
-        scanned documents — see SPEC §8.2 + §8.5 on the OCR boundary.
+        scanned documents.
+
+        Args:
+            raw: The raw PDF bytes.
+
+        Returns:
+            The extracted text, with pages separated by form-feed characters.
+
+        Raises:
+            ImportError: If the optional ``pymupdf`` dependency is missing.
         """
         try:
             import pymupdf
@@ -493,6 +517,15 @@ class MapReduceExtractor(LLMExtractor):
     # ---- Template method (subclass does not override extract) ---------------
 
     async def extract(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
+        """Map-reduce extraction: chunk, map per window, reduce, summarize.
+
+        Args:
+            raw: The raw document bytes (assumed PDF by default).
+            meta: Loader-provided metadata.
+
+        Returns:
+            The assembled :class:`ExtractionResult` across all chunks.
+        """
         full_text = await self.preprocess_pdf(raw)
         chunks = self._chunk_pages(full_text)
         fragments = await self._map(chunks, meta)
@@ -551,9 +584,9 @@ class MapReduceExtractor(LLMExtractor):
     # ---- Machinery ----------------------------------------------------------
 
     def _chunk_pages(self, text: str) -> list[str]:
-        """Pack pages into ``<=chunk_chars`` windows; never split a page.
+        r"""Pack pages into ``<=chunk_chars`` windows; never split a page.
 
-        Pages arrive ``\\f``-separated from :meth:`preprocess_pdf`. A single
+        Pages arrive ``\f``-separated from :meth:`preprocess_pdf`. A single
         page larger than ``chunk_chars`` becomes its own over-budget chunk: the
         whole page is still seen by the model, nothing is silently truncated.
         """
