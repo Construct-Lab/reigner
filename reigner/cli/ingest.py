@@ -1,4 +1,4 @@
-"""`reigner ingest` — run a user's IngestionPipeline over raw documents (T-20).
+"""`reigner ingest` — run a user's IngestionPipeline over raw documents.
 
 Convention default: bare ``reigner ingest`` resolves
 ``extractors.pipeline:pipeline`` against the project root (CWD) and walks
@@ -39,6 +39,7 @@ OnError = Literal["raise", "dead_letter", "skip"]
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``ingest`` command on the given Typer app."""
     app.command("ingest")(_ingest)
 
 

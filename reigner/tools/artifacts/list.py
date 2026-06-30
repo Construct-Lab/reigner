@@ -1,6 +1,6 @@
 """Schema-derived listing tools: list_documents, list_versions, get_section.
 
-SPEC §6.4 hardcodes ``list_versions(entity_id)`` and
+The reference design hardcodes ``list_versions(entity_id)`` and
 ``get_section(entity_id, version, section)`` — those signatures assume the
 default two-level ``{entity_id}/{version}`` ``entity_path``. We generalise
 to N-level identifier paths by synthesizing each tool's ``inspect.Signature``
@@ -131,7 +131,7 @@ def build_get_section(
 
     Signature: ``section: str`` plus one ``str`` parameter per entity_path key.
     Convenience over ``read_artifact_file`` for the common section-name lookup
-    pattern (SPEC §6.4).
+    pattern.
     """
     keys = store.schema.entity_path_keys()
 

@@ -1,4 +1,4 @@
-"""Deterministic session reconstruction (SPEC §11.2, T-25).
+"""Deterministic session reconstruction.
 
 Rebuild an :class:`~reigner.harness.state.AgentState` from a session's event
 log — history, scratchpad notes, and citations — *without calling any model
@@ -303,7 +303,7 @@ def reconstruct(
 ) -> AgentState:
     """Synchronous wrapper around :func:`areconstruct`.
 
-    ``Session.load`` / ``Session.fork`` are sync per SPEC §5.1, but the loop is
+    ``Session.load`` / ``Session.fork`` are sync, but the loop is
     async. We run the coroutine to completion on a private event loop: directly
     via ``asyncio.run`` when no loop is running, otherwise on a worker thread so
     the call is safe from inside ``async`` code (e.g. async tests). The

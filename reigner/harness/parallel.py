@@ -1,7 +1,5 @@
 """Parallel read execution (G11).
 
-See SPEC.md §5.4 (G11) and PRINCIPLES.md §3.
-
 When every real (non-pseudo) tool call in one model turn is ``readonly=True``,
 the loop dispatches them concurrently via ``asyncio.gather``. Mixed batches
 fall back to serial execution because a write could observe state a read in
@@ -33,12 +31,18 @@ class RunnableTool(Protocol):
     """
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """The tool's registered name."""
+        ...
 
     @property
-    def readonly(self) -> bool: ...
+    def readonly(self) -> bool:
+        """Whether the tool is side-effect-free."""
+        ...
 
-    async def run(self, args: dict[str, Any]) -> Any: ...
+    async def run(self, args: dict[str, Any]) -> Any:
+        """Invoke the tool with a dict of keyword arguments."""
+        ...
 
 
 @dataclass(frozen=True)

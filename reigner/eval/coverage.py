@@ -1,4 +1,4 @@
-"""``coverage`` eval check — did the agent retrieve the right artifacts? (SPEC §15.1).
+"""``coverage`` eval check — did the agent retrieve the right artifacts?
 
 Distinct from ``faithfulness`` (which scores *citing*), coverage scores
 *retrieving*: for a case whose ``expected_citations`` name the artifacts that

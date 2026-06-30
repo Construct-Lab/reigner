@@ -1,4 +1,4 @@
-"""Guided init — the SPEC §14 default mode for ``reigner init``.
+"""Guided init — the default mode for ``reigner init``.
 
 Flow:
 
@@ -10,7 +10,7 @@ Flow:
 3. Two focused model calls generate ``REIGNER.md`` and ``schema.yaml``. The
    schema is validated through :meth:`ArtifactSchema.from_yaml` before it is
    written — a generated file that won't load never reaches disk.
-4. Scaffold the SPEC §9.1 layout, then an explicit y/n gate before the only
+4. Scaffold the project layout, then an explicit y/n gate before the only
    code-bearing file, ``extractors/my_extractor.py`` (the static blank stub —
    no model writes executable Python here).
 
@@ -100,7 +100,7 @@ Output ONLY the YAML. No code fences, no preamble, no commentary."""
 
 @dataclass(frozen=True)
 class GuidedAnswers:
-    """The inputs collected from the interactive Q&A (SPEC §14).
+    """The inputs collected from the interactive Q&A.
 
     ``uniformity`` selects the schema shape: ``"uniform"`` (the default) keeps
     the model-generated schema as-is; ``"mixed"`` layers it onto a generic
@@ -268,8 +268,11 @@ def _validate_schema(yaml_text: str) -> None:
 async def _generate(
     console: Console, adapter: ModelAdapter, answers: GuidedAnswers
 ) -> tuple[str, str]:
-    """Generate (REIGNER.md, schema.yaml). The schema is validated; one retry
-    feeds the loader's error back to the model before we give up."""
+    """Generate ``(REIGNER.md, schema.yaml)``.
+
+    The schema is validated; one retry feeds the loader's error back to the
+    model before we give up.
+    """
     brief = answers.as_brief()
 
     console.print("[dim]…[/dim] Generating REIGNER.md")

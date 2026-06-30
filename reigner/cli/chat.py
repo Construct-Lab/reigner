@@ -6,18 +6,18 @@ Three modes from one Typer command:
 - ``reigner chat --print "<q>"``         one-shot; stdout = final answer text.
 - ``reigner chat --print "<q>" --json``  one-shot; ND-JSON of every event.
 
-The REPL streams the harness event protocol (SPEC §5.2). The prompt stays live
+The REPL streams the harness event protocol. The prompt stays live
 while a run is in flight, giving two distinct mid-run actions:
 
 - **Enter** queues the typed text as the *next question* — the current run
   answers on its own, then the queued question runs as a fresh turn (type-ahead,
   like queuing a follow-up in Claude Code / ChatGPT).
 - **Alt+Enter** (or **Esc then Enter**, which needs no Option-as-Meta) *steers*
-  the in-flight run (SPEC §5.6): the text folds into the current loop as a user
-  turn at its next boundary, bending this answer rather than starting a new one.
+  the in-flight run: the text folds into the current loop as a user turn at its
+  next boundary, bending this answer rather than starting a new one.
 
 Idle Enter submits a fresh query. There is intentionally no mid-turn preemption
-— neither action aborts the in-flight model call (see issue #48).
+— neither action aborts the in-flight model call.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from reigner.types import ConfigError
 
 _DEFAULT_CONFIG = "reigner.yaml"
 
-# Exit codes (SPEC §17 is informal; we pick conventional values):
+# Exit codes (conventional values):
 #   0 — final answer produced
 #   1 — runtime error (loop error event, no final answer)
 #   2 — usage error (missing config, clarification in --print mode)
@@ -65,6 +65,7 @@ EXIT_USAGE = 2
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``chat`` command on the given Typer app."""
     app.command("chat")(_chat)
 
 

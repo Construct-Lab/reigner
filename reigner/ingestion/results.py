@@ -1,7 +1,5 @@
 """ExtractionResult and the error taxonomy ingestion deals in.
 
-See SPEC.md §8.2 ("Standard error patterns") and issue #14.
-
 Four error types form a hierarchy under :class:`ExtractionError`:
 
 * :class:`TransientError` — retried by the pipeline (rate limits, 5xx, network).
@@ -13,8 +11,8 @@ Four error types form a hierarchy under :class:`ExtractionError`:
 * :class:`ExtractionError` (raised directly) — every other permanent failure
   (unparseable JSON, prompt errors, runtime exceptions in user ``extract()``).
 
-The pipeline (T-16) catches :class:`ExtractionError` as the umbrella; users
-can catch the subclasses for finer routing.
+The pipeline catches :class:`ExtractionError` as the umbrella; users can catch
+the subclasses for finer routing.
 """
 
 from __future__ import annotations
@@ -50,8 +48,8 @@ class TransientError(ExtractionError):
     Adapters raise :class:`reigner.harness.adapters.TransientAdapterError` for
     individual transient failures; :meth:`LLMExtractor.call_model` retries
     those internally and only re-raises as ``TransientError`` once retries are
-    exhausted. The pipeline (T-16) decides whether to retry the whole document
-    later (network outage, sustained rate limit) or dead-letter it.
+    exhausted. The pipeline decides whether to retry the whole document later
+    (network outage, sustained rate limit) or dead-letter it.
     """
 
 

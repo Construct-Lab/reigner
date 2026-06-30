@@ -5,9 +5,9 @@ A :class:`Loader` reads one source (file or URL) into a
 
 Loaders deliberately do nothing else. No LLM calls, no validation, no
 retry, no concurrency. Those concerns belong upstream
-(:class:`reigner.ingestion.LLMExtractor`, T-14) and downstream
-(``IngestionPipeline``, T-16, which routes sources to loaders by
-extension or URL scheme and feeds each :class:`LoadedDocument` into
+(:class:`reigner.ingestion.LLMExtractor`) and downstream
+(``IngestionPipeline``, which routes sources to loaders by extension or URL
+scheme and feeds each :class:`LoadedDocument` into
 ``LLMExtractor.extract(raw, meta)``).
 """
 
@@ -42,4 +42,6 @@ class Loader(Protocol):
     URL loaders route differently.
     """
 
-    async def load(self, source: str | Path) -> LoadedDocument: ...
+    async def load(self, source: str | Path) -> LoadedDocument:
+        """Read ``source`` into a :class:`LoadedDocument`."""
+        ...

@@ -1,4 +1,4 @@
-"""Load the plugins listed in ``reigner.yaml`` by dotted path (SPEC §12).
+"""Load the plugins listed in ``reigner.yaml`` by dotted path.
 
 Each entry resolves via :func:`reigner.types.import_dotted` to either a
 :class:`Plugin` subclass — instantiated with no arguments — or an already-built

@@ -1,4 +1,4 @@
-"""The plugin dispatcher (SPEC §12).
+"""The plugin dispatcher.
 
 ``PluginHost`` owns the ordered plugin list and applies the hooks with a split
 failure policy:
@@ -62,6 +62,7 @@ class PluginHost:
     # ------------------------------------------------------------------
 
     async def before_tool_call(self, call: ToolCall, state: AgentState) -> ToolCall:
+        """Fold ``before_tool_call`` across plugins; raise on the first failure."""
         for p in self._plugins:
             try:
                 call = await p.before_tool_call(call, state)
@@ -72,6 +73,7 @@ class PluginHost:
     async def after_tool_call(
         self, call: ToolCall, result: ToolResultEvent, state: AgentState
     ) -> ToolResultEvent:
+        """Fold ``after_tool_call`` across plugins; raise on the first failure."""
         for p in self._plugins:
             try:
                 result = await p.after_tool_call(call, result, state)
@@ -82,6 +84,7 @@ class PluginHost:
     async def on_final_answer(
         self, answer: FinalAnswerEvent, state: AgentState
     ) -> FinalAnswerEvent:
+        """Fold ``on_final_answer`` across plugins; raise on the first failure."""
         for p in self._plugins:
             try:
                 answer = await p.on_final_answer(answer, state)
@@ -94,6 +97,7 @@ class PluginHost:
     # ------------------------------------------------------------------
 
     async def on_compaction(self, state: AgentState, level: int) -> None:
+        """Notify every plugin of a compaction pass; failures are isolated."""
         for p in self._plugins:
             try:
                 await p.on_compaction(state, level)
@@ -101,6 +105,7 @@ class PluginHost:
                 log.warning("plugin %s on_compaction failed", self._label(p), exc_info=True)
 
     async def on_error(self, error: ErrorEvent, state: AgentState) -> None:
+        """Notify every plugin of an error event; failures are isolated."""
         for p in self._plugins:
             try:
                 await p.on_error(error, state)
@@ -108,6 +113,7 @@ class PluginHost:
                 log.warning("plugin %s on_error failed", self._label(p), exc_info=True)
 
     async def on_oracle_escalation(self, event: OracleEscalationEvent, state: AgentState) -> None:
+        """Notify every plugin of an oracle escalation; failures are isolated."""
         for p in self._plugins:
             try:
                 await p.on_oracle_escalation(event, state)
@@ -115,6 +121,7 @@ class PluginHost:
                 log.warning("plugin %s on_oracle_escalation failed", self._label(p), exc_info=True)
 
     async def on_steering(self, event: SteeringAcceptedEvent, state: AgentState) -> None:
+        """Notify every plugin of a steering message; failures are isolated."""
         for p in self._plugins:
             try:
                 await p.on_steering(event, state)

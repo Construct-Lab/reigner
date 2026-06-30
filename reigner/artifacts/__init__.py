@@ -1,7 +1,7 @@
 """Artifact system — schema, writer, manifest, and conventions.
 
-See SPEC.md §7 and §8.1. T-13 lands the write side and the contract; the
-read-side ``ArtifactStore`` lives in ``reigner.tools.artifacts`` (T-09).
+This package owns the write side and the schema contract; the read-side
+``ArtifactStore`` lives in ``reigner.tools.artifacts``.
 """
 
 from reigner.artifacts.manifest import ExtractionMeta

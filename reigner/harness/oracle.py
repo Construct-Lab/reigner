@@ -1,4 +1,4 @@
-"""Single-turn oracle escalation (SPEC.md §5.5).
+"""Single-turn oracle escalation.
 
 The model can call the ``escalate_to_oracle`` pseudo-tool when a question
 requires deeper reasoning than the default adapter has produced. The next
@@ -7,9 +7,7 @@ iterations revert to ``state.adapter``.
 
 This module owns the mechanism — the adapter swap and the single-turn
 revert. The pseudo-tool surface that exposes the escalation to the model
-lives in ``tools/pseudo/escalate_to_oracle.py`` (T-08); it calls
-:func:`arm` here. Until T-08 lands, the loop's inline pseudo-tool branch
-calls :func:`arm` directly.
+lives in ``tools/pseudo/escalate_to_oracle.py``; it calls :func:`arm` here.
 """
 
 from __future__ import annotations

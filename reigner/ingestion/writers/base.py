@@ -1,9 +1,7 @@
 """Pipeline writer + transform protocols and the final-report dataclasses.
 
-See SPEC.md §8.3 ("Layer C — IngestionPipeline") and issue #16.
-
-The pipeline (T-16) fans each successful extraction out to a list of writers.
-Two writer shapes are supported:
+The pipeline fans each successful extraction out to a list of writers. Two
+writer shapes are supported:
 
 * :class:`reigner.artifacts.ArtifactWriter` — the canonical entity store, kept
   on its existing ``write_entity(**identifiers, sections=..., json_artifacts=...,
@@ -14,8 +12,8 @@ Two writer shapes are supported:
 
 :class:`Transform` is the contract a single pipeline step must satisfy.
 :class:`reigner.ingestion.LLMExtractor` already does. v0 only runs one
-transform per pipeline; the protocol exists so non-LLM transforms (SPEC §8.4)
-can slot in later without touching the pipeline.
+transform per pipeline; the protocol exists so non-LLM transforms can slot in
+later without touching the pipeline.
 """
 
 from __future__ import annotations
@@ -38,7 +36,9 @@ class PipelineWriter(Protocol):
         loaded: LoadedDocument,
         result: ExtractionResult,
         identifiers: dict[str, str],
-    ) -> None: ...
+    ) -> None:
+        """Persist one extraction result for the entity named by identifiers."""
+        ...
 
 
 @runtime_checkable
@@ -50,9 +50,13 @@ class Transform(Protocol):
     that genuinely cannot be cached should return a unique key per call.
     """
 
-    async def run(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult: ...
+    async def run(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
+        """Turn raw source bytes into an :class:`ExtractionResult`."""
+        ...
 
-    def cache_key(self, raw: bytes) -> str: ...
+    def cache_key(self, raw: bytes) -> str:
+        """Return a stable idempotency key for ``raw``."""
+        ...
 
 
 @dataclass(kw_only=True)
@@ -67,7 +71,7 @@ class SourceFailure:
 
 @dataclass(kw_only=True)
 class IngestionReport:
-    """Aggregate outcome of one :meth:`IngestionPipeline.run` call (SPEC §8.3)."""
+    """Aggregate outcome of one :meth:`IngestionPipeline.run` call."""
 
     succeeded: int = 0
     failed: int = 0

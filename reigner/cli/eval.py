@@ -1,4 +1,4 @@
-"""`reigner eval` — run the eval suite and print a scorecard (SPEC §13, §15).
+"""`reigner eval` — run the eval suite and print a scorecard.
 
     reigner eval                         all cases, configured (or all) checks
     reigner eval --case apple_rnd_2024   run one case (repeatable)
@@ -49,6 +49,7 @@ EXIT_USAGE = 2
 
 
 def register(app: typer.Typer) -> None:
+    """Register the ``eval`` command on the given Typer app."""
     app.command("eval")(_eval)
 
 

@@ -2,7 +2,6 @@
 
 Pure string operations — no filesystem I/O, no schema dependency. Used by
 ArtifactSchema to resolve placeholders and by ArtifactWriter to compose paths.
-See SPEC.md §7.3 and issue #13.
 """
 
 from __future__ import annotations

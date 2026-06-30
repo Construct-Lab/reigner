@@ -68,6 +68,15 @@ class OpenAIAdapter:
         return self._client
 
     async def call(self, prompt: Prompt, tools: list[ToolSpec]) -> ModelAction:
+        """Call the OpenAI Responses API, returning a ModelAction.
+
+        Args:
+            prompt: The harness prompt (stable prefix + turns).
+            tools: Tool specs to expose to the model this turn.
+
+        Returns:
+            The provider response normalized into a :class:`ModelAction`.
+        """
         client = self._get_client()
         payload: dict[str, Any] = {
             "model": self.model,

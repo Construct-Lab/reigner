@@ -1,10 +1,10 @@
 """save_note pseudo-tool — durable scratchpad (G8).
 
-The loop (T-05, `harness/loop.py:_dispatch_pseudo`) intercepts calls before
-invocation and appends the text to `AgentState.notes` via `state.add_note`
-(T-03). Notes survive history compaction (G5/G10), which is the whole point:
-facts the model wants to keep across summarization need a write path that is
-not the conversation history.
+The loop (`harness/loop.py:_dispatch_pseudo`) intercepts calls before
+invocation and appends the text to `AgentState.notes` via `state.add_note`.
+Notes survive history compaction (G5/G10), which is the whole point: facts the
+model wants to keep across summarization need a write path that is not the
+conversation history.
 
 The body raises so anyone calling this outside the loop (a test, a script)
 gets a clear error instead of a silent no-op.

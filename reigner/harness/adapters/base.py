@@ -1,9 +1,9 @@
 """Adapter protocol and provider-neutral return types.
 
-See SPEC.md §5.3 (the loop reads `action.is_final_answer`, `action.tool_calls`,
-`action.text` off whatever adapter is wired in) and issue #4.
+The loop reads `action.is_final_answer`, `action.tool_calls`, and `action.text`
+off whatever adapter is wired in.
 
-Design choices locked with the user:
+Design choices:
 
 - Single-shot `async call(...) -> ModelAction`. No token streaming in v0; the
   event stream the harness yields is driven by tool-call boundaries, not by
@@ -15,7 +15,7 @@ Design choices locked with the user:
   `input_schema` for Anthropic). Keeps tools provider-agnostic and MCP-clean.
 - `TokenUsage` is required on every response. Providers that don't report a
   field fill it with 0 — we'd rather propagate zeros than `None` through the
-  cost reporting path (SPEC §5.5).
+  cost reporting path.
 - No retries inside adapters. Transient errors get wrapped in
   `TransientAdapterError` so a future retry layer (or the loop's nudge logic)
   can decide policy. Adapters stay thin.
@@ -65,6 +65,7 @@ class TokenUsage:
 
     @classmethod
     def empty(cls) -> TokenUsage:
+        """Return a zeroed :class:`TokenUsage`."""
         return cls()
 
 
@@ -112,8 +113,11 @@ class TransientAdapterError(AdapterError):
 
 
 class AdapterRateLimitError(TransientAdapterError):
-    """Provider rate limit (HTTP 429). Subclass of transient so generic retry
-    handlers catch it, but distinguished for backoff tuning."""
+    """Provider rate limit (HTTP 429).
+
+    Subclass of transient so generic retry handlers catch it, but distinguished
+    for backoff tuning.
+    """
 
 
 class AdapterAuthError(AdapterError):
@@ -176,7 +180,7 @@ def render_tool_for_openai(tool: ToolSpec) -> dict[str, Any]:
     "parameters": ...}``) rather than the older Chat Completions wrapper
     (``{"type": "function", "function": {...}}``). `strict: True` opts into
     schema-conformant tool arg generation — aligns with the bounded-output
-    discipline (PRINCIPLES §3).
+    discipline.
 
     Strict mode imposes JSON Schema rules Pydantic's default output violates
     (``additionalProperties: false`` on every object, every property listed in

@@ -1,7 +1,5 @@
 """History + progressive context compaction (G5, G10).
 
-See SPEC.md §5.4 (G5, G10) and PRINCIPLES.md §3 (bounded outputs).
-
 When ``state.context_pressure()`` crosses the configured thresholds (default
 0.80 / 0.90 / 0.95) the loop calls :func:`progressive`, which decides whether
 to compact and at which tier:

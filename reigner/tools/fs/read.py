@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 def build_fs_read(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
     """Build a @tool closure over ``fs``."""
-
     default_limit = fs.max_read_chars
 
     @tool(readonly=True)

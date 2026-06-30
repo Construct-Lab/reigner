@@ -1,4 +1,4 @@
-"""``repeated_calls`` eval check — redundant / looping tool calls (SPEC §15.1).
+"""``repeated_calls`` eval check — redundant / looping tool calls.
 
 A retrieval agent that re-issues the *same* tool call is either stuck in a loop
 or wasting budget re-fetching what it already has. This check flags that: it

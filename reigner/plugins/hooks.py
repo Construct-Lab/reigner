@@ -1,5 +1,4 @@
-"""Hook names, the transform/observe classification, and the error raised when
-a transform hook fails (SPEC §12).
+"""Hook names, transform/observe classification, and the transform-hook error.
 
 :class:`reigner.plugins.host.PluginHost` reads these sets to pick its failure
 policy: a transform-hook exception aborts the run (wrapped in

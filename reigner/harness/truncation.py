@@ -1,7 +1,5 @@
 """Per-tool result truncation (G2).
 
-See SPEC.md §5.4 (G2) and PRINCIPLES.md §3 (bounded outputs).
-
 The budget is measured against the JSON-serialized form of the result, which
 is what actually enters the model context. Truncation respects JSON boundaries:
 
@@ -15,8 +13,8 @@ is what actually enters the model context. Truncation respects JSON boundaries:
   fit, recursively truncate it rather than dropping the key entirely.
 - **other**: re-encoded to a string and sliced.
 
-The discipline (PRINCIPLES §3): every truncated result tells the model so via
-explicit markers — the model can request more without unbounded calls.
+Every truncated result tells the model so via explicit markers — the model can
+request more without unbounded calls.
 """
 
 from __future__ import annotations

@@ -3,8 +3,6 @@
 Kept deliberately narrow: only orphans that don't have a natural home elsewhere
 in the package live here. Domain types (events, prompts, tool specs) stay with
 their owning module.
-
-See T-17 / issue #17.
 """
 
 from __future__ import annotations
@@ -24,8 +22,8 @@ Accepted forms:
 """
 
 Profile = Literal["full", "read_only", "eval"]
-"""Named tool-permission subset (SPEC §6.3). Re-exported by ``harness.agent``
-for back-compat; canonical home is here."""
+"""Named tool-permission subset. Re-exported by ``harness.agent`` for
+back-compat; canonical home is here."""
 
 
 class ConfigError(Exception):

@@ -2,7 +2,7 @@
 
 Top-level only by design. Deep traversal (jsonpath, dotted keys) is deferred
 to a separate ``get_json_path`` tool if real schemas ever need it — keeps the
-bounded-output contract on this tool simple. See implementation plan §06.
+bounded-output contract on this tool simple.
 """
 
 from __future__ import annotations

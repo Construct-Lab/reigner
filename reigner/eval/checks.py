@@ -1,10 +1,10 @@
 """Eval check contract and registry — the seam concrete checks plug into.
 
-SPEC §15. This module owns the *shape* of a check and how a check is discovered
-by name; it deliberately ships **no concrete checks**. The five analyzers
+This module owns the *shape* of a check and how a check is discovered by name;
+it deliberately ships **no concrete checks**. The five analyzers
 (``faithfulness``, ``repeated_calls``, ``entity_resolution``, ``coverage``,
-``latency_cost`` — SPEC §15.1) live in their own modules and register themselves
-here via the :func:`check` decorator, so they land with zero edits to the runner.
+``latency_cost``) live in their own modules and register themselves here via
+the :func:`check` decorator, so they land with zero edits to the runner.
 
 The three pieces:
 
@@ -12,12 +12,12 @@ The three pieces:
   case: the terminal answer (or ``None`` if the agent clarified / errored / made
   no progress), the full event stream, the registered citations, wall-clock
   elapsed, and the token ``usage`` dict. Every check reads from this — no check
-  needs the live loop, because every SPEC §15.1 check is computable from a
-  completed run record.
+  needs the live loop, because every check is computable from a completed run
+  record.
 - :class:`CheckResult` — a ternary verdict (``pass`` / ``fail`` / ``na``) plus a
   human-readable ``detail``. ``na`` lets a check declare itself inapplicable
   (e.g. ``coverage`` on a case the agent clarified) instead of faking a verdict;
-  the SPEC §15.2 scorecard shows exactly these three states.
+  the scorecard shows exactly these three states.
 - :func:`check` / :func:`get_check` — a module-level name→function registry. A
   check is any callable ``(EvalCase, CaseRun) -> CheckResult`` (or its awaitable
   form, so a check may call a model). The runner resolves the names passed to
@@ -69,7 +69,7 @@ class CaseRun:
 class CheckResult:
     """One check's verdict on one case.
 
-    ``status`` is ternary (SPEC §15.2): ``pass``/``fail``/``na``. ``detail`` is a
+    ``status`` is ternary: ``pass``/``fail``/``na``. ``detail`` is a
     short human-readable note — the reason for a failure, or context for a pass
     (e.g. ``"clarified"``). The runner renders it inline in the scorecard.
     """
@@ -88,7 +88,7 @@ _REGISTRY: dict[str, CheckFn] = {}
 
 
 def check(name: str) -> Callable[[CheckFn], CheckFn]:
-    """Register a check function under ``name`` (SPEC §15.1).
+    """Register a check function under ``name``.
 
     Used by each analyzer module::
 

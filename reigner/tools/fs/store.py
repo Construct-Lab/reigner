@@ -9,8 +9,6 @@ extension allowlist so each tool module stays small.
 ``fs_write`` is the only mutating tool. It is **only emitted** from
 :meth:`FsTools.tools` when ``write_enabled=True`` — there is no runtime
 "permission denied" branch. Omission, not refusal, is the gate.
-
-See SPEC §6.5 (FS tools) and PRINCIPLES.md §2 (bounded outputs).
 """
 
 from __future__ import annotations

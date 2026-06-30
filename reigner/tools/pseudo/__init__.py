@@ -1,8 +1,7 @@
-"""Pseudo-tools — locally-intercepted control verbs the model uses to manage
-its own loop. SPEC §6.4.
+"""Pseudo-tools — locally-intercepted control verbs for self-managing the loop.
 
 Each pseudo-tool exposes a JSON Schema so the model can call it, but the loop
-(T-05) intercepts the call before invocation. Direct invocation raises
+intercepts the call before invocation. Direct invocation raises
 `NotImplementedError`. The four bundled here are the minimum self-management
 set: remember (`save_note`), ask (`request_clarification`), escalate
 (`escalate_to_oracle`), quit (`stop`).

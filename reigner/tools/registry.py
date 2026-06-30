@@ -1,7 +1,5 @@
 """ToolRegistry — per-Harness collection of tools, with profile filtering.
 
-See SPEC.md §6.2 (categories) and §6.3 (profiles).
-
 The registry is the source of truth for which tools exist in a `Harness`. It
 holds `ToolSpec` instances and filters them by profile when a Session asks for
 its tool surface. Profile semantics are derived from the `readonly` and
@@ -25,7 +23,6 @@ Profile = Literal["full", "read_only", "eval"]
 _EVAL_EXCLUDED: frozenset[str] = frozenset({"escalate_to_oracle", "request_clarification"})
 """Pseudo-tools excluded from the `eval` profile because they break determinism:
 oracle escalation introduces a different model; clarification pauses the loop.
-SPEC §6.3 table row for `eval`.
 """
 
 
@@ -75,13 +72,13 @@ class ToolRegistry:
     def schemas(self) -> list[dict[str, Any]]:
         """JSON Schema list for every registered tool, in insertion order.
 
-        Provider-agnostic. Model adapters (T-04) translate to provider-specific
+        Provider-agnostic. Model adapters translate to provider-specific
         tool-schema shapes.
         """
         return [spec.json_schema() for spec in self._specs.values()]
 
     def for_profile(self, profile: Profile) -> list[RunnableToolAdapter]:
-        """Return the tool subset visible under `profile` (SPEC §6.3) as adapters.
+        """Return the tool subset visible under `profile` as adapters.
 
         full       — every registered tool.
         read_only  — readonly tools plus pseudo-tools.

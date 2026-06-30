@@ -34,6 +34,14 @@ class PdfLoader:
         self._meta_extractor = meta_extractor
 
     async def load(self, source: str | Path) -> LoadedDocument:
+        """Read a PDF file into raw bytes (decoding is the extractor's job).
+
+        Args:
+            source: Path to the ``.pdf`` file.
+
+        Returns:
+            The raw PDF bytes and basic file metadata.
+        """
         path = Path(source)
         raw = await asyncio.to_thread(path.read_bytes)
         meta: dict[str, Any] = {

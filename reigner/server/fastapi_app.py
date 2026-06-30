@@ -1,15 +1,15 @@
-"""Optional FastAPI HTTP server — deploy a Reigner agent as a service (SPEC §16).
+"""Optional FastAPI HTTP server — deploy a Reigner agent as a service.
 
 Two endpoints over one shared, immutable :class:`Harness`:
 
-- ``POST /run`` — stream the agent's event protocol (SPEC §5.2) as Server-Sent
+- ``POST /run`` — stream the agent's event protocol as Server-Sent
   Events. An optional ``session_id`` resumes a durable session; absent, a new
   one is minted. The new/resumed id rides every frame (it's on the event
   envelope), so a client reads it off the first frame to continue later.
 - ``GET /health`` — liveness + identity probe for load balancers and operators.
 
 The server adds no new event types and owns no output path of its own: every
-frame is ``to_json(event)`` (SPEC §5.2), the exact bytes the CLI's ``--json``
+frame is ``to_json(event)``, the exact bytes the CLI's ``--json``
 mode emits, just wrapped in SSE framing. Build with :func:`create_app`; the
 ``serve`` CLI command injects a live harness and the display strings for
 ``/health``.
@@ -44,7 +44,7 @@ class RunRequest(BaseModel):
 
     ``query`` is required and non-empty (empty → 422). ``session_id`` resumes a
     durable session when present; ``profile`` and ``state`` mirror the
-    :meth:`Harness.session` knobs (SPEC §6.3, §4) for *new* sessions — see the
+    :meth:`Harness.session` knobs for *new* sessions — see the
     resume caveat on :func:`_resolve_session`.
     """
 
@@ -58,7 +58,7 @@ def _resolve_session(harness: Harness, req: RunRequest) -> Session:
     """New session, or resume an existing one — raising 404 if it's unknown.
 
     Resume goes through :meth:`Session.load`, which currently rebuilds at
-    ``profile="full"`` regardless of ``req.profile`` (SPEC §19). So per-request
+    ``profile="full"`` regardless of ``req.profile``. So per-request
     tool gating only binds to *new* sessions; this is a documented v0 limit.
     """
     if req.session_id is None:

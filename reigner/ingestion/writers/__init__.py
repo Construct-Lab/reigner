@@ -1,8 +1,7 @@
-"""Ingestion-side writer surface (SPEC §8.3, issue #16).
+"""Ingestion-side writer surface.
 
 Re-exports :class:`reigner.artifacts.ArtifactWriter` so callers can write
-``from reigner.ingestion.writers import ArtifactWriter, Bm25IndexWriter`` as
-the SPEC example does.
+``from reigner.ingestion.writers import ArtifactWriter, Bm25IndexWriter``.
 """
 
 from reigner.artifacts import ArtifactWriter

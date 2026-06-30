@@ -1,8 +1,8 @@
 """grep_artifact — literal substring search across text artifacts.
 
-Literal-only by design. Adding a regex flag is deferred (see implementation
-plan §06): regex without a per-pattern timeout is a ReDoS hazard, and v0 has
-no real-world signal that the model needs regex over literals.
+Literal-only by design. Adding a regex flag is deferred: regex without a
+per-pattern timeout is a ReDoS hazard, and v0 has no real-world signal that
+the model needs regex over literals.
 """
 
 from __future__ import annotations

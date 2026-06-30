@@ -1,4 +1,4 @@
-"""Hook-based extension points for the agent loop (SPEC §12).
+"""Hook-based extension points for the agent loop.
 
 Subclass :class:`Plugin`, override the hooks you need, and list the dotted path
 in ``reigner.yaml`` under ``plugins:``. :class:`PluginHost` is the dispatcher

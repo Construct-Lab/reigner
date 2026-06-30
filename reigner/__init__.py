@@ -1,3 +1,5 @@
+"""Reigner: a single-agent, retrieval-shaped, citation-faithful agent library."""
+
 from reigner.plugins import Plugin
 from reigner.sessions.store import SessionMeta, SessionStore
 from reigner.tools.base import tool

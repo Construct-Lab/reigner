@@ -1,4 +1,4 @@
-"""Forkable, branchable, durable sessions (SPEC §11)."""
+"""Forkable, branchable, durable sessions."""
 
 from reigner.sessions.replay import ReplayError, reconstruct, round_boundaries
 from reigner.sessions.store import (

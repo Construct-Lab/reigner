@@ -1,12 +1,9 @@
 """ArtifactSchema and field-spec types — the on-disk contract.
 
-See SPEC.md §7.1 (declarative shape), §8.1 (field-level types for validation),
-and issue #13.
-
-The schema is the contract shared by the write side (T-13: ArtifactWriter, plus
-LLMExtractor in T-14) and the read side (T-09: ArtifactStore tools). The write
-side uses the validation surface (`required`, `max_chars`, `fields`); the read
-side touches only `.name`-level metadata. See TASKS.md coordination note for #9.
+The schema is the contract shared by the write side (ArtifactWriter and the
+LLMExtractor) and the read side (the ArtifactStore tools). The write side uses
+the validation surface (`required`, `max_chars`, `fields`); the read side
+touches only `.name`-level metadata.
 """
 
 from __future__ import annotations
@@ -41,6 +38,7 @@ class SectionSpec:
 
     @property
     def is_glob(self) -> bool:
+        """Whether the section name is a glob prefix rather than a fixed name."""
         return "*" in self.name
 
     def __post_init__(self) -> None:
@@ -80,6 +78,7 @@ class JsonArtifactSpec:
 
     @property
     def required_field_names(self) -> set[str]:
+        """Field names that must be present (all declared fields by default)."""
         if self.required_fields is not None:
             return set(self.required_fields)
         return set(self.fields)
@@ -102,8 +101,7 @@ class ArtifactSchema:
     """Declarative shape of compiled artifacts on disk.
 
     Used by the writer to lay out files and validate extraction outputs and by
-    the read-side ArtifactStore (T-09) to know what paths and field names are
-    valid. See SPEC.md §7.1 and §8.1.
+    the read-side ArtifactStore to know what paths and field names are valid.
     """
 
     entity_path: str = DEFAULT_ENTITY_PATH
@@ -138,12 +136,22 @@ class ArtifactSchema:
     # ---- Introspection used by writer + read-side --------------------------
 
     def entity_path_keys(self) -> tuple[str, ...]:
+        """Return the placeholder names in ``entity_path``, in order."""
         return parse_template_keys(self.entity_path)
 
     def required_sections(self) -> list[SectionSpec]:
+        """Return the non-glob sections that must be present."""
         return [s for s in self.sections if s.required and not s.is_glob]
 
     def section(self, name: str) -> SectionSpec | None:
+        """Look up a section by exact name, falling back to glob prefixes.
+
+        Args:
+            name: Section name to resolve.
+
+        Returns:
+            The matching :class:`SectionSpec`, or ``None`` if nothing matches.
+        """
         for s in self.sections:
             if s.name == name:
                 return s
@@ -155,6 +163,14 @@ class ArtifactSchema:
         return None
 
     def json_artifact(self, name: str) -> JsonArtifactSpec | None:
+        """Look up a JSON artifact spec by name.
+
+        Args:
+            name: Artifact filename to resolve.
+
+        Returns:
+            The matching :class:`JsonArtifactSpec`, or ``None`` if absent.
+        """
         for j in self.json_artifacts:
             if j.name == name:
                 return j
@@ -164,7 +180,7 @@ class ArtifactSchema:
 
     @classmethod
     def document_qa_default(cls) -> ArtifactSchema:
-        """Default schema for the document_qa recipe (SPEC §17)."""
+        """Default schema for the document_qa recipe."""
         return cls(
             entity_path=DEFAULT_ENTITY_PATH,
             sections=[
@@ -203,6 +219,17 @@ class ArtifactSchema:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> ArtifactSchema:
+        """Load and validate a schema from a YAML file.
+
+        Args:
+            path: Path to the schema YAML file.
+
+        Returns:
+            The parsed :class:`ArtifactSchema`.
+
+        Raises:
+            ValueError: If the YAML root is not a mapping.
+        """
         data = yaml.safe_load(Path(path).read_text())
         if not isinstance(data, dict):
             raise ValueError(f"schema YAML must be a mapping, got {type(data).__name__}")
@@ -226,16 +253,18 @@ class ArtifactSchema:
             version=str(data.get("version", "1")),
         )
 
-    # ---- LLM-prompt helper (consumed by T-14 LLMExtractor) -----------------
+    # ---- LLM-prompt helper (consumed by the LLMExtractor) ------------------
 
     def to_json_schema(self) -> dict[str, Any]:
         """Return a JSON Schema describing the expected extraction output.
 
         The schema describes an object with two top-level keys: `sections`
         (mapping section name → str) and `json_artifacts` (mapping filename →
-        object). T-14 (LLMExtractor) will consume this for its prompt template;
-        the design here is intentionally minimal and may be refined when T-14
-        lands.
+        object). The LLMExtractor consumes this for its prompt template; the
+        design here is intentionally minimal.
+
+        Returns:
+            A JSON-Schema mapping for the extractor's structured output.
         """
         return {
             "type": "object",

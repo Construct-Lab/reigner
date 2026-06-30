@@ -1,4 +1,4 @@
-"""Eval cases — the declarative fixtures a suite runs (SPEC §15).
+"""Eval cases — the declarative fixtures a suite runs.
 
 An :class:`EvalCase` is one query plus expectations about the agent's answer.
 The fields mirror the ``eval/cases.yaml`` scaffold produced by ``reigner init``:

@@ -38,6 +38,17 @@ class UrlLoader:
         self._transport = transport
 
     async def load(self, source: str | Path) -> LoadedDocument:
+        """Fetch an http(s) URL into bytes plus response metadata.
+
+        Args:
+            source: The URL to fetch.
+
+        Returns:
+            The response body and metadata (status, content-type, fetch time).
+
+        Raises:
+            ImportError: If the optional ``httpx`` dependency is not installed.
+        """
         try:
             import httpx
         except ImportError as exc:

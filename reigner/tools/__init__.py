@@ -1,4 +1,4 @@
-"""Reigner tool system — see SPEC.md §6."""
+"""Reigner tool system — the @tool decorator, registry, and built-in tools."""
 
 from reigner.tools.artifacts import ArtifactStore
 from reigner.tools.base import ToolDefinitionError, ToolResult, ToolSpec, tool

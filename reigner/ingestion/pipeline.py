@@ -1,9 +1,9 @@
-"""IngestionPipeline — Layer C of the ingestion stack (SPEC §8.3, issue #16).
+"""IngestionPipeline — Layer C of the ingestion stack.
 
 Walks a source directory, dispatches each file to the loader that owns its
 extension, runs the configured transform (the user's
 :class:`reigner.ingestion.LLMExtractor` subclass), then fans the extraction
-out to each writer. Built to deliver the five guarantees from §8.3:
+out to each writer. Built to deliver five guarantees:
 
 * **Concurrency** — ``asyncio.Semaphore``-bounded fan-out across documents.
 * **Progress** — yields :class:`reigner.harness.events.StatusEvent` and
@@ -25,7 +25,7 @@ Per-source events are buffered into a per-worker list and yielded together
 when the worker finishes (via :func:`asyncio.as_completed`). Documents run
 concurrently; each document's events stay coherent. v0 limits ``transforms``
 to length one; the list shape is forward-compatible with non-LLM transforms
-landing later (SPEC §8.4).
+landing later.
 """
 
 from __future__ import annotations
@@ -75,6 +75,13 @@ def _default_source_id_fn(src: Path) -> str:
 
 
 class IngestionPipeline:
+    """Concurrent runner that compiles a source directory into artifacts.
+
+    Routes each source to a loader, applies the configured transform, and fans
+    the result out to the writers, with idempotency, bounded concurrency, a
+    configurable error policy, and a final :class:`IngestionReport`.
+    """
+
     def __init__(
         self,
         *,

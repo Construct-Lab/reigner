@@ -30,6 +30,14 @@ class JsonLoader:
         self._meta_extractor = meta_extractor
 
     async def load(self, source: str | Path) -> LoadedDocument:
+        """Read a JSON or JSONL file into bytes plus format metadata.
+
+        Args:
+            source: Path to the ``.json`` or ``.jsonl`` file.
+
+        Returns:
+            The raw bytes and metadata (format, size, JSONL line count).
+        """
         path = Path(source)
         raw = await asyncio.to_thread(path.read_bytes)
         is_jsonl = path.suffix.lower() == ".jsonl"

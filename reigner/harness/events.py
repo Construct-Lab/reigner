@@ -1,9 +1,9 @@
 """Typed event protocol shared by the harness, sessions, plugins, and transports.
 
-See SPEC.md §5.2. Events are inert dataclasses: the loop yields them, sessions
-persist them as JSONL, plugins observe them, and transports (CLI/web/MCP) render
-them. This module owns the shape and the wire format only — emission, storage,
-and rendering live in their respective tasks.
+Events are inert dataclasses: the loop yields them, sessions persist them as
+JSONL, plugins observe them, and transports (CLI/web/MCP) render them. This
+module owns the shape and the wire format only — emission, storage, and
+rendering live in their respective modules.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-SCHEMA_VERSION = 2  # 2 adds UserQueryEvent (T-25 — sessions must record the query)
+SCHEMA_VERSION = 2  # 2 adds UserQueryEvent so sessions record the user's query
 
 
 class UnknownEventType(ValueError):
@@ -51,7 +51,7 @@ class UserQueryEvent(Event):
     Emitted by ``Session.run_stream`` before the loop runs (the loop itself
     never sees the raw query as an event). This is the durable record of what
     the user asked: without it a session's JSONL has the agent's actions but
-    not the question, so reconstruction/fork/replay (T-25) would be impossible.
+    not the question, so reconstruction/fork/replay would be impossible.
     It also marks the round boundary `at_turn` counts against.
     """
 
@@ -61,12 +61,16 @@ class UserQueryEvent(Event):
 
 @dataclass(kw_only=True)
 class StatusEvent(Event):
+    """A human-readable progress message from the loop."""
+
     type: ClassVar[str] = "status"
     message: str
 
 
 @dataclass(kw_only=True)
 class ToolCallEvent(Event):
+    """A tool invocation the model requested."""
+
     type: ClassVar[str] = "tool_call"
     name: str
     args: dict[str, Any]
@@ -75,6 +79,8 @@ class ToolCallEvent(Event):
 
 @dataclass(kw_only=True)
 class ToolResultEvent(Event):
+    """The result of a tool call, with truncation and cache flags."""
+
     type: ClassVar[str] = "tool_result"
     call_id: str
     result: Any
@@ -84,6 +90,8 @@ class ToolResultEvent(Event):
 
 @dataclass(kw_only=True)
 class CitationEvent(Event):
+    """A citation the model registered for a claim."""
+
     type: ClassVar[str] = "citation"
     source: str
     locator: dict[str, Any]
@@ -92,6 +100,8 @@ class CitationEvent(Event):
 
 @dataclass(kw_only=True)
 class ClarificationEvent(Event):
+    """A clarifying question that pauses the session for user input."""
+
     type: ClassVar[str] = "clarification"
     question: str
     candidates: list[Any]
@@ -99,6 +109,8 @@ class ClarificationEvent(Event):
 
 @dataclass(kw_only=True)
 class FinalAnswerEvent(Event):
+    """The session's final answer text and metadata."""
+
     type: ClassVar[str] = "final_answer"
     text: str
     metadata: dict[str, Any]
@@ -106,6 +118,8 @@ class FinalAnswerEvent(Event):
 
 @dataclass(kw_only=True)
 class ErrorEvent(Event):
+    """An error raised during the loop, flagged recoverable or not."""
+
     type: ClassVar[str] = "error"
     error: str
     recoverable: bool
@@ -113,6 +127,8 @@ class ErrorEvent(Event):
 
 @dataclass(kw_only=True)
 class CompactionEvent(Event):
+    """A history-compaction pass and how many tokens it freed."""
+
     type: ClassVar[str] = "compaction"
     level: int
     tokens_freed: int
@@ -120,6 +136,8 @@ class CompactionEvent(Event):
 
 @dataclass(kw_only=True)
 class OracleEscalationEvent(Event):
+    """A single-turn escalation from the primary model to the oracle."""
+
     type: ClassVar[str] = "oracle"
     reason: str
     from_model: str
@@ -128,6 +146,8 @@ class OracleEscalationEvent(Event):
 
 @dataclass(kw_only=True)
 class SteeringAcceptedEvent(Event):
+    """A mid-run steering message accepted into the loop."""
+
     type: ClassVar[str] = "steering"
     message: str
     mode: str

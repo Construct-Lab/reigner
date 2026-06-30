@@ -1,11 +1,11 @@
-"""The agent loop. The opinionated, non-negotiable core (SPEC.md §5.3).
+"""The agent loop. The opinionated, non-negotiable core.
 
 A single ``async def run_loop(state) -> AsyncIterator[Event]``. Each yield is
 a checkpoint where the caller can stop iterating — cancelling the iterator
 cancels the loop. No background tasks, no speculative work; one iteration is
 one model call, visible to the caller via the event stream.
 
-Guardrails wired here (each lives in its own module — see SPEC §5.4):
+Guardrails wired here (each lives in its own module):
 
 - G1 — stable/dynamic prompt boundary: ``state.build_prompt``.
 - G2 — per-tool truncation: ``truncation.truncate_for_tool``.
@@ -20,15 +20,14 @@ Guardrails wired here (each lives in its own module — see SPEC §5.4):
 - G11 — parallel reads: ``parallel.execute_batch`` gathers concurrently when
   every real call this turn is ``readonly=True``.
 
-Oracle escalation (SPEC §5.5) lives in ``oracle.py``; ``pick_adapter`` is
-called per-iteration so the swap is single-turn.
+Oracle escalation lives in ``oracle.py``; ``pick_adapter`` is called
+per-iteration so the swap is single-turn.
 
-Steering (SPEC §5.6) is drained at the top of each iteration: queued user
-messages are appended as ``user`` turns so the next ``adapter.call`` sees
-them, and a ``SteeringAcceptedEvent`` is emitted per drained message. The
-iteration boundary *is* the "next tool boundary" §5.6 refers to — by the
-time control reaches the drain point, any prior turn's tool calls have
-already completed.
+Steering is drained at the top of each iteration: queued user messages are
+appended as ``user`` turns so the next ``adapter.call`` sees them, and a
+``SteeringAcceptedEvent`` is emitted per drained message. The iteration
+boundary *is* the next tool boundary — by the time control reaches the drain
+point, any prior turn's tool calls have already completed.
 
 Pseudo-tools are dispatched inline, hardcoded — not registered through any
 plugin surface — so a reader of this file sees every special case in one place.
@@ -91,12 +90,18 @@ class RunnableTool(Protocol):
     """
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """The tool's registered name."""
+        ...
 
     @property
-    def readonly(self) -> bool: ...
+    def readonly(self) -> bool:
+        """Whether the tool is side-effect-free."""
+        ...
 
-    async def run(self, args: dict[str, Any]) -> Any: ...
+    async def run(self, args: dict[str, Any]) -> Any:
+        """Invoke the tool with a dict of keyword arguments."""
+        ...
 
 
 def _content_for_history(value: Any) -> str:
@@ -106,7 +111,7 @@ def _content_for_history(value: Any) -> str:
     return json.dumps(value, default=str)
 
 
-async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; SPEC §5.3
+async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
     state: AgentState,
     *,
     session_id: str,
@@ -123,8 +128,8 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
     and emits exactly one terminal event per call: ``FinalAnswerEvent``,
     ``ClarificationEvent``, or ``ErrorEvent``.
 
-    ``plugins`` is the :class:`PluginHost` whose hooks fire around the loop
-    (SPEC §12). Transform hooks (``before_tool_call``, ``after_tool_call``,
+    ``plugins`` is the :class:`PluginHost` whose hooks fire around the loop.
+    Transform hooks (``before_tool_call``, ``after_tool_call``,
     ``on_final_answer``) can rewrite what flows through; a failure there is
     fatal and surfaces as an ``ErrorEvent``. Observe hooks fire at the matching
     event sites and never abort the run. Defaults to a no-op host.
@@ -152,7 +157,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         return v
 
     def plugin_error(exc: PluginHookError) -> ErrorEvent:
-        # A transform hook failed (SPEC §12): fail loud, abort the run.
+        # A transform hook failed: fail loud, abort the run.
         return ErrorEvent(
             seq=next_seq(),
             session_id=session_id,
@@ -174,12 +179,12 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting; 
         return
 
     while not state.done:
-        # Pick per-iteration so single-turn oracle escalation (SPEC §5.5)
-        # transparently swaps in state.oracle_adapter and reverts after one call.
+        # Pick per-iteration so single-turn oracle escalation transparently
+        # swaps in state.oracle_adapter and reverts after one call.
         adapter: ModelAdapter = pick_adapter(state)
         state.refresh_context()
 
-        # SPEC §5.6: drain queued steering messages before building the next
+        # Drain queued steering messages before building the next
         # prompt so the model sees them on its very next call. Both modes drop
         # in here — at this point any prior turn's tool calls have already
         # completed, so "interrupt" and "queue" converge on append-as-user-turn.
@@ -425,7 +430,7 @@ async def _dispatch_pseudo(
     """Handle a pseudo-tool call. May set ``state.done``.
 
     Pseudo-tools are intercepted locally — they never reach an external
-    service. See SPEC §6.4.
+    service.
 
     Pseudo-tools are not wrapped by ``before_tool_call`` / ``after_tool_call``
     (those fire for real tools only). The two pseudo verbs that map to a
@@ -542,7 +547,7 @@ async def _dispatch_pseudo(
         return
 
     if tc.name == "escalate_to_oracle":
-        # SPEC §5.5: arm a single-turn oracle swap; pick_adapter consumes the
+        # Arm a single-turn oracle swap; pick_adapter consumes the
         # flag at the top of the next iteration and reverts on the one after.
         from_model = state.adapter.model if state.adapter is not None else "unknown"
         to_model = state.oracle_adapter.model if state.oracle_adapter is not None else "(none)"
@@ -609,7 +614,7 @@ async def _run_real_calls(
     ``parallel`` is True the underlying calls are gathered concurrently but
     the event stream stays deterministic.
 
-    Plugin hooks (SPEC §12) wrap each call: ``before_tool_call`` folds over the
+    Plugin hooks wrap each call: ``before_tool_call`` folds over the
     calls before dispatch (so a rewrite reaches the tool and the emitted
     ``ToolCallEvent``), and ``after_tool_call`` folds over each bounded result
     before it lands in history (so a redaction reaches the model's context).

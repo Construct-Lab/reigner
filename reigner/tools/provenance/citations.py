@@ -1,22 +1,22 @@
 """Citation registration — the model-facing pseudo-tool and Python read API.
 
-SPEC §1 principle 4 ("citations are first-class") + §5.2 (``CitationEvent``)
-+ §15.1 (the faithfulness eval check) together define this surface:
+Citations are first-class. The ``CitationEvent`` wire event and the
+faithfulness eval check together define this surface:
 
 - ``register_citation`` is a pseudo-tool: the model emits a tool call, the
   loop intercepts it (``harness/loop.py:_dispatch_pseudo``), constructs a
   :class:`~reigner.tools.provenance.lineage.Citation`, appends it to
   ``state.citations``, and emits a :class:`CitationEvent`. Direct invocation
-  raises ``NotImplementedError`` — same shape as ``save_note`` (T-08).
+  raises ``NotImplementedError`` — same shape as ``save_note``.
 - ``get_citations`` is a plain module function that exposes ``state.citations``
-  for Python callers: the T-29 faithfulness check, ``reigner inspect
-  session``, and the citation-strict skill's prompt-composition hook.
+  for Python callers: the faithfulness check, ``reigner inspect session``, and
+  the citation-strict skill's prompt-composition hook.
 - ``canonicalize_locator`` / ``citation_id`` produce stable string IDs for
   dedup and for the eval check's ``expected_citations`` fixtures.
 
 The model never sees ``get_citations``: a "what have I cited?" tool would
 duplicate state the model already has access to via its own conversation
-history. If a future skill needs it, T-31 can add a wrapper.
+history. If a future skill needs it, a thin wrapper can add one.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def citation_id(source: str, locator: dict[str, Any]) -> str:
 
     When the locator is empty the trailing ``#`` is omitted so a bare-source
     citation is just the source string. Used by ``state.add_citation`` for
-    dedup and by the faithfulness eval (T-29) for comparison against
+    dedup and by the faithfulness eval for comparison against
     ``EvalCase.expected_citations``.
     """
     canonical = canonicalize_locator(locator)
@@ -105,8 +105,14 @@ def get_citations(state: AgentState) -> list[Citation]:
     """Return a copy of the citations registered on ``state``.
 
     Plain accessor: returns a list copy so callers can't mutate the session's
-    citation log. T-29 (faithfulness) iterates this list to verify every
+    citation log. The faithfulness check iterates this list to verify every
     numeric claim in the final answer maps to a registered citation.
+
+    Args:
+        state: The agent state whose citations to return.
+
+    Returns:
+        A copy of the citations registered on ``state``.
     """
     return list(state.citations)
 

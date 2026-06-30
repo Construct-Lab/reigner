@@ -1,4 +1,4 @@
-"""``entity_resolution`` eval check — clarify vs guess (SPEC §15.1).
+"""``entity_resolution`` eval check — clarify vs guess.
 
 For an *ambiguous* query ("what was the company's revenue?" — which company?),
 the right move is to ask, not to guess. This check makes that explicit: for a
@@ -12,7 +12,7 @@ it complements — rather than duplicates — the runner's always-on intrinsic
 ``expected_clarification`` check (which scores both directions for every case
 that sets the flag).
 
-Profile note (SPEC §6.3, see ``runner.py``): the ``"eval"`` profile strips
+Profile note (see ``runner.py``): the ``"eval"`` profile strips
 ``request_clarification``, so a ``ClarificationEvent`` cannot fire under it —
 evaluate ambiguous cases with ``profile="read_only"``.
 

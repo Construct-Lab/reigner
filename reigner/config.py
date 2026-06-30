@@ -1,14 +1,14 @@
 """``reigner.yaml`` schema, loader, and validation.
 
-Single source of truth for an agent's configuration. Mirrors SPEC §13.
+Single source of truth for an agent's configuration.
 
 Design notes:
 - Pydantic v2 with ``extra="forbid"`` everywhere — typos in YAML fail loudly.
 - ``SettingsConfig`` owns all loop-budget defaults; ``Harness`` holds one and
-  reads off it, so defaults can't drift (see ``docs/t-17-implementation-plan.html``).
+  reads off it, so defaults can't drift.
 - No env-var interpolation — adapter SDKs read API keys from the environment
   themselves.
-- ``role.cascade`` is hard-rejected with a message citing SPEC §9 / §22 Q9.
+- ``role.cascade`` is hard-rejected: there is no runtime cascade.
 - Paths in the model stay as strings; resolve against ``config_path.parent``
   via :meth:`ReignerConfig.resolve`.
 """
@@ -55,7 +55,7 @@ class ModelConfig(BaseModel):
 
 
 class OracleConfig(BaseModel):
-    """Optional single-turn escalation model (SPEC §5.5)."""
+    """Optional single-turn escalation model."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -74,7 +74,7 @@ class SettingsConfig(BaseModel):
     """Loop budgets and thresholds. Single source of truth for defaults.
 
     ``Harness`` holds one of these in its ``settings`` field and reads
-    individual knobs off it. Keep this list in sync with SPEC §13.
+    individual knobs off it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -111,8 +111,11 @@ class SettingsConfig(BaseModel):
     def describe(self) -> list[FieldOrigin]:
         """Return each field with its value and whether it was set explicitly.
 
-        Consumed by T-20 ``reigner inspect config`` so users can see which
-        values came from ``reigner.yaml`` vs. defaults.
+        Lets ``reigner inspect config`` show which values came from
+        ``reigner.yaml`` versus the built-in defaults.
+
+        Returns:
+            One :class:`FieldOrigin` per settings field, in declaration order.
         """
         set_fields = self.model_fields_set
         return [
@@ -137,8 +140,8 @@ class FieldOrigin:
 class RoleConfig(BaseModel):
     """Where to find REIGNER.md and which skills to load.
 
-    ``cascade`` is explicitly rejected — SPEC §9 / §22 Q9 resolved that there
-    is no runtime cascade. Recipes are init-time scaffolds, not runtime sources.
+    ``cascade`` is explicitly rejected: there is no runtime cascade. Recipes
+    are init-time scaffolds, not runtime sources.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -151,8 +154,8 @@ class RoleConfig(BaseModel):
     def _reject_cascade(cls, data: Any) -> Any:
         if isinstance(data, dict) and "cascade" in data:
             raise ValueError(
-                "role.cascade was removed (SPEC §9, §22 Q9). REIGNER.md is the "
-                "single runtime source of truth; recipes are init-time scaffolds "
+                "role.cascade is not supported. REIGNER.md is the single "
+                "runtime source of truth; recipes are init-time scaffolds "
                 "only. Drop the `cascade:` key."
             )
         return data
@@ -288,8 +291,15 @@ class ReignerConfig(BaseModel):
     def write_default(cls, path: str | Path, name: str = "my_agent") -> Path:
         """Emit the canonical scaffold yaml used by ``reigner init``.
 
-        Round-trips through :meth:`load` without error. Kept here (not in T-18)
-        so the schema and its scaffold can't drift.
+        Round-trips through :meth:`load` without error. Kept beside the schema
+        so the two can't drift.
+
+        Args:
+            path: Destination file to write the scaffold yaml to.
+            name: Agent name embedded in the generated config.
+
+        Returns:
+            The path that was written.
         """
         p = Path(path)
         p.write_text(_DEFAULT_YAML_TEMPLATE.format(name=name))
@@ -300,6 +310,7 @@ class ReignerConfig(BaseModel):
     # ------------------------------------------------------------------
     @property
     def config_path(self) -> Path | None:
+        """Resolved path the config was loaded from, or ``None`` if in-memory."""
         return self._config_path
 
     def resolve(self, sub_path: str | Path) -> Path:
@@ -346,7 +357,7 @@ model:
   name: gpt-4o
   temperature: 0.2
 
-# oracle: optional single-turn escalation (SPEC §5.5)
+# oracle: optional single-turn escalation
 # oracle:
 #   provider: anthropic
 #   model: claude-opus-4-7

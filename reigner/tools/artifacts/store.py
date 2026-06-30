@@ -8,8 +8,6 @@ The store does not import schema fields at runtime to gate which paths exist
 on disk — operator-added files and ``extraction_meta.json`` must remain
 readable. The schema is consulted only for text-suffix classification (read
 tool) and for synthesizing argument signatures (the ``list_*`` factories).
-
-See SPEC §6.4 (built-in artifact tools) and §7 (artifact system).
 """
 
 from __future__ import annotations
@@ -66,7 +64,7 @@ class ArtifactStore:
     # ---- Tool assembly -----------------------------------------------------
 
     def tools(self) -> list[RunnableToolAdapter]:
-        """Build the six SPEC §6.4 artifact tools as RunnableTool wrappers."""
+        """Build the six built-in artifact tools as RunnableTool wrappers."""
         from reigner.tools.artifacts.grep import build_grep_artifact
         from reigner.tools.artifacts.json_field import build_get_json_field
         from reigner.tools.artifacts.list import (
