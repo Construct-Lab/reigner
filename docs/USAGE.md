@@ -429,6 +429,60 @@ knob (`chunk_chars`, `reduce_input_chars`, the `reduce()` and `prompt_context()`
 seams) is documented on the `MapReduceExtractor` class itself — see the API
 reference and the class docstring.
 
+#### Caching ingestion
+
+Two independent caches avoid re-paying for extraction. They key on different
+things.
+
+**Document-level skip (always on).** Before running a source, the pipeline
+compares a `cache_key` (`source_hash : schema_version : prompt_hash`) against the
+entity's existing `extraction_meta.json`. Match → skip the whole document;
+mismatch → re-extract it. For `MapReduceExtractor`, `prompt_hash` covers both the
+map and reduce prompts. Use case: add 3 docs to a 500-doc corpus, re-run
+`ingest`, only the 3 new ones compile.
+
+**Chunk-level map cache (opt-in, `MapReduceExtractor` only).** Each chunk's map
+result is saved under `sha256(chunk + rendered_map_prompt + schema.version)` —
+the reduce prompt is excluded from the key. Off by default; enable by setting
+`map_cache_dir`:
+
+```python
+from pathlib import Path
+
+class MyExtractor(MapReduceExtractor):
+    schema = ArtifactSchema.from_yaml("schema.yaml")
+    model = "anthropic:claude-sonnet-4-6"
+    map_cache_dir = Path("./.reigner/ingest-cache")   # enables the cache
+```
+
+Use cases:
+
+- **Iterating on the reduce prompt.** Editing `REDUCE_PROMPT` changes the
+  document-level key (forcing a re-run) but not the map key — so every chunk
+  hits the cache and only the reduce calls re-pay. The larger the document (a
+  ~840K-char statute maps in ~9 chunks), the more it saves.
+- **Failure recovery.** Map is sequential and each chunk is cached on success. A
+  doc that dead-letters on chunk 6 of 9 reuses chunks 1–5 on the re-run.
+
+How they compose — the first cache decides *whether a document runs*, the second
+*whether each map call inside it costs money*:
+
+| Changed | Document skip | Map cache | Effect |
+|---|---|---|---|
+| Nothing | skip | not consulted | nothing runs |
+| Reduce prompt | re-run | hits | reduce re-pays, map free |
+| Map prompt / `schema.version` | re-run | misses | full re-extract |
+| Reduce-side code (`summarize`, `post_process`, `reduce`) | skip | not consulted | doc skipped |
+
+The last row is a footgun: the document key covers source + schema + prompts, not
+your Python. Editing `reduce()` or `post_process()` and re-running skips the doc.
+Force a re-run (delete the entity's `extraction_meta.json`) to pick up new
+reduce-side code.
+
+No eviction: when inputs change the key changes, so stale `<key>.json` files are
+never read again (safe to `rm -rf`). A hit skips `call_model`, so `tokens_in` /
+`cost_usd` count only the calls actually made.
+
 **Scanned / image PDFs.** The default `preprocess_pdf` (PyMuPDF) is **text-only
 in v0** — a scanned PDF with no text layer yields near-empty text, and *no*
 extraction strategy can recover content from text that isn't there (map-reduce
@@ -1103,6 +1157,9 @@ as `REIGNER.md`):
 
 - `./.reigner/sessions/` — durable session JSONL logs + per-session meta,
   written by `chat` and the sessions API.
+- `./.reigner/ingest-cache/` — optional chunk-level map cache for
+  `MapReduceExtractor`, written only when you set `map_cache_dir` (off by
+  default). See [Caching ingestion](#caching-ingestion).
 
 ---
 

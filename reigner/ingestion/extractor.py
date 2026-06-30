@@ -21,7 +21,8 @@ import re
 import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import Any, ClassVar, Literal
+from pathlib import Path
+from typing import Any, ClassVar, Literal, cast
 
 from reigner.artifacts import ArtifactSchema
 from reigner.harness.adapters import (
@@ -513,6 +514,11 @@ class MapReduceExtractor(LLMExtractor):
     # Sections produced by summarize() rather than the map — omitted from the
     # rendered section spec so the model isn't asked to fill them per chunk.
     MAP_EXCLUDE: ClassVar[frozenset[str]] = frozenset()
+    # Chunk-level map cache. None ⇒ the cache seams below are no-ops (always
+    # miss), so behaviour is byte-for-byte unchanged. Point a subclass at a
+    # directory (e.g. ``Path("./.reigner/ingest-cache")``) to turn on the
+    # bundled on-disk JSON backend.
+    map_cache_dir: ClassVar[Path | None] = None
 
     # ---- Template method (subclass does not override extract) ---------------
 
@@ -616,13 +622,103 @@ class MapReduceExtractor(LLMExtractor):
         )
         fragments: dict[str, list[str]] = defaultdict(list)
         for chunk in chunks:
-            partial = await self.call_model(prompt, chunk)
+            partial = await self._cached_map_call(prompt, chunk)
             for name, value in partial.items():
                 if self.schema.section(name) is None:
                     continue  # ignore invented section names
                 if isinstance(value, str) and value.strip():
                     fragments[name].append(value.strip())
         return dict(fragments)
+
+    # ---- Chunk-level map cache (overridable; no-op until enabled) ------------
+
+    def _map_cache_key(self, prompt: str, chunk: str) -> str:
+        """Fingerprint one map call into a content-addressed key.
+
+        Keyed on the chunk text, the rendered ``MAP_PROMPT``, and the schema
+        version — so editing the map prompt or bumping the schema invalidates
+        the entry, while editing the *reduce* prompt does not (none of the map
+        inputs moved). The model identity is intentionally excluded, matching
+        :meth:`LLMExtractor.cache_key`: switching models does not invalidate the
+        cache, so clear ``map_cache_dir`` by hand after a model swap.
+
+        Args:
+            prompt: The rendered map prompt sent with every chunk this run.
+            chunk: The chunk text for this map call.
+
+        Returns:
+            A hex SHA-256 digest used as the cache entry's filename stem.
+        """
+        blob = f"{chunk}\x00{prompt}\x00{self.schema.version}".encode()
+        return hashlib.sha256(blob).hexdigest()
+
+    async def map_cache_get(self, key: str) -> dict[str, Any] | None:
+        """Read a cached map fragment, or ``None`` on a miss.
+
+        The default backend reads ``<key>.json`` from ``map_cache_dir``. A
+        corrupt or unreadable entry is treated as a miss (re-extract) rather
+        than a poisoned hit. Override to swap in a network or SQLite backend
+        without touching :meth:`_map`.
+
+        Args:
+            key: The cache key from :meth:`_map_cache_key`.
+
+        Returns:
+            The cached parsed result, or ``None`` if the cache is disabled, the
+            entry is absent, or the entry is unreadable.
+        """
+        if self.map_cache_dir is None:
+            return None
+        path = self.map_cache_dir / f"{key}.json"
+        if not path.exists():
+            return None
+        try:
+            return cast(dict[str, Any], json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError):
+            return None  # corrupt entry -> treat as a miss, re-extract
+
+    async def map_cache_put(self, key: str, result: dict[str, Any]) -> None:
+        """Persist one successful map fragment for a future run.
+
+        The default backend writes ``<key>.json`` under ``map_cache_dir`` via a
+        temp file + atomic ``replace``, so a crash mid-write can't leave a
+        half-written entry that later reads as a poisoned hit. Override alongside
+        :meth:`map_cache_get` for a custom backend.
+
+        Args:
+            key: The cache key from :meth:`_map_cache_key`.
+            result: The parsed map result to cache (never token usage).
+        """
+        if self.map_cache_dir is None:
+            return
+        self.map_cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.map_cache_dir / f"{key}.json.tmp"
+        tmp.write_text(json.dumps(result))
+        tmp.replace(self.map_cache_dir / f"{key}.json")
+
+    async def _cached_map_call(self, prompt: str, chunk: str) -> dict[str, Any]:
+        """Consult the map cache, falling back to :meth:`call_model` on a miss.
+
+        On a hit the saved result is returned without a model call, so a hit
+        adds zero tokens to ``_run_usage``. On a miss the model is called and the
+        successful result is written back. Only the parsed ``dict`` is cached —
+        never the :class:`TokenUsage` — so usage accounting reflects only the
+        calls actually made.
+
+        Args:
+            prompt: The rendered map prompt for this run.
+            chunk: The chunk text for this map call.
+
+        Returns:
+            The parsed map result for this chunk, cached or freshly extracted.
+        """
+        key = self._map_cache_key(prompt, chunk)
+        hit = await self.map_cache_get(key)
+        if hit is not None:
+            return hit  # no call_model -> zero token spend
+        result = await self.call_model(prompt, chunk)
+        await self.map_cache_put(key, result)
+        return result
 
     async def _reduce_section(self, name: str, frags: list[str], meta: dict[str, Any]) -> str:
         """Condense one section's fragments to fit its ``max_chars``.
