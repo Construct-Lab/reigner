@@ -19,6 +19,7 @@ partial document never dead-letters; `post_process` is how you populate them.
 
 from __future__ import annotations
 
+from pathlib import Path  # noqa: F401  (used by the map_cache_dir opt-in below)
 from typing import Any
 
 from reigner.artifacts import ArtifactSchema
@@ -31,6 +32,11 @@ class MyExtractor(MapReduceExtractor):
     schema = ArtifactSchema.from_yaml("schema.yaml")
     model = "..."  # TODO: e.g. "openai:gpt-5.5" or "anthropic:claude-sonnet-4-6"
     max_retries = 2
+
+    # Uncomment to cache each chunk's map call to disk. A re-run with an
+    # unchanged map prompt then makes zero map model calls (editing only the
+    # REDUCE_PROMPT still re-runs reduce, but every map call is a cache hit).
+    # map_cache_dir = Path("./.reigner/ingest-cache")
 
     # overview/topic_summary is the one required section; it's synthesized from
     # the reduced sections by summarize() below, so don't ask the map for it.

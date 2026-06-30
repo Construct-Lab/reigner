@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from reigner.artifacts import ArtifactSchema, JsonArtifactSpec, SectionSpec
@@ -262,3 +263,91 @@ async def test_reduce_is_overridable_without_touching_map() -> None:
     assert result.sections["topic/a"] == "x"
     assert result.sections["topic/b"] == "y"
     assert adapter.remaining == 0  # only the single map call happened
+
+
+# ---- Chunk-level map cache -------------------------------------------------
+
+
+def _cached_extractor(cache_dir: Path, adapter: StubAdapter) -> _Extractor:
+    """An `_Extractor` whose map cache is enabled at `cache_dir`."""
+
+    class _Cached(_Extractor):
+        pass
+
+    _Cached.map_cache_dir = cache_dir
+    return _Cached(adapter=adapter)
+
+
+async def test_warm_cache_makes_zero_map_calls(tmp_path: Path) -> None:
+    # The fixture is one chunk -> one map call; reduce makes no call (single
+    # fragment fits), so the map call is the only model call in the run.
+    raw, meta = b"one page", {"filename": "doc.pdf"}
+
+    cold = _cached_extractor(tmp_path, _adapter(_map(**{"topic/a": "x"})))
+    first = await cold.run(raw, meta)
+
+    # Second run: an adapter with no canned responses — any model call raises.
+    warm = _cached_extractor(tmp_path, _adapter())
+    second = await warm.run(raw, meta)
+
+    assert warm.adapter.calls == []  # every map call served from cache
+    assert second.sections["topic/a"] == first.sections["topic/a"] == "x"
+
+
+async def test_map_prompt_change_invalidates_cache(tmp_path: Path) -> None:
+    raw, meta = b"one page", {"filename": "doc.pdf"}
+    await _cached_extractor(tmp_path, _adapter(_map(**{"topic/a": "x"}))).run(raw, meta)
+
+    class _NewMapPrompt(_Extractor):
+        MAP_PROMPT = "DIFFERENT sections:\n{section_spec}\nfile={filename}"
+
+    _NewMapPrompt.map_cache_dir = tmp_path
+    changed = _NewMapPrompt(adapter=_adapter(_map(**{"topic/a": "y"})))
+    await changed.run(raw, meta)
+
+    assert len(changed.adapter.calls) == 1  # cache miss -> re-extracted
+
+
+async def test_schema_version_change_invalidates_cache(tmp_path: Path) -> None:
+    raw, meta = b"one page", {"filename": "doc.pdf"}
+    await _cached_extractor(tmp_path, _adapter(_map(**{"topic/a": "x"}))).run(raw, meta)
+
+    class _BumpedSchema(_Extractor):
+        schema = _schema()
+
+    _BumpedSchema.schema.version = "2"  # was the default "1"
+    _BumpedSchema.map_cache_dir = tmp_path
+    bumped = _BumpedSchema(adapter=_adapter(_map(**{"topic/a": "x"})))
+    await bumped.run(raw, meta)
+
+    assert len(bumped.adapter.calls) == 1  # cache miss -> re-extracted
+
+
+async def test_cache_hit_adds_zero_tokens(tmp_path: Path) -> None:
+    raw, meta = b"one page", {"filename": "doc.pdf"}
+
+    cold = _cached_extractor(tmp_path, _adapter(_map(**{"topic/a": "x"})))
+    first = await cold.run(raw, meta)
+    assert first.meta["tokens_in"] == 10  # the one map call (StubAdapter usage)
+
+    warm = _cached_extractor(tmp_path, _adapter())
+    second = await warm.run(raw, meta)
+    assert second.meta["tokens_in"] == 0  # hit -> no model call -> no tokens
+    assert second.meta["tokens_out"] == 0
+
+
+async def test_map_cache_disabled_by_default_is_noop(tmp_path: Path) -> None:
+    ext = _Extractor(adapter=_adapter())
+    assert ext.map_cache_dir is None
+    key = ext._map_cache_key("prompt", "chunk")
+    assert await ext.map_cache_get(key) is None
+    await ext.map_cache_put(key, {"topic/a": "x"})  # no-op, must not raise
+    assert list(tmp_path.iterdir()) == []  # nothing written anywhere
+
+
+async def test_corrupt_cache_entry_is_treated_as_miss(tmp_path: Path) -> None:
+    ext = _cached_extractor(tmp_path, _adapter())
+    key = ext._map_cache_key("prompt", "chunk")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / f"{key}.json").write_text("{ not valid json")
+    assert await ext.map_cache_get(key) is None  # corrupt -> miss, not a crash
