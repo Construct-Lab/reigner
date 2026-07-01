@@ -87,6 +87,22 @@ class TurnRenderer:
         self._header_shown = False
         self._started = time.monotonic()
 
+    # -- live status (rendered in the composer box title) ------------------
+
+    def live_status(self) -> str:
+        """A short in-flight status for the composer title, e.g. ``get_section · 3 tools · 12s``.
+
+        Cheap to call on a redraw timer. Names the active tool (if any), the
+        running call count, and elapsed seconds — the movement collapsed mode
+        otherwise hides while retrieval runs.
+        """
+        active = next((self._calls[c] for c in self._order if not self._calls[c].done), None)
+        n = len(self._order)
+        parts = [f"{n} tool{'s' if n != 1 else ''}", f"{time.monotonic() - self._started:.0f}s"]
+        if active is not None:
+            parts.insert(0, active.name)
+        return " · ".join(parts)
+
     # -- lifecycle ---------------------------------------------------------
 
     @contextmanager

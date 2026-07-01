@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,9 @@ from reigner.harness.events import (
 from reigner.types import ConfigError
 
 _DEFAULT_CONFIG = "reigner.yaml"
+
+# Braille spinner frames for the composer title while a run is in flight.
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 # Exit codes (conventional values):
 #   0 — final answer produced
@@ -265,14 +269,19 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
 
     # The composer is a bordered box (a Frame) around a single-line input,
     # rendered as a non-full-screen Application so scrollback still flows above
-    # it via patch_stdout. The Frame title doubles as a status line: it flips to
-    # a steering hint while a run is in flight.
+    # it via patch_stdout. The Frame title doubles as a live status line: while a
+    # run is in flight it shows a spinner + the renderer's tool/elapsed status
+    # (redrawn in place by prompt_toolkit — no scrollback conflict), which is the
+    # movement collapsed mode can't stream above the prompt.
     input_area = TextArea(prompt="› ", multiline=False, height=1, wrap_lines=False)
 
     def _title() -> Any:
-        if running.is_set():
-            return [("class:frame.label", " running · esc-enter to steer ")]
-        return [("class:frame.label", " ask ")]
+        if not running.is_set():
+            return [("class:frame.label", " ask ")]
+        frame = _SPINNER[int(time.monotonic() * 10) % len(_SPINNER)]
+        last: TurnRenderer | None = ui["last"]
+        status = last.live_status() if last is not None else "working"
+        return [("class:frame.label", f" {frame} {status} · esc-enter to steer ")]
 
     with _rounded_border():
         composer = Frame(input_area, title=_title)
@@ -283,6 +292,7 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         full_screen=False,
         mouse_support=False,
         erase_when_done=True,
+        refresh_interval=0.2,  # keep the spinner / elapsed in the title moving
     )
 
     console.print(
