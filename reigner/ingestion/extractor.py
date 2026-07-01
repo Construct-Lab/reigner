@@ -21,6 +21,7 @@ import re
 import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
 
@@ -94,6 +95,45 @@ def _strip_code_fence(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Per-run token accounting
+# ---------------------------------------------------------------------------
+
+
+class _UsageAccumulator:
+    """Mutable per-run token tally, held in a :class:`ContextVar`.
+
+    One extractor instance is shared across documents by the pipeline, which
+    runs each document in its own task. Keeping the tally on the instance let a
+    second document's ``run()`` reset it mid-flight and corrupt the first's
+    totals. This object lives in the context instead, so each ``run()`` gets its
+    own tally.
+
+    It is mutated *in place* (via :meth:`add`) and never rebound in the
+    ContextVar. That matters for fan-out: ``asyncio.gather`` child tasks run in a
+    *copy* of the context but share this same object, so in-place additions stay
+    visible to the parent ``run()``. Rebinding the ContextVar inside a child
+    task would only touch the child's copy. The read-modify-write in
+    :meth:`add` has no ``await``, so under single-thread asyncio it is atomic
+    across coroutines and cannot lose updates.
+    """
+
+    __slots__ = ("usage",)
+
+    def __init__(self) -> None:
+        self.usage: TokenUsage = TokenUsage.empty()
+
+    def add(self, delta: TokenUsage) -> None:
+        self.usage = _add_usage(self.usage, delta)
+
+
+# None default ⇒ a call_model outside any run() simply doesn't accumulate
+# (nothing is reading the tally in that case), rather than raising.
+_run_usage: ContextVar[_UsageAccumulator | None] = ContextVar(
+    "reigner_ingest_run_usage", default=None
+)
+
+
+# ---------------------------------------------------------------------------
 # LLMExtractor
 # ---------------------------------------------------------------------------
 
@@ -147,8 +187,6 @@ class LLMExtractor(ABC):
                     "an adapter to __init__()"
                 )
             self._adapter = resolve_adapter(self.model)
-        # Token usage accumulated across all model calls in the current run.
-        self._run_usage = TokenUsage.empty()
 
     # ---- Public API ---------------------------------------------------------
 
@@ -169,8 +207,15 @@ class LLMExtractor(ABC):
         Raises :class:`ExtractionError` (or its subclasses) on failure — never
         partial results.
         """
-        self._run_usage = TokenUsage.empty()
-        result = await self.extract(raw, meta)
+        # Per-run tally in the context, not on the instance: the pipeline shares
+        # one extractor across documents, and each run() must count only its own
+        # model calls (see _UsageAccumulator).
+        acc = _UsageAccumulator()
+        token = _run_usage.set(acc)
+        try:
+            result = await self.extract(raw, meta)
+        finally:
+            _run_usage.reset(token)
         self._validate_against_schema(result)
 
         provenance: dict[str, Any] = {
@@ -178,9 +223,9 @@ class LLMExtractor(ABC):
             "prompt_hash": self._prompt_hash(),
             "schema_version": self.schema.version,
             "model": f"{self._adapter.name}:{self._adapter.model}",
-            "tokens_in": self._run_usage.prompt,
-            "tokens_out": self._run_usage.completion,
-            "cost_usd": self._compute_cost(self._run_usage),
+            "tokens_in": acc.usage.prompt,
+            "tokens_out": acc.usage.completion,
+            "cost_usd": self._compute_cost(acc.usage),
         }
         # Subclass-supplied meta wins on conflicts; provenance fills in the rest.
         merged = {**provenance, **result.meta}
@@ -268,7 +313,9 @@ class LLMExtractor(ABC):
             except AdapterError as exc:
                 raise ExtractionError(f"adapter error: {exc}") from exc
 
-            self._run_usage = _add_usage(self._run_usage, action.usage)
+            acc = _run_usage.get()
+            if acc is not None:
+                acc.add(action.usage)
             return self._parse_json_response(action.text or "")
 
         # Loop exits only via return/raise; this is unreachable but keeps mypy
@@ -491,11 +538,12 @@ class MapReduceExtractor(LLMExtractor):
     its own over-budget chunk rather than being split or dropped), and every
     final section is hard-bounded to its schema ``max_chars``.
 
-    Concurrency: map fan-out is **sequential** in v1 so the inherited
-    ``_run_usage`` accumulation stays correct. Per-run context is threaded
-    explicitly through ``meta`` rather than stored on ``self`` — the pipeline
-    shares one extractor instance across documents, so per-run state on the
-    instance would race. Bounded-parallel map is deferred (see issue drafts).
+    Concurrency: map fan-out is **sequential** for now — chunks are mapped one
+    at a time. Token/cost accounting is already concurrency-safe (the per-run
+    tally lives in a context, not on the shared instance; see
+    :class:`_UsageAccumulator`), so bounded-parallel map fan-out is a
+    self-contained follow-up. Per-run context is threaded explicitly through
+    ``meta`` rather than stored on ``self`` for the same shared-instance reason.
     """
 
     MAP_PROMPT: ClassVar[str] = ""
