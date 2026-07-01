@@ -429,6 +429,39 @@ knob (`chunk_chars`, `reduce_input_chars`, the `reduce()` and `prompt_context()`
 seams) is documented on the `MapReduceExtractor` class itself — see the API
 reference and the class docstring.
 
+**Parallel map fan-out (`map_concurrency`).** The MAP phase makes one model call
+per `chunk_chars` window, and those calls are independent — a ~840K-char statute
+is ~9 windows. By default they run **one at a time** (`map_concurrency = 1`).
+Raise the knob to map several windows at once, bounded by a semaphore:
+
+```python
+class MyExtractor(MapReduceExtractor):
+    schema = ArtifactSchema.from_yaml("schema.yaml")
+    model = "anthropic:claude-sonnet-4-6"
+    chunk_chars = 100_000
+    map_concurrency = 4   # up to 4 map calls in flight for one document
+```
+
+What it changes and what it doesn't:
+
+- **Latency, not tokens.** The same windows are sent either way, so `tokens_in` /
+  `cost_usd` are identical to the sequential run — you only cut wall-clock, toward
+  `1/N` bounded by the slowest window (and your provider's rate limit). If tokens
+  drop between runs it's the [map cache](#caching-ingestion) hitting, not
+  concurrency.
+- **Order-stable output.** Fragments are collected by window index, not
+  completion order, so the compiled artifact is byte-for-byte the same as at
+  `map_concurrency = 1`.
+- **Failure semantics.** On a chunk error, in-flight windows finish and cache
+  their results (so a re-run reuses them), windows not yet started are skipped,
+  and the first error by window index is raised. At `map_concurrency = 1` the map
+  still fails fast on the first error, exactly as before.
+
+It's an extractor `ClassVar`, deliberately not a `reigner.yaml` field — same as
+the other map-reduce knobs. This is distinct from the pipeline's `--concurrency`
+(worker semaphore across *documents*); `map_concurrency` parallelizes *within one
+document's* map phase, so the two compose (N documents × M windows).
+
 #### Caching ingestion
 
 Two independent caches avoid re-paying for extraction. They key on different
@@ -461,8 +494,10 @@ Use cases:
   document-level key (forcing a re-run) but not the map key — so every chunk
   hits the cache and only the reduce calls re-pay. The larger the document (a
   ~840K-char statute maps in ~9 chunks), the more it saves.
-- **Failure recovery.** Map is sequential and each chunk is cached on success. A
-  doc that dead-letters on chunk 6 of 9 reuses chunks 1–5 on the re-run.
+- **Failure recovery.** Each chunk is cached as soon as its map call succeeds —
+  including in-flight windows when another fails under
+  [`map_concurrency`](#large--non-uniform-corpora) fan-out. A doc that
+  dead-letters partway through reuses the already-mapped chunks on the re-run.
 
 How they compose — the first cache decides *whether a document runs*, the second
 *whether each map call inside it costs money*:

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from reigner.artifacts import ArtifactSchema, JsonArtifactSpec, SectionSpec
 from reigner.ingestion import MapReduceExtractor
-from tests.ingestion.conftest import StubAdapter
+from tests.ingestion.conftest import ConcurrentStubAdapter, StubAdapter
 
 
 def _schema() -> ArtifactSchema:
@@ -351,3 +354,124 @@ async def test_corrupt_cache_entry_is_treated_as_miss(tmp_path: Path) -> None:
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / f"{key}.json").write_text("{ not valid json")
     assert await ext.map_cache_get(key) is None  # corrupt -> miss, not a crash
+
+
+# ---- Bounded-parallel map fan-out ------------------------------------------
+
+
+def _concurrent_extractor(
+    adapter: Any, concurrency: int, cache_dir: Path | None = None
+) -> _Extractor:
+    """An `_Extractor` with a set `map_concurrency` (and optional map cache)."""
+
+    class _Conc(_Extractor):
+        pass
+
+    _Conc.map_concurrency = concurrency
+    if cache_dir is not None:
+        _Conc.map_cache_dir = cache_dir
+    return _Conc(adapter=adapter)
+
+
+async def test_map_concurrency_below_one_rejected() -> None:
+    ext = _concurrent_extractor(_adapter(), 0)
+    with pytest.raises(ValueError, match="map_concurrency must be >= 1"):
+        await ext._map(["chunk"], {"filename": "d"})
+
+
+async def test_fan_out_preserves_fragment_order() -> None:
+    # Completion order is reversed via per-chunk delays; collection must still
+    # follow chunk index — so this fails if fragments are gathered by completion.
+    chunks = ["c0", "c1", "c2"]
+    adapter = ConcurrentStubAdapter(
+        {
+            "c0": _map(**{"topic/a": "a0"}),
+            "c1": _map(**{"topic/a": "a1"}),
+            "c2": _map(**{"topic/a": "a2"}),
+        },
+        delays={"c0": 0.03, "c1": 0.02, "c2": 0.01},
+    )
+    ext = _concurrent_extractor(adapter, 3)
+    fragments = await ext._map(chunks, {"filename": "d"})
+    assert fragments == {"topic/a": ["a0", "a1", "a2"]}
+
+
+async def test_fan_out_respects_semaphore_cap() -> None:
+    chunks = [f"c{i}" for i in range(6)]
+    adapter = ConcurrentStubAdapter({c: _map(**{"topic/a": c}) for c in chunks}, gated=True)
+    ext = _concurrent_extractor(adapter, 2)
+
+    task = asyncio.create_task(ext._map(chunks, {"filename": "d"}))
+    await adapter.wait_until_in_flight(2)
+    for _ in range(5):  # give any (buggy) extra calls a chance to slip through
+        await asyncio.sleep(0)
+    assert adapter.peak_in_flight == 2  # cap honored while saturated
+
+    adapter.release()
+    fragments = await task
+    assert fragments == {"topic/a": [f"c{i}" for i in range(6)]}
+    assert adapter.peak_in_flight == 2  # never exceeded across the whole run
+
+
+async def test_fan_out_usage_matches_sequential() -> None:
+    # Two pages -> two chunks, each filling a different section, so every section
+    # is a single fitting fragment and reduce makes no model calls. Only the two
+    # map calls spend tokens — identical under N=1 and N>1.
+    page0, page1 = _page("m", 60), _page("n", 60)
+    raw = "\f".join([page0, page1]).encode()
+    responses: dict[str, str | Exception] = {
+        page0: _map(**{"topic/a": "aa"}),
+        page1: _map(**{"topic/b": "bb"}),
+    }
+
+    seq = _concurrent_extractor(ConcurrentStubAdapter(dict(responses)), 1)
+    seq_result = await seq.run(raw, {"filename": "d"})
+
+    par = _concurrent_extractor(ConcurrentStubAdapter(dict(responses)), 4)
+    par_result = await par.run(raw, {"filename": "d"})
+
+    assert par_result.sections == seq_result.sections  # byte-for-byte output
+    assert par_result.meta["tokens_in"] == seq_result.meta["tokens_in"] == 20
+    assert par_result.meta["tokens_out"] == seq_result.meta["tokens_out"] == 40
+    assert par_result.meta["cost_usd"] == seq_result.meta["cost_usd"]
+
+
+async def test_error_lets_in_flight_finish_and_skips_queued(tmp_path: Path) -> None:
+    # cap=2: c0 and c1 run in flight, c2 stays queued. c0 errors -> c1 still
+    # finishes and caches, c2 is skipped, and c0's error propagates.
+    boom = RuntimeError("chunk 0 failed")
+    chunks = ["c0", "c1", "c2"]
+    adapter = ConcurrentStubAdapter(
+        {
+            "c0": boom,
+            "c1": _map(**{"topic/a": "a1"}),
+            "c2": _map(**{"topic/a": "a2"}),
+        },
+        gated=True,
+    )
+    ext = _concurrent_extractor(adapter, 2, cache_dir=tmp_path)
+
+    task = asyncio.create_task(ext._map(chunks, {"filename": "d"}))
+    await adapter.wait_until_in_flight(2)  # c0, c1 in flight; c2 queued
+    adapter.release()
+    with pytest.raises(RuntimeError, match="chunk 0 failed"):
+        await task
+
+    called = {p.messages[0].content for p, _ in adapter.calls}
+    assert called == {"c0", "c1"}  # c2 (queued) skipped its model call
+
+    prompt = ext.MAP_PROMPT.format(section_spec=ext._section_spec(), filename="d")
+    assert await ext.map_cache_get(ext._map_cache_key(prompt, "c1")) is not None
+    assert await ext.map_cache_get(ext._map_cache_key(prompt, "c2")) is None
+
+
+async def test_sequential_path_fails_fast_on_error() -> None:
+    # N=1 keeps the pre-fan-out behavior: stop at the first error; the next
+    # chunk is never attempted (contrast with the N>1 in-flight-finish path).
+    boom = RuntimeError("boom")
+    adapter = ConcurrentStubAdapter({"c0": boom, "c1": _map(**{"topic/a": "a1"})})
+    ext = _concurrent_extractor(adapter, 1)
+    with pytest.raises(RuntimeError, match="boom"):
+        await ext._map(["c0", "c1"], {"filename": "d"})
+    called = {p.messages[0].content for p, _ in adapter.calls}
+    assert called == {"c0"}  # stopped at the first error

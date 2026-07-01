@@ -499,6 +499,15 @@ def _payload_snapshot(result: ExtractionResult) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+class _MapChunkSkipped(Exception):
+    """Internal marker: a queued map chunk was skipped after a sibling errored.
+
+    Raised inside the fan-out path (``map_concurrency > 1``) so a chunk that had
+    not yet started when another failed is neither collected as a result nor
+    re-raised as the run's error. Never escapes :meth:`MapReduceExtractor._map`.
+    """
+
+
 class MapReduceExtractor(LLMExtractor):
     """Whole-document extractor for sources too big for one model call.
 
@@ -538,12 +547,15 @@ class MapReduceExtractor(LLMExtractor):
     its own over-budget chunk rather than being split or dropped), and every
     final section is hard-bounded to its schema ``max_chars``.
 
-    Concurrency: map fan-out is **sequential** for now — chunks are mapped one
-    at a time. Token/cost accounting is already concurrency-safe (the per-run
-    tally lives in a context, not on the shared instance; see
-    :class:`_UsageAccumulator`), so bounded-parallel map fan-out is a
-    self-contained follow-up. Per-run context is threaded explicitly through
-    ``meta`` rather than stored on ``self`` for the same shared-instance reason.
+    Concurrency: map fan-out is bounded by ``map_concurrency`` (default 1 =
+    sequential). With ``map_concurrency > 1`` chunks are mapped under an
+    ``asyncio.Semaphore``, collected by chunk index then flattened, so output is
+    byte-for-byte order-stable regardless of completion order. Token/cost
+    accounting is concurrency-safe: the per-run tally lives in a context, not on
+    the shared instance (see :class:`_UsageAccumulator`), and is mutated in place
+    so additions survive ``asyncio.gather``'s context copy. Per-run context is
+    threaded explicitly through ``meta`` rather than stored on ``self`` for the
+    same shared-instance reason.
     """
 
     MAP_PROMPT: ClassVar[str] = ""
@@ -559,6 +571,10 @@ class MapReduceExtractor(LLMExtractor):
     chunk_chars: ClassVar[int] = 100_000
     # Guard on the joined fragments handed to one reduce call.
     reduce_input_chars: ClassVar[int] = 80_000
+    # Upper bound on in-flight map calls. 1 (default) is the sequential path,
+    # byte-for-byte the pre-fan-out behavior including fail-fast on the first
+    # chunk error. >1 fans chunks out under an asyncio.Semaphore. Validated >= 1.
+    map_concurrency: ClassVar[int] = 1
     # Sections produced by summarize() rather than the map — omitted from the
     # rendered section spec so the model isn't asked to fill them per chunk.
     MAP_EXCLUDE: ClassVar[frozenset[str]] = frozenset()
@@ -660,23 +676,71 @@ class MapReduceExtractor(LLMExtractor):
         return chunks
 
     async def _map(self, chunks: list[str], meta: dict[str, Any]) -> dict[str, list[str]]:
-        """Sequentially map each chunk; collect per-section fragments.
+        """Map each chunk; collect per-section fragments in chunk order.
 
         Section names the model invents (not present in ``self.schema``) are
-        dropped; empty/whitespace fragments are ignored.
+        dropped; empty/whitespace fragments are ignored. Bounded by
+        ``map_concurrency``: ``1`` (default) maps sequentially and fails fast on
+        the first chunk error; ``>1`` fans chunks out under an
+        ``asyncio.Semaphore`` while keeping fragment order identical to the
+        sequential path (collected by chunk index, then flattened).
         """
+        if self.map_concurrency < 1:
+            raise ValueError(
+                f"{type(self).__name__}: map_concurrency must be >= 1, got {self.map_concurrency}"
+            )
         prompt = self.MAP_PROMPT.format(
             section_spec=self._section_spec(), **self.prompt_context(meta)
         )
         fragments: dict[str, list[str]] = defaultdict(list)
-        for chunk in chunks:
-            partial = await self._cached_map_call(prompt, chunk)
-            for name, value in partial.items():
-                if self.schema.section(name) is None:
-                    continue  # ignore invented section names
-                if isinstance(value, str) and value.strip():
-                    fragments[name].append(value.strip())
+
+        # N == 1: sequential loop — fail-fast, byte-for-byte the prior behavior.
+        if self.map_concurrency == 1:
+            for chunk in chunks:
+                self._collect(fragments, await self._cached_map_call(prompt, chunk))
+            return dict(fragments)
+
+        # N > 1: bounded fan-out. On the first chunk error, chunks still queued
+        # behind the semaphore skip their model call (abort flag); in-flight
+        # siblings run to completion and cache their successes before we raise.
+        sem = asyncio.Semaphore(self.map_concurrency)
+        aborted = asyncio.Event()
+
+        async def _map_one(chunk: str) -> dict[str, Any]:
+            async with sem:
+                if aborted.is_set():
+                    raise _MapChunkSkipped
+                try:
+                    return await self._cached_map_call(prompt, chunk)
+                except Exception:
+                    aborted.set()
+                    raise
+
+        results = await asyncio.gather(
+            *(_map_one(chunk) for chunk in chunks), return_exceptions=True
+        )
+        # Collect successes in chunk-index order so output is completion-order
+        # independent, then surface the first real error by index (skips aside).
+        for result in results:
+            if not isinstance(result, BaseException):
+                self._collect(fragments, result)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, _MapChunkSkipped):
+                raise result
         return dict(fragments)
+
+    def _collect(self, fragments: dict[str, list[str]], partial: dict[str, Any]) -> None:
+        """Merge one chunk's map result into ``fragments`` in place.
+
+        Section names not in ``self.schema`` are dropped (the model invented
+        them); empty or whitespace-only values are ignored. Shared by both the
+        sequential and fan-out paths so filtering is defined exactly once.
+        """
+        for name, value in partial.items():
+            if self.schema.section(name) is None:
+                continue  # ignore invented section names
+            if isinstance(value, str) and value.strip():
+                fragments[name].append(value.strip())
 
     # ---- Chunk-level map cache (overridable; no-op until enabled) ------------
 
