@@ -29,9 +29,13 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from prompt_toolkit import PromptSession
+from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.styles import Style
+from prompt_toolkit.widgets import Frame, TextArea
+from prompt_toolkit.widgets import base as _ptk_widgets
 from rich.console import Console
 
 from reigner.cli._env import load_project_env
@@ -54,6 +58,24 @@ _DEFAULT_CONFIG = "reigner.yaml"
 EXIT_OK = 0
 EXIT_RUNTIME = 1
 EXIT_USAGE = 2
+
+
+@contextlib.contextmanager
+def _rounded_border() -> Any:
+    """Swap prompt_toolkit's square frame corners for rounded ones, then restore.
+
+    ``Frame`` reads the module-level ``Border`` characters when it builds its
+    windows, so setting the corners for the duration of construction bakes
+    rounded glyphs into the frame — matching the rich answer panel below it. The
+    swap is synchronous and immediately reverted, so no other frame sees it.
+    """
+    border = _ptk_widgets.Border
+    saved = (border.TOP_LEFT, border.TOP_RIGHT, border.BOTTOM_LEFT, border.BOTTOM_RIGHT)
+    border.TOP_LEFT, border.TOP_RIGHT, border.BOTTOM_LEFT, border.BOTTOM_RIGHT = "╭", "╮", "╰", "╯"
+    try:
+        yield
+    finally:
+        border.TOP_LEFT, border.TOP_RIGHT, border.BOTTOM_LEFT, border.BOTTOM_RIGHT = saved
 
 
 def register(app: typer.Typer) -> None:
@@ -241,7 +263,27 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         else:
             event.app.exit(exception=KeyboardInterrupt())
 
-    prompt: PromptSession[str] = PromptSession(message="› ", key_bindings=kb)
+    # The composer is a bordered box (a Frame) around a single-line input,
+    # rendered as a non-full-screen Application so scrollback still flows above
+    # it via patch_stdout. The Frame title doubles as a status line: it flips to
+    # a steering hint while a run is in flight.
+    input_area = TextArea(prompt="› ", multiline=False, height=1, wrap_lines=False)
+
+    def _title() -> Any:
+        if running.is_set():
+            return [("class:frame.label", " running · esc-enter to steer ")]
+        return [("class:frame.label", " ask ")]
+
+    with _rounded_border():
+        composer = Frame(input_area, title=_title)
+    app: Application[str] = Application(
+        layout=Layout(composer),
+        key_bindings=kb,
+        style=Style.from_dict({"frame.border": "ansimagenta", "frame.label": "ansimagenta bold"}),
+        full_screen=False,
+        mouse_support=False,
+        erase_when_done=True,
+    )
 
     console.print(
         "[dim]reigner chat — Enter submits (mid-run: queues your next "
@@ -280,7 +322,7 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
     with patch_stdout(raw=True):
         consumer = asyncio.ensure_future(_consume())
         try:
-            await prompt.prompt_async()
+            await app.run_async()
         except (EOFError, KeyboardInterrupt):
             pass
         finally:
