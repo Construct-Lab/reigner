@@ -33,22 +33,14 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
-from rich.panel import Panel
 
 from reigner.cli._env import load_project_env
+from reigner.cli._render import TurnRenderer
 from reigner.harness.agent import Harness, Session
 from reigner.harness.events import (
-    CitationEvent,
     ClarificationEvent,
-    CompactionEvent,
     ErrorEvent,
-    Event,
     FinalAnswerEvent,
-    OracleEscalationEvent,
-    StatusEvent,
-    SteeringAcceptedEvent,
-    ToolCallEvent,
-    ToolResultEvent,
     to_json,
 )
 from reigner.types import ConfigError
@@ -87,6 +79,12 @@ def _chat(
         "-c",
         help="Path to reigner.yaml (defaults to ./reigner.yaml).",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Stream every tool call instead of collapsing retrieval to one line.",
+    ),
 ) -> None:
     """Interactive chat REPL, or a one-shot run with ``--print``."""
     if json_output and print_query is None:
@@ -99,7 +97,7 @@ def _chat(
         code = asyncio.run(_run_print(session, print_query, json_output=json_output))
         raise typer.Exit(code)
 
-    asyncio.run(_run_repl(session))
+    asyncio.run(_run_repl(session, verbose=verbose))
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +164,7 @@ async def _run_print(session: Session, query: str, *, json_output: bool) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _run_repl(session: Session) -> None:
+async def _run_repl(session: Session, *, verbose: bool = False) -> None:
     """Interactive REPL. Bottom prompt is always live; output streams above it."""
     if not sys.stdin.isatty():
         typer.echo(
@@ -180,6 +178,9 @@ async def _run_repl(session: Session) -> None:
     running = asyncio.Event()
     current_task: dict[str, asyncio.Task[None] | None] = {"task": None}
     input_q: asyncio.Queue[str] = asyncio.Queue()
+    # Shared REPL UI state: whether retrieval detail streams live, and the most
+    # recent turn's renderer so `/expand` can reprint its collapsed detail.
+    ui: dict[str, Any] = {"verbose": verbose, "last": None}
 
     kb = KeyBindings()
 
@@ -195,6 +196,16 @@ async def _run_repl(session: Session) -> None:
             return
         if text in {"/exit", "/quit"}:
             event.app.exit()
+            return
+        if text == "/verbose":
+            ui["verbose"] = not ui["verbose"]
+            state = "on — tool calls stream live" if ui["verbose"] else "off — retrieval collapses"
+            console.print(f"[dim]· verbose {state}[/dim]")
+            return
+        if text == "/expand":
+            last: TurnRenderer | None = ui["last"]
+            if last is None or not last.print_detail():
+                console.print("[dim]· nothing to expand yet[/dim]")
             return
         input_q.put_nowait(text)
         if running.is_set():
@@ -235,6 +246,7 @@ async def _run_repl(session: Session) -> None:
     console.print(
         "[dim]reigner chat — Enter submits (mid-run: queues your next "
         "question); Alt+Enter / Esc-then-Enter steers the running answer; "
+        "/expand shows the last retrieval, /verbose toggles live tool calls; "
         "Ctrl+C cancels; /exit or Ctrl+D to quit.[/dim]"
     )
 
@@ -246,7 +258,9 @@ async def _run_repl(session: Session) -> None:
             query = await input_q.get()
             console.print(f"[dim]›[/dim] {query}")
             running.set()
-            run_task = asyncio.ensure_future(_drive_run(session, query, console))
+            run_task = asyncio.ensure_future(
+                _drive_run(session, query, console, ui, verbose=ui["verbose"])
+            )
             current_task["task"] = run_task
             try:
                 await run_task
@@ -276,67 +290,30 @@ async def _run_repl(session: Session) -> None:
     console.print("[dim]bye.[/dim]")
 
 
-async def _drive_run(session: Session, query: str, console: Console) -> None:
-    """Stream events for one query and render each as a compact line / panel."""
+async def _drive_run(
+    session: Session,
+    query: str,
+    console: Console,
+    ui: dict[str, Any],
+    *,
+    verbose: bool = False,
+) -> None:
+    """Stream events for one query through a TurnRenderer.
+
+    Collapsed by default: retrieval folds to a one-line recap and the answer
+    panel. With ``verbose`` each tool call streams above the prompt as it
+    finishes. The renderer is stashed in ``ui["last"]`` so ``/expand`` can
+    reprint the hidden detail. patch_stdout is active around this, so everything
+    the renderer prints lands cleanly above the live prompt.
+    """
+    renderer = TurnRenderer(console, verbose=verbose)
+    ui["last"] = renderer
     try:
-        async for event in session.run_stream(query):
-            _render_event(event, console)
+        with renderer.live():
+            async for event in session.run_stream(query):
+                renderer.feed(event)
+        renderer.finish()
     except asyncio.CancelledError:
         raise
     except Exception as e:  # noqa: BLE001 — REPL must survive any harness error
-        # patch_stdout is active while this runs, so a plain print renders
-        # cleanly above the live prompt.
         console.print(f"[red]✗ run failed:[/red] {e!r}")
-
-
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-
-def _render_event(event: Event, console: Console) -> None:
-    """One compact line per intermediate event; final answer in a Panel."""
-    if isinstance(event, StatusEvent):
-        console.print(f"  [dim]·[/dim] status: {event.message}")
-    elif isinstance(event, ToolCallEvent):
-        args_repr = _short_args(event.args)
-        console.print(f"  [dim]→[/dim] tool_call  [bold]{event.name}[/bold]({args_repr})")
-    elif isinstance(event, ToolResultEvent):
-        trunc = " [yellow]truncated[/yellow]" if event.truncated else ""
-        cached = " [cyan]cached[/cyan]" if event.cached else ""
-        console.print(f"  [dim]←[/dim] tool_result{trunc}{cached}")
-    elif isinstance(event, CitationEvent):
-        console.print(f"  [dim][cite][/dim] {event.source}")
-    elif isinstance(event, ClarificationEvent):
-        console.print(
-            Panel(event.question, title="clarification", border_style="yellow", expand=False)
-        )
-    elif isinstance(event, CompactionEvent):
-        console.print(
-            f"  [dim]~[/dim] compaction level={event.level} freed={event.tokens_freed} tokens"
-        )
-    elif isinstance(event, OracleEscalationEvent):
-        console.print(
-            f"  [magenta]⇡ oracle[/magenta] {event.from_model} → {event.to_model} "
-            f"([dim]{event.reason}[/dim])"
-        )
-    elif isinstance(event, SteeringAcceptedEvent):
-        console.print(f"  [green]⇲ steering accepted[/green] mode={event.mode}")
-    elif isinstance(event, ErrorEvent):
-        tag = "[yellow]recoverable[/yellow]" if event.recoverable else "[red]error[/red]"
-        console.print(f"  {tag} {event.error}")
-    elif isinstance(event, FinalAnswerEvent):
-        console.print(Panel(event.text, title="final answer", border_style="green"))
-
-
-def _short_args(args: dict[str, Any], *, max_len: int = 80) -> str:
-    parts = []
-    for k, v in args.items():
-        rendered = repr(v)
-        if len(rendered) > 30:
-            rendered = rendered[:27] + "..."
-        parts.append(f"{k}={rendered}")
-    joined = ", ".join(parts)
-    if len(joined) > max_len:
-        joined = joined[: max_len - 3] + "..."
-    return joined
