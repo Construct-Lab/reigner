@@ -202,14 +202,24 @@ def _extract_usage(response: Any) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage.empty()
-    prompt = _attr(usage, "input_tokens") or 0
+    input_tokens = _attr(usage, "input_tokens") or 0
     completion = _attr(usage, "output_tokens") or 0
-    total = _attr(usage, "total_tokens") or (prompt + completion)
-    cached = 0
+    total = _attr(usage, "total_tokens") or (input_tokens + completion)
+    cache_read = 0
     details = _attr(usage, "input_tokens_details")
     if details is not None:
-        cached = _attr(details, "cached_tokens") or 0
-    return TokenUsage(prompt=prompt, completion=completion, cached=cached, total=total)
+        cache_read = _attr(details, "cached_tokens") or 0
+    # OpenAI folds cached tokens into `input_tokens`; subtract them so `prompt`
+    # is the fresh input billed at the full rate. There is no separate
+    # cache-write charge, so `cache_write` stays 0.
+    prompt = max(input_tokens - cache_read, 0)
+    return TokenUsage(
+        prompt=prompt,
+        completion=completion,
+        cached=cache_read,
+        cache_read=cache_read,
+        total=total,
+    )
 
 
 def _wrap_openai_error(e: Exception) -> AdapterError:

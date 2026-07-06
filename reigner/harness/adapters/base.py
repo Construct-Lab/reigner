@@ -53,20 +53,44 @@ class ToolCall:
 class TokenUsage:
     """Token accounting for one model call.
 
-    Fields are best-effort: providers that don't report `cached` set it to 0.
-    `total` is the provider's reported total when available, otherwise
-    ``prompt + completion``.
+    Fields are best-effort: providers that don't report a field set it to 0.
+
+    - `prompt` is the *fresh* (non-cached) input tokens billed at the full input
+      rate. Adapters normalise to this: Anthropic already reports uncached input
+      in `input_tokens`; OpenAI/Gemini include cached tokens in their input
+      count, so those adapters subtract the cached portion out.
+    - `cache_read` / `cache_write` are cached input tokens served from / written
+      to the provider's prompt cache. They bill at different rates (see
+      `reigner.pricing`), so they are tracked separately for accurate cost.
+    - `cached` = `cache_read + cache_write`, kept as a back-compat convenience.
+    - `total` is the provider's reported total when available, otherwise
+      ``prompt + completion``.
     """
 
     prompt: int = 0
     completion: int = 0
     cached: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
     total: int = 0
 
     @classmethod
     def empty(cls) -> TokenUsage:
         """Return a zeroed :class:`TokenUsage`."""
         return cls()
+
+    def __add__(self, other: object) -> TokenUsage:
+        """Sum two usages field-wise, so a run can accumulate per-call totals."""
+        if not isinstance(other, TokenUsage):
+            return NotImplemented
+        return TokenUsage(
+            prompt=self.prompt + other.prompt,
+            completion=self.completion + other.completion,
+            cached=self.cached + other.cached,
+            cache_read=self.cache_read + other.cache_read,
+            cache_write=self.cache_write + other.cache_write,
+            total=self.total + other.total,
+        )
 
 
 @dataclass(kw_only=True, frozen=True)

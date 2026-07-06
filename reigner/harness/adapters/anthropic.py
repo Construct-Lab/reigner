@@ -185,15 +185,18 @@ def _extract_usage(response: Any) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage.empty()
+    # Anthropic's `input_tokens` already excludes cached tokens, so `prompt`
+    # is fresh input as-is; the two cache buckets bill at different rates.
     prompt = _attr(usage, "input_tokens") or 0
     completion = _attr(usage, "output_tokens") or 0
     cache_read = _attr(usage, "cache_read_input_tokens") or 0
-    cache_create = _attr(usage, "cache_creation_input_tokens") or 0
-    cached = cache_read + cache_create
+    cache_write = _attr(usage, "cache_creation_input_tokens") or 0
     return TokenUsage(
         prompt=prompt,
         completion=completion,
-        cached=cached,
+        cached=cache_read + cache_write,
+        cache_read=cache_read,
+        cache_write=cache_write,
         total=prompt + completion,
     )
 

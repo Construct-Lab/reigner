@@ -60,6 +60,31 @@ async def test_call_marks_stable_as_cacheable(prompt: Prompt, tool: FakeTool) ->
     assert action.text == "ok"
     assert action.usage.cached == 100
     assert action.usage.prompt == 5
+    # Cache reads and writes are split so cost can bill them at distinct rates.
+    assert action.usage.cache_read == 100
+    assert action.usage.cache_write == 0
+
+
+async def test_usage_splits_cache_read_and_write(prompt: Prompt, tool: FakeTool) -> None:
+    adapter = AnthropicAdapter(model="claude-test")
+    response = MagicMock(
+        content=[MagicMock(type="text", text="ok")],
+        stop_reason="end_turn",
+        usage=MagicMock(
+            input_tokens=5,
+            output_tokens=2,
+            cache_read_input_tokens=40,
+            cache_creation_input_tokens=10,
+        ),
+        id="msg_1",
+    )
+    _install_fake_client(adapter, response)
+    action = await adapter.call(prompt, [tool])
+
+    assert action.usage.prompt == 5  # fresh input, cache excluded
+    assert action.usage.cache_read == 40
+    assert action.usage.cache_write == 10
+    assert action.usage.cached == 50
 
 
 async def test_call_parses_tool_use(prompt: Prompt, tool: FakeTool) -> None:
