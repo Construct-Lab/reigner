@@ -46,7 +46,7 @@ Confirm the install:
 
 ```console
 $ reigner version
-0.0.0
+0.6.0
 ```
 
 ### Mental model (one paragraph)
