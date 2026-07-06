@@ -358,7 +358,8 @@ async def _drive_run(
     reprint the hidden detail. patch_stdout is active around this, so everything
     the renderer prints lands cleanly above the live prompt.
     """
-    renderer = TurnRenderer(console, verbose=verbose)
+    model_id = getattr(session.harness.adapter, "model", None)
+    renderer = TurnRenderer(console, verbose=verbose, model_id=model_id)
     ui["last"] = renderer
     try:
         with renderer.live():

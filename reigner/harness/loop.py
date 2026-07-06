@@ -44,6 +44,7 @@ from reigner.harness.adapters.base import (
     AdapterError,
     ModelAction,
     ModelAdapter,
+    TokenUsage,
     ToolCall,
     TransientAdapterError,
 )
@@ -148,6 +149,10 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
     state.iterations = 0
     state.done = False
 
+    # Accumulate token usage across every model call in this run so the final
+    # event carries the whole turn's cost, not just the last call's.
+    run_usage = TokenUsage.empty()
+
     seq = seq_start
 
     def next_seq() -> int:
@@ -238,6 +243,8 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
             # Don't keep hammering a broken provider.
             return
 
+        run_usage = run_usage + action.usage
+
         # ----- terminal: explicit final answer -----
         if action.is_final_answer:
             final = FinalAnswerEvent(
@@ -245,7 +252,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
                 session_id=session_id,
                 turn=state.iterations,
                 text=action.text or "",
-                metadata={"usage": asdict(action.usage), "stop_reason": action.stop_reason},
+                metadata={"usage": asdict(run_usage), "stop_reason": action.stop_reason},
             )
             try:
                 final = await plugins.on_final_answer(final, state)
@@ -268,7 +275,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
                 turn=state.iterations,
                 text=action.text or "",
                 metadata={
-                    "usage": asdict(action.usage),
+                    "usage": asdict(run_usage),
                     "stop_reason": action.stop_reason,
                     "no_progress": True,
                 },

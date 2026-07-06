@@ -46,7 +46,7 @@ Confirm the install:
 
 ```console
 $ reigner version
-0.0.0
+0.6.0
 ```
 
 ### Mental model (one paragraph)
@@ -77,6 +77,7 @@ output in Section 3 is marked representative.
 | Ingest dry-run | ✅ | `reigner ingest --dry-run` | [Section 3.2](#32-ingest-your-documents--reigner-ingest) |
 | Chat — REPL | ✅ | `reigner chat` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
 | Chat — one-shot / JSON | ✅ | `reigner chat --print Q [--json]` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
+| Chat — collapsed retrieval + run cost | ✅ | REPL recap · `--verbose`/`-v` · `/verbose` · `/expand` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
 | Inspect role/config/tools | ✅ | `reigner inspect {role,config,tools}` | [Section 3.4](#34-inspect-the-project--reigner-inspect) |
 | Inspect artifacts/index | ✅ | `reigner inspect {artifacts,index}` | [Section 3.4](#34-inspect-the-project--reigner-inspect) |
 | Sessions — list/show/tree/fork/replay | ✅ | `reigner session …` | [Section 3.5](#35-sessions-list--show--tree--fork--replay--reigner-session) |
@@ -539,9 +540,25 @@ and opens a REPL — or runs one-shot with `--print`. It needs a model key.
 $ reigner chat
 › What does Orbit cost?
 # representative output
-Orbit is $8 per user per month. [faq.md]
+  Retrieving…
+  ✓ Retrieved  2 calls · 6.1k tok · $0.004 · 1.8s   /expand
+
+  Sources
+    [1] faq.md  section=pricing
+
+  ╭─ Answer ──────────────────────────────────────╮
+  │                                                │
+  │  Orbit is $8 per user per month. [1]           │
+  │                                                │
+  ╰────────────────────────────────────────────────╯
 ›
 ```
+
+The retrieval phase **collapses by default**: while the agent works, a
+`Retrieving…` line shows; when the answer lands it folds to a one-line
+`✓ Retrieved` recap, citations are pulled into a numbered **Sources** block, and
+the answer renders in its own panel. Sources are referenced inline as `[1]` /
+`[2]` rather than long parentheticals.
 
 REPL controls:
 
@@ -549,6 +566,8 @@ REPL controls:
 |---|---|
 | `Enter` | Submit a prompt — or, while a run is in flight, **queue it as your next question** (runs as its own turn after the current answer). |
 | `Alt+Enter` (or `Esc` then `Enter`) | **Steer** the in-flight run: fold the typed text into the *current* answer at the loop's next boundary. |
+| `/verbose` | Toggle verbose rendering: on = each tool call streams one self-describing line as it finishes; off = retrieval collapses to the recap. Also the `--verbose` / `-v` flag at launch. |
+| `/expand` | Reprint the **last** turn's per-call tool detail below the recap (scrollback can't fold in place, so it reprints rather than un-collapsing). |
 | `Ctrl+C` | Cancel the current run. |
 | `/exit`, `/quit`, `Ctrl+D` | Quit the REPL. |
 
@@ -563,6 +582,30 @@ into the current run as a user turn at its next iteration boundary.
 > no mid-turn interrupt for a bounded retrieval agent. Real-time
 > interrupt-preemption stays parked under
 > [#48](https://github.com/Construct-Lab/reigner/issues/48).
+
+#### Reading the recap — tokens & run cost
+
+The `✓ Retrieved` line reports, in order: the number of tool calls, how many
+were truncated (if any), the **per-run token total**, the **run cost**, and
+wall-clock elapsed.
+
+- **Tokens** are accumulated across *every* model call in the turn, not just the
+  final one — a multi-call retrieval turn shows the whole turn's tokens.
+- **Cost** (`$0.004` above) is computed locally: provider APIs return token
+  counts, never dollars, so Reigner prices the accumulated usage against a
+  static per-model rate table (`reigner/pricing.py`), summing fresh input,
+  output, and cache read/write at their distinct rates. It's rendered in gold —
+  the same accent as citations — because it's a headline number.
+
+The table ships rates for the current **Claude** (Opus 4.8/4.7, Sonnet 5/4.6,
+Haiku 4.5, Fable 5), **OpenAI** (GPT-5.5), and **Gemini 3** (Pro, Flash) models.
+For a model **not** in the table the cost figure is **omitted** (never guessed) —
+the token count still shows. Rates are a hand-maintained snapshot; re-verify them
+against provider pricing on model or price changes.
+
+> Cost is surfaced in the interactive REPL recap today. Wiring it into the
+> session `meta.json` totals (SPEC §11.1) and the `eval` `latency_cost` line
+> ([Section 3.8](#38-evaluate-your-agent--reigner-eval)) is a planned follow-up.
 
 **One-shot** (stdout is just the final answer — scriptable):
 

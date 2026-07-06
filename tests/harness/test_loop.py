@@ -174,6 +174,41 @@ async def test_run_returns_final_answer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_usage_accumulates_across_iterations() -> None:
+    # Two model calls this run: the tool turn and the final turn. The final
+    # event must carry the summed usage, not just the last call's.
+    tool_turn = ModelAction(
+        is_final_answer=False,
+        text=None,
+        tool_calls=[ToolCall(id="c1", name="search", args={"q": "x"})],
+        usage=TokenUsage(
+            prompt=100, completion=10, cache_read=5, cache_write=2, cached=7, total=110
+        ),
+        stop_reason="tool_calls",
+    )
+    final_turn = ModelAction(
+        is_final_answer=True,
+        text="done",
+        tool_calls=[],
+        usage=TokenUsage(prompt=40, completion=20, cache_read=1, cache_write=0, cached=1, total=60),
+        stop_reason="end_turn",
+    )
+    tool = RecordingTool(name="search", response={"hits": [1]})
+    adapter = FakeAdapter(actions=[tool_turn, final_turn])
+    session = _harness(adapter=adapter, tools=[tool]).session()
+    events = await _drain(session, "go")
+
+    final = events[-1]
+    assert isinstance(final, FinalAnswerEvent)
+    usage = final.metadata["usage"]
+    assert usage["prompt"] == 140
+    assert usage["completion"] == 30
+    assert usage["cache_read"] == 6
+    assert usage["cache_write"] == 2
+    assert usage["total"] == 170
+
+
+@pytest.mark.asyncio
 async def test_tool_call_then_final() -> None:
     tool = RecordingTool(name="search", response={"hits": [1, 2]})
     adapter = FakeAdapter(

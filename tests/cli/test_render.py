@@ -32,10 +32,10 @@ def _result(call_id: str, result: object, *, truncated: bool = False) -> ToolRes
     )
 
 
-def _render(events: list[object], *, verbose: bool = False) -> str:
+def _render(events: list[object], *, verbose: bool = False, model_id: str | None = None) -> str:
     buf = io.StringIO()
     console = Console(file=buf, force_terminal=False, width=100)
-    renderer = TurnRenderer(console, verbose=verbose)
+    renderer = TurnRenderer(console, verbose=verbose, model_id=model_id)
     with renderer.live():
         for ev in events:
             renderer.feed(ev)
@@ -57,6 +57,39 @@ def test_collapsed_summary_counts_calls_and_truncations() -> None:
     assert "2 calls" in out
     assert "1 truncated" in out
     assert "the answer" in out
+
+
+def _run_with_usage(usage: dict[str, int], *, model_id: str | None) -> str:
+    return _render(
+        [
+            _call("c1", "bm25_search", query="supremacy"),
+            _result("c1", {"hits": [1]}),
+            FinalAnswerEvent(**_ENV, text="a", metadata={"usage": usage}),
+        ],
+        model_id=model_id,
+    )
+
+
+def test_recap_shows_cost_for_known_model() -> None:
+    # 1M fresh input on Opus 4.8 ($5/1M) → $5.000, plus the token count.
+    out = _run_with_usage(
+        {"prompt": 1_000_000, "completion": 0, "total": 1_000_000}, model_id="claude-opus-4-8"
+    )
+    assert "$5.000" in out
+    assert "1000.0k tok" in out
+
+
+def test_recap_omits_cost_for_unknown_model() -> None:
+    out = _run_with_usage(
+        {"prompt": 1_000_000, "completion": 0, "total": 1_000_000}, model_id="mystery-model"
+    )
+    assert "$" not in out
+    assert "1000.0k tok" in out  # tokens still shown
+
+
+def test_recap_omits_cost_without_a_model_id() -> None:
+    out = _run_with_usage({"prompt": 1_000_000, "completion": 0, "total": 1_000_000}, model_id=None)
+    assert "$" not in out
 
 
 def test_citations_pulled_into_numbered_sources_block() -> None:

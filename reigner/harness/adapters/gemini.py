@@ -229,11 +229,20 @@ def _extract_usage(response: Any) -> TokenUsage:
     usage = getattr(response, "usage_metadata", None)
     if usage is None:
         return TokenUsage.empty()
-    prompt = _attr(usage, "prompt_token_count") or 0
+    prompt_tokens = _attr(usage, "prompt_token_count") or 0
     completion = _attr(usage, "candidates_token_count") or 0
-    total = _attr(usage, "total_token_count") or (prompt + completion)
-    cached = _attr(usage, "cached_content_token_count") or 0
-    return TokenUsage(prompt=prompt, completion=completion, cached=cached, total=total)
+    total = _attr(usage, "total_token_count") or (prompt_tokens + completion)
+    cache_read = _attr(usage, "cached_content_token_count") or 0
+    # Gemini's `prompt_token_count` includes cached content; subtract it so
+    # `prompt` is fresh input. Cache writes aren't billed per-token here.
+    prompt = max(prompt_tokens - cache_read, 0)
+    return TokenUsage(
+        prompt=prompt,
+        completion=completion,
+        cached=cache_read,
+        cache_read=cache_read,
+        total=total,
+    )
 
 
 def _wrap_gemini_error(e: Exception) -> AdapterError:

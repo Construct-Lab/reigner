@@ -67,6 +67,29 @@ async def test_call_translates_prompt_and_tools(prompt: Prompt, tool: FakeTool) 
     assert action.usage.completion == 2
 
 
+async def test_usage_subtracts_cached_from_prompt(prompt: Prompt, tool: FakeTool) -> None:
+    adapter = OpenAIAdapter(model="gpt-test")
+    usage = MagicMock(
+        input_tokens=10,
+        output_tokens=2,
+        total_tokens=12,
+        input_tokens_details=MagicMock(cached_tokens=4),
+    )
+    response = MagicMock(
+        output=[MagicMock(type="message", content=[MagicMock(type="output_text", text="hi")])],
+        usage=usage,
+        id="resp_1",
+    )
+    _install_fake_client(adapter, response)
+    action = await adapter.call(prompt, [tool])
+
+    # OpenAI folds cached tokens into input_tokens; prompt is the fresh remainder.
+    assert action.usage.prompt == 6
+    assert action.usage.cache_read == 4
+    assert action.usage.cache_write == 0
+    assert action.usage.cached == 4
+
+
 async def test_call_parses_tool_call(prompt: Prompt, tool: FakeTool) -> None:
     adapter = OpenAIAdapter()
     fc_item = MagicMock(

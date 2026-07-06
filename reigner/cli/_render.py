@@ -36,6 +36,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from reigner.cli._tool_summary import clean_args, summarise
+from reigner.harness.adapters.base import TokenUsage
 from reigner.harness.events import (
     CitationEvent,
     ClarificationEvent,
@@ -49,6 +50,7 @@ from reigner.harness.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from reigner.pricing import cost_usd
 
 # Pseudo-tool that is represented in the Sources block, not the tool log.
 _CITATION_TOOL = "register_citation"
@@ -76,9 +78,12 @@ class TurnRenderer:
     event, then call :meth:`finish` to commit the recap / sources / answer.
     """
 
-    def __init__(self, console: Console, *, verbose: bool = False) -> None:
+    def __init__(
+        self, console: Console, *, verbose: bool = False, model_id: str | None = None
+    ) -> None:
         self._console = console
         self._verbose = verbose
+        self._model_id = model_id
         self._calls: dict[str, _Call] = {}
         self._order: list[str] = []  # call_ids in arrival order, citations excluded
         self._printed: set[str] = set()  # call_ids already streamed above the prompt
@@ -249,8 +254,14 @@ class TurnRenderer:
         tok = self._tokens()
         if tok is not None:
             meta += f" · {tok / 1000:.1f}k tok"
-        meta += f" · {elapsed:.1f}s"
         line.append(f"  {meta}", style="dim")
+        # Cost is the product's headline number, so it gets the citation gold —
+        # everything else on the recap stays dim. Omitted for unknown models.
+        cost = self._cost()
+        if cost is not None:
+            line.append(" · ", style="dim")
+            line.append(f"${cost:.3f}", style="yellow")
+        line.append(f" · {elapsed:.1f}s", style="dim")
         if not self._verbose:  # hint the hidden detail is one command away
             line.append("   /expand", style="dim")
         return line
@@ -292,6 +303,30 @@ class TurnRenderer:
             if isinstance(total, int) and total > 0:
                 return total
         return None
+
+    def _cost(self) -> float | None:
+        """Best-effort dollar cost of the run, or ``None`` if it can't be priced.
+
+        Needs both the accumulated usage (from the final event) and a model id
+        the price table knows. Returns ``None`` — and the recap omits the figure
+        — when either is missing.
+        """
+        if self._final is None or self._model_id is None:
+            return None
+        usage = self._final.metadata.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        return cost_usd(
+            TokenUsage(
+                prompt=int(usage.get("prompt", 0)),
+                completion=int(usage.get("completion", 0)),
+                cache_read=int(usage.get("cache_read", 0)),
+                cache_write=int(usage.get("cache_write", 0)),
+                cached=int(usage.get("cached", 0)),
+                total=int(usage.get("total", 0)),
+            ),
+            self._model_id,
+        )
 
 
 def _render_locator(locator: dict[str, Any]) -> str:
