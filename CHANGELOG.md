@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-07-06
+
+### Bug Fixes
+
+- Isolate per-run token accounting with a ContextVar ([#108](https://github.com/Construct-Lab/reigner/issues/108))
+
+### Documentation
+
+- Adopt Google-style docstrings and strip internal design-doc refs ([#104](https://github.com/Construct-Lab/reigner/issues/104)) ([#105](https://github.com/Construct-Lab/reigner/issues/105))
+
+### Features
+
+- Chunk-level map cache hook for MapReduceExtractor ([#106](https://github.com/Construct-Lab/reigner/issues/106))
+- Bounded-parallel map fan-out for MapReduceExtractor ([#109](https://github.com/Construct-Lab/reigner/issues/109))
+- Refresh chat REPL rendering with collapsed retrieval ([#111](https://github.com/Construct-Lab/reigner/issues/111))
+- Per-run cost on the chat recap line ([#112](https://github.com/Construct-Lab/reigner/issues/112))
+
+### Miscellaneous Tasks
+
+- Ignore .env file
+
 ## [0.6.0] - 2026-06-26
 
 ### Features
@@ -10,6 +31,10 @@ All notable changes to this project will be documented in this file.
 - Eval checks + reigner eval CLI ([#101](https://github.com/Construct-Lab/reigner/issues/101))
 - Reigner session CLI (list/show/tree/fork/replay/export/import) ([#102](https://github.com/Construct-Lab/reigner/issues/102))
 - Mid-run REPL type-ahead and steering ([#48](https://github.com/Construct-Lab/reigner/issues/48)) ([#103](https://github.com/Construct-Lab/reigner/issues/103))
+
+### Miscellaneous Tasks
+
+- Release v0.6.0
 
 ## [0.5.0] - 2026-06-10
 
