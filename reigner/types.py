@@ -7,7 +7,9 @@ their owning module.
 
 from __future__ import annotations
 
+import sys
 from importlib import import_module
+from pathlib import Path
 from typing import Any, Literal
 
 ProviderName = Literal["openai", "anthropic", "gemini"]
@@ -66,10 +68,30 @@ def import_dotted(path: DottedPath) -> Any:
         raise ConfigError(f"module {module_name!r} has no attribute {attr!r}") from e
 
 
+def ensure_importable(root: str | Path | None) -> None:
+    """Put ``root`` on ``sys.path`` so project-local dotted paths import.
+
+    A project's own modules — ``skills.*``, ``tools.custom`` entries, and
+    ``plugins`` — live under the project root, not in an installed package. They
+    only import if that root is on ``sys.path``. Call this with the config
+    file's parent directory before resolving any project-local dotted path, so
+    resolution works no matter what the current working directory is.
+
+    Idempotent and a no-op when ``root`` is ``None`` (an in-memory config with
+    no project directory).
+    """
+    if root is None:
+        return
+    resolved = str(Path(root).resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+
+
 __all__ = [
     "ConfigError",
     "DottedPath",
     "Profile",
     "ProviderName",
+    "ensure_importable",
     "import_dotted",
 ]

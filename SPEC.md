@@ -123,7 +123,6 @@ reigner/
 │   ├── citation_strict.py
 │   ├── clarify_when_ambiguous.py
 │   ├── targeted_retrieval.py
-│   ├── chart_intent.py
 │   └── scratchpad_discipline.py
 ├── recipes/                     # init-time scaffolds (§9, §14)
 │   ├── document_qa/             # the v0 hero recipe (ApolloScope-shaped)
@@ -832,7 +831,7 @@ Compiled artifacts, the search index, and session state are **derived data** and
 
 ## 10. Skills (`reigner.skills`)
 
-Skills are **on-demand-loaded instruction modules**. The model sees a list of skill names and one-line descriptions in the ROLE; full instructions and tools load only when the model invokes the skill.
+Skills are **on-demand-loaded instruction modules**. The model sees a list of skill names and one-line descriptions in the ROLE menu; the full instruction body loads only when the model invokes the skill. There is no "always-on" skill tier — anything that must always apply belongs in REIGNER.md, which is the stable system prompt. This is progressive disclosure, uniform across every adapter: the menu is Level 1 (always present, cheap), the body is Level 2 (pulled in only when relevant).
 
 This is Pi's pattern, adapted. It keeps the system prompt small and improves prompt-cache hit rates.
 
@@ -861,7 +860,6 @@ Bundled skills in v0:
 - `citation_strict`
 - `clarify_when_ambiguous`
 - `targeted_retrieval` (the `get_json_field → grep → read` grammar)
-- `chart_intent` (emit `<chart_intent>` blocks before final answer)
 - `scratchpad_discipline` (when to use `save_note`)
 
 Skills declared in `reigner.yaml`:
@@ -874,6 +872,25 @@ role:
 ```
 
 Naming note: these are *Reigner skills*, not Claude's "Skills" feature. Different concept; same word; documented to avoid confusion.
+
+### 10.1 How a skill loads
+
+At session start, the configured skills are resolved and their menu lines (name + description) are composed into the **stable** half of the prompt (the ROLE) alongside REIGNER.md. Because the menu is fixed for the session, the cached prompt prefix keeps hitting on every model call.
+
+The body loads through `load_skill(name)` — a real, read-only tool bound to the resolved skill set, not a locally-intercepted control verb. When the model calls it, the skill's body is returned as the tool result and appended to **history** (the dynamic half of the prompt). The stable ROLE is never rewritten, so the prefix cache survives; the only cost is one turn of uncached body tokens. This is uniform across the Anthropic, OpenAI, and Gemini adapters — no per-adapter skill code, because a body only ever enters via history.
+
+Because `load_skill` is an ordinary tool call, its `ToolCall`/`ToolResult` pair is recorded in the session log. Session reconstruction (§ sessions) replays the *recorded* body verbatim through its stub-tool path, so a resumed session carries the exact instructions the model saw — even if the skill was later removed from `role.skills`.
+
+### 10.2 User-authored skills
+
+Skills are user-extensible. A `role.skills` entry is either a **bare name** (a bundled skill) or a **dotted path** to a project's own `Skill` subclass (`myproject.skills:HouseStyle`), resolved the same way `plugins:` and `tools.custom:` are. Writing a skill is subclassing `Skill` and setting `name`, `description`, `instructions`, and optional `tools_required`. A skill's `tools_required` is validated against the wired tool registry at harness-build time, so a skill can't reference a tool the project never configured.
+
+```yaml
+role:
+  skills:
+    - citation_strict                 # bundled name
+    - myproject.skills:HouseStyle      # user dotted-path
+```
 
 ---
 

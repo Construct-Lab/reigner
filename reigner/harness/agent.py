@@ -26,8 +26,10 @@ from reigner.harness.loop import RunnableTool, run_loop
 from reigner.harness.state import AgentState, Citation, Note, SteeringMode, Turn
 from reigner.plugins.host import PluginHost
 from reigner.plugins.registry import load_plugins
+from reigner.role.compose import compose
 from reigner.sessions.replay import reconstruct, round_boundaries
 from reigner.sessions.store import SessionMeta, SessionNotFound, SessionStore
+from reigner.skills.registry import resolve_skills
 from reigner.tools.provenance import register_citation
 from reigner.tools.pseudo import (
     escalate_to_oracle,
@@ -36,7 +38,8 @@ from reigner.tools.pseudo import (
     stop,
 )
 from reigner.tools.registry import ToolRegistry
-from reigner.types import ConfigError, Profile, ProviderName, import_dotted
+from reigner.tools.skills import build_skill_tools
+from reigner.types import ConfigError, Profile, ProviderName, ensure_importable, import_dotted
 
 if TYPE_CHECKING:
     pass
@@ -114,6 +117,9 @@ class Harness:
         :class:`ToolRegistrationError` from the registry.
         """
         cfg = ReignerConfig.load(path)
+        # Make the project root importable so project-local dotted paths
+        # (role.skills, tools.custom, plugins) resolve regardless of cwd.
+        ensure_importable(cfg.config_path.parent if cfg.config_path else None)
 
         adapter = _build_adapter(cfg.model.provider, cfg.model.name)
         oracle_adapter = (
@@ -122,7 +128,13 @@ class Harness:
             else None
         )
 
-        role_text = _load_role(cfg, role_file)
+        # Resolve configured skills and compose their menu into the ROLE. Only
+        # the menu (name + one-line description) lands here — it is stable, so
+        # the cached prompt prefix survives. Bodies load on demand at runtime
+        # via the `load_skill` tool, into history.
+        skills = resolve_skills(cfg.role.skills)
+        role_text = compose(_load_role(cfg, role_file), skills)
+        skill_tools = build_skill_tools(skills)
 
         artifact_tools: list[RunnableTool] = []
         if cfg.tools.artifacts is not None:
@@ -156,6 +168,7 @@ class Harness:
         registry = ToolRegistry()
         for t in (
             *builtin_tools,
+            *skill_tools,
             *artifact_tools,
             *search_tools,
             *fs_tools,
@@ -166,6 +179,19 @@ class Harness:
             # `RunnableToolAdapter`; both are accepted by `register()`. Cast
             # at the boundary so mypy sees the union the registry expects.
             registry.register(t)  # type: ignore[arg-type]
+
+        # Validate each skill's declared tool dependencies against the fully
+        # wired registry: a skill whose instructions assume a tool the project
+        # never wired up would fail silently at load time. Fail loud at build.
+        registered_names = {spec.name for spec in registry}
+        for skill in skills:
+            missing = [t for t in skill.tools_required if t not in registered_names]
+            if missing:
+                raise ConfigError(
+                    f"skill {skill.name!r} requires tool(s) {missing} that are not "
+                    "registered for this harness. Wire them up in reigner.yaml "
+                    "(tools:) or drop the skill from role.skills."
+                )
 
         resolved_sessions = SessionsConfig(
             store_path=str(cfg.resolve(cfg.sessions.store_path)),

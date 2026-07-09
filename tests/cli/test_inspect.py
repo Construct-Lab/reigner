@@ -68,8 +68,11 @@ def test_inspect_role_shows_skills(project: Path) -> None:
     (project / "reigner.yaml").write_text(yaml)
     result = _run(["inspect", "role"], project)
     assert result.exit_code == 0
+    # The composed menu: each configured skill's name + its one-line description.
     assert "citation_strict" in result.output
-    assert "not yet available" in result.output  # deferral note
+    assert "clarify_when_ambiguous" in result.output
+    assert "Active skills" in result.output
+    assert "load_skill" in result.output  # explains how bodies load on demand
 
 
 # ---------------------------------------------------------------------------
