@@ -20,7 +20,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from reigner.skills.base import Skill
-from reigner.skills.chart_intent import ChartIntent
 from reigner.skills.citation_strict import CitationStrict
 from reigner.skills.clarify_when_ambiguous import ClarifyWhenAmbiguous
 from reigner.skills.scratchpad_discipline import ScratchpadDiscipline
@@ -34,7 +33,6 @@ BUNDLED_SKILLS: dict[str, type[Skill]] = {
     CitationStrict.name: CitationStrict,
     TargetedRetrieval.name: TargetedRetrieval,
     ClarifyWhenAmbiguous.name: ClarifyWhenAmbiguous,
-    ChartIntent.name: ChartIntent,
     ScratchpadDiscipline.name: ScratchpadDiscipline,
 }
 """Name -> class for every skill Reigner ships with. Referenced by bare name."""

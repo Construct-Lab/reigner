@@ -1113,14 +1113,13 @@ system prompt); a skill deepens a rule, it doesn't enforce one on its own.
 
 #### Bundled skills
 
-Five ship with Reigner. Reference any by **bare name**:
+Four ship with Reigner. Reference any by **bare name**:
 
 | Name | Loads when the model needs to… | Requires |
 |---|---|---|
 | `citation_strict` | refuse a numeric claim without a registered citation | `register_citation` |
 | `targeted_retrieval` | narrow with the `get_json_field → grep → read` grammar before reading | — |
 | `clarify_when_ambiguous` | ask a clarifying question instead of guessing | `request_clarification` |
-| `chart_intent` | emit a `<chart_intent>` block before the answer when data is chartable | — |
 | `scratchpad_discipline` | persist a hard-won fact with `save_note` so compaction can't lose it | `save_note` |
 
 The `Requires` column is each skill's `tools_required` — validated against the

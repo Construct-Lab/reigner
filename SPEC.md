@@ -123,7 +123,6 @@ reigner/
 │   ├── citation_strict.py
 │   ├── clarify_when_ambiguous.py
 │   ├── targeted_retrieval.py
-│   ├── chart_intent.py
 │   └── scratchpad_discipline.py
 ├── recipes/                     # init-time scaffolds (§9, §14)
 │   ├── document_qa/             # the v0 hero recipe (ApolloScope-shaped)
@@ -861,7 +860,6 @@ Bundled skills in v0:
 - `citation_strict`
 - `clarify_when_ambiguous`
 - `targeted_retrieval` (the `get_json_field → grep → read` grammar)
-- `chart_intent` (emit `<chart_intent>` blocks before final answer)
 - `scratchpad_discipline` (when to use `save_note`)
 
 Skills declared in `reigner.yaml`:
