@@ -206,17 +206,19 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
 
 All Phase 1 tracks must be stable before these begin.
 
-- [ ] **[T-30 #30](https://github.com/Construct-Lab/reigner/issues/30)** `feat: REIGNER.md loader + skill composition` `S`
+- [x] **[T-30 #30](https://github.com/Construct-Lab/reigner/issues/30)** `feat: REIGNER.md loader + skill composition` `S`
   - `role/loader.py`: read `./REIGNER.md` from the project root (single file, no cascade per SPEC §9)
   - `role/compose.py`: append active skill blocks + dynamic per-turn context to the prompt
   - `role/templates/`: starter REIGNER.md files bundled with each recipe (init-time scaffolds, not runtime sources)
   - Sized down from M → S now that the cascade is gone
   - Depends on: #17
+  - Done — merged in #113 (implemented together with T-31: loader + skills are one change)
 
-- [ ] **[T-31 #31](https://github.com/Construct-Lab/reigner/issues/31)** `feat: Skills system + 5 bundled skills` `M`
+- [x] **[T-31 #31](https://github.com/Construct-Lab/reigner/issues/31)** `feat: Skills system + 5 bundled skills` `M`
   - `skills/`: `Skill` protocol, `SkillRegistry`, `citation_strict`, `clarify_when_ambiguous`,
-    `targeted_retrieval`, `chart_intent`, `scratchpad_discipline`
+    `targeted_retrieval`, `scratchpad_discipline`
   - Depends on: #30
+  - Done — merged in #113. `chart_intent` intentionally dropped (no renderer consumes a chart block; revisit as a declarative `ChartIntentEvent` when a surface exists)
 
 - [ ] **[T-32 #32](https://github.com/Construct-Lab/reigner/issues/32)** `feat: document_qa recipe` `L`
   - `recipes/document_qa/`: bundled REIGNER.md, reigner.yaml, schema.yaml, extractor stub (init-time scaffolds); `recipe.py` wires store, BM25, pseudo-tools, skills into a three-line API
