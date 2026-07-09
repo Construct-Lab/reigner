@@ -188,6 +188,13 @@ def _build_stub_results(events: Sequence[Event]) -> dict[str, dict[str, deque[An
     Intercepted verbs (pseudo + provenance) are skipped — the loop handles them
     inline, so they never reach a stub tool. Queues preserve multiple different
     results from repeated calls with identical arguments.
+
+    ``load_skill`` is deliberately *not* an intercepted verb — it is a real
+    read-only tool. That is what routes it through this stub path: the recorded
+    skill body replays verbatim, so a resumed session carries the exact
+    instructions the model saw even if the skill was later removed from
+    ``role.skills``. (Re-resolving from the live registry would break on removal
+    and could substitute an edited body.)
     """
     pending: dict[str, tuple[str, dict[str, Any]]] = {}  # call_id -> (name, args)
     grouped: dict[str, dict[str, deque[Any]]] = defaultdict(lambda: defaultdict(deque))

@@ -18,8 +18,20 @@ from pathlib import Path
 import pytest
 
 from reigner.harness.agent import Harness
+from reigner.skills import Skill
 from reigner.tools.base import tool
 from reigner.tools.registry import ToolRegistrationError
+from reigner.types import ConfigError
+
+
+class NeedsMissingTool(Skill):
+    """Fixture skill whose tools_required names a tool no config wires up."""
+
+    name = "needs_missing_tool"
+    description = "Requires a tool that isn't wired."
+    tools_required = ["totally_made_up_tool"]
+    instructions = "Use the made-up tool."
+
 
 MINIMAL = """\
 name: demo
@@ -27,6 +39,8 @@ model:
   provider: openai
   name: gpt-4o
 """
+
+SKILLS_SECTION = "role:\n  skills:\n    - citation_strict\n    - targeted_retrieval\n"
 
 ORACLE_SECTION = "oracle:\n  provider: anthropic\n  model: claude-opus-4-7\n"
 
@@ -84,3 +98,38 @@ def test_user_tool_colliding_with_builtin_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ToolRegistrationError):
         Harness.from_config(_write(tmp_path, MINIMAL), tools=[save_note])
+
+
+# ---------------------------------------------------------------------------
+# Skill composition (issue #30)
+# ---------------------------------------------------------------------------
+
+
+def test_no_skills_means_no_load_skill_tool(tmp_path: Path) -> None:
+    h = Harness.from_config(_write(tmp_path, MINIMAL))
+    assert "load_skill" not in {t.name for t in h.registry}
+
+
+def test_configured_skills_register_load_skill_and_compose_menu(tmp_path: Path) -> None:
+    h = Harness.from_config(_write(tmp_path, MINIMAL + SKILLS_SECTION))
+    assert "load_skill" in {t.name for t in h.registry}
+    # The menu (not the bodies) is composed into the stable ROLE.
+    assert "## Available skills" in h.role
+    assert "- citation_strict:" in h.role
+    assert "- targeted_retrieval:" in h.role
+    # Bodies never leak into the stable ROLE.
+    assert "verifiable source" not in h.role
+
+
+def test_unknown_skill_name_fails_config(tmp_path: Path) -> None:
+    section = "role:\n  skills:\n    - not_a_real_skill\n"
+    with pytest.raises(ConfigError, match="unknown skill"):
+        Harness.from_config(_write(tmp_path, MINIMAL + section))
+
+
+def test_skill_requiring_unwired_tool_fails_build(tmp_path: Path) -> None:
+    """A skill's tools_required is validated against the wired registry."""
+
+    section = "role:\n  skills:\n    - tests.harness.test_agent_builtin_tools:NeedsMissingTool\n"
+    with pytest.raises(ConfigError, match="requires tool"):
+        Harness.from_config(_write(tmp_path, MINIMAL + section))

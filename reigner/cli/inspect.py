@@ -225,36 +225,45 @@ def _json_field_count(path: Path) -> str:
 def _inspect_role(
     config: str = typer.Option(_DEFAULT_CONFIG, "--config", "-c"),
 ) -> None:
-    """Print REIGNER.md content + resolved path + configured skills list.
+    """Print the composed ROLE: REIGNER.md plus the active skill menu.
 
-    Composed ROLE (file + active skills + dynamic context) is deferred until
-    the skills loader lands; the header below signals that.
+    Skill *bodies* are not shown — they are injected into history on demand
+    when the model calls ``load_skill(name)``, not part of the stable ROLE.
     """
+    from reigner.skills.registry import resolve_skills
+    from reigner.types import ConfigError, ensure_importable
+
     cfg = _load_config(Path(config))
+    ensure_importable(cfg.config_path.parent if cfg.config_path else None)
     console = Console()
 
     role_path = cfg.resolve(cfg.role.file)
-    skills = cfg.role.skills
-
     console.print(f"[dim]file:   {role_path}[/dim]")
-    if skills:
-        console.print(f"[dim]skills: {', '.join(skills)}[/dim]")
-    else:
-        console.print("[dim]skills: (none configured)[/dim]")
     console.print("[dim]" + "─" * 40 + "[/dim]")
 
-    if not role_path.exists():
+    if role_path.exists():
+        console.print(role_path.read_text())
+    else:
         console.print(f"[yellow]REIGNER.md not found at {role_path}[/yellow]")
+
+    if not cfg.role.skills:
+        console.print("\n[dim]skills: (none configured)[/dim]")
         return
 
-    console.print(role_path.read_text())
+    try:
+        skills = resolve_skills(cfg.role.skills)
+    except ConfigError as exc:
+        console.print(f"\n[red]skills: could not resolve — {exc}[/red]")
+        return
 
-    if skills:
-        console.print("[dim]" + "─" * 40 + "[/dim]")
-        console.print(
-            "[dim](composed ROLE = REIGNER.md + active skill blocks + dynamic context — "
-            "the skills loader is not yet available; this prints the source file only.)[/dim]"
-        )
+    console.print("\n[dim]" + "── Active skills (menu) " + "─" * 17 + "[/dim]")
+    width = max(len(s.name) for s in skills)
+    for s in skills:
+        console.print(f"[bold]{s.name.ljust(width)}[/bold]  [dim]{s.description}[/dim]")
+    console.print(
+        f"\n[dim]{len(skills)} skill(s) loaded on demand via load_skill(name). "
+        "Bodies are injected into history when invoked — not shown here.[/dim]"
+    )
 
 
 # ---------------------------------------------------------------------------

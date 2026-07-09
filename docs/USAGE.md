@@ -84,7 +84,7 @@ output in Section 3 is marked representative.
 | Serve — HTTP / SSE | ✅ | `reigner serve --http` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
-| Skills (on-demand modules) | ⏳ | `role.skills:` in `reigner.yaml` | [Section 5](#5-known-gaps--not-yet-wired) |
+| Skills (on-demand modules) | ✅ | `role.skills:` in `reigner.yaml` | [Section 3.9](#39-skills--on-demand-instruction-modules) |
 | Eval — scorecard / report | ✅ | `reigner eval [--report]` | [Section 3.8](#38-evaluate-your-agent--reigner-eval) |
 
 ---
@@ -657,8 +657,10 @@ sessions.store_path: ./.reigner/sessions
 └─────────────────────────┴──────────────────┴─────────┘
 ```
 
-**`role`** — prints the `REIGNER.md` the agent will load, its resolved path, and
-the configured skills list.
+**`role`** — prints the composed ROLE: the `REIGNER.md` the agent will load, its
+resolved path, and the **skill menu** (each configured skill's name +
+one-line description). Skill *bodies* aren't shown — they load on demand at run
+time (see [Section 3.9](#39-skills--on-demand-instruction-modules)).
 
 **`tools`** — enumerates every tool the harness would register from this config.
 With only the built-ins wired you get four pseudo-tools; once you uncomment
@@ -1073,6 +1075,172 @@ project, or the deterministic check logic directly via `pytest tests/eval/`.
 
 ---
 
+### 3.9 Skills — on-demand instruction modules
+
+A **skill** is a block of instructions the model pulls into context *only when
+it needs it*. Your `REIGNER.md` is loaded in full at every turn — it's the right
+home for rules that must **always** apply. A skill is the opposite: deep,
+situational guidance that would bloat every prompt if it were always present, so
+it's disclosed in two levels.
+
+- **Level 1 — the menu (always present, cached).** At session start, each
+  configured skill contributes one line — its `name` and a one-line
+  `description` — composed into the stable ROLE. This is the model's cue that
+  the skill exists. It's a handful of tokens and it lives in the cached prompt
+  prefix, so it costs almost nothing.
+- **Level 2 — the body (loaded on demand).** When a question makes a skill
+  relevant, the model calls the `load_skill` tool; the skill's full
+  `instructions` come back as a tool result and land in the conversation
+  history. The stable ROLE is never rewritten, so the prompt cache keeps hitting
+  on every adapter — the only cost is one turn of the body's tokens.
+
+This is progressive disclosure, and it's uniform: there is **no "always-on"
+skill tier**. Anything that must always hold goes in `REIGNER.md` (which is the
+system prompt); a skill deepens a rule, it doesn't enforce one on its own.
+
+#### Why skills
+
+- **Keep the ROLE lean and the cache warm.** A 400-line procedure playbook in
+  `REIGNER.md` is paid on every turn of every question. As a skill it's paid
+  only on the questions that invoke it.
+- **User-extensible.** The edge is that *you* write skills. A `role.skills:`
+  entry is either a **bundled name** or a **dotted path** to your own `Skill`
+  subclass — resolved against the project root, exactly like `tools.custom` and
+  `plugins`.
+- **Faithful across sessions.** `load_skill` is an ordinary tool call, so it's
+  recorded in the session log. `reigner session` resume/fork/replay replays the
+  *exact body the model saw* — even if you later remove the skill from config.
+
+#### Bundled skills
+
+Five ship with Reigner. Reference any by **bare name**:
+
+| Name | Loads when the model needs to… | Requires |
+|---|---|---|
+| `citation_strict` | refuse a numeric claim without a registered citation | `register_citation` |
+| `targeted_retrieval` | narrow with the `get_json_field → grep → read` grammar before reading | — |
+| `clarify_when_ambiguous` | ask a clarifying question instead of guessing | `request_clarification` |
+| `chart_intent` | emit a `<chart_intent>` block before the answer when data is chartable | — |
+| `scratchpad_discipline` | persist a hard-won fact with `save_note` so compaction can't lose it | `save_note` |
+
+The `Requires` column is each skill's `tools_required` — validated against the
+wired tool registry at harness-build time, so a skill can't reference a tool
+your project never configured (you get a `ConfigError`, not a silent no-op).
+
+> Note these are *Reigner skills*, not Claude's "Skills" feature — same word,
+> different concept.
+
+#### Enabling skills
+
+List them under `role.skills:` — bundled names and your own dotted paths mix
+freely:
+
+```yaml
+role:
+  file: REIGNER.md
+  skills:
+    - citation_strict          # bundled, by bare name
+    - house.style:HouseStyle   # your own, by dotted path (module:Class)
+```
+
+`inspect role` shows the composed menu (offline, no model):
+
+```console
+$ reigner inspect role
+file:   /path/to/mydocs/REIGNER.md
+────────────────────────────────────────
+# Identity
+You answer questions about the Orbit product from compiled docs.
+
+
+── Active skills (menu) ─────────────────
+citation_strict  Refuse to make numeric claims without a registered citation.
+house_style      Answer in the Orbit house voice: lead with the number, then one
+sentence of why.
+
+2 skill(s) loaded on demand via load_skill(name). Bodies are injected into
+history when invoked — not shown here.
+```
+
+When at least one skill is configured, a `load_skill` tool is registered (it's
+absent otherwise); you'll see it in `reigner inspect tools`.
+
+#### Writing your own skill
+
+Subclass `Skill` and set four class attributes. Put it anywhere importable from
+the project root — a `skills/` package alongside `extractors/` is the natural
+spot:
+
+```python
+# skills/house.py  (referenced as `skills.house:HouseStyle`)
+from reigner.skills import Skill
+
+
+class HouseStyle(Skill):
+    """Answer in the Orbit house voice."""
+
+    name = "house_style"                 # what the model passes to load_skill(name=...)
+    description = (                       # the Level-1 menu line — make it a crisp trigger
+        "Answer in the Orbit house voice: lead with the number, then one "
+        "sentence of why."
+    )
+    tools_required = []                   # tool names the instructions assume (validated at build)
+    instructions = """
+    Lead with the concrete figure the user asked for. Follow with exactly one
+    sentence of context. No hedging words ("roughly", "I think"). If a number
+    isn't in the retrieved sources, say so rather than estimating.
+    """                                   # the Level-2 body, revealed on load
+```
+
+`description` is the model's only cue for *when* to load the skill, so phrase it
+as a trigger ("Answer in the house voice…"), not a title ("House voice"). The
+`instructions` body is dedented and stripped automatically, so a triple-quoted
+indented literal reads cleanly. An `examples` list attribute is also available
+(carried, not composed into the body in v0). Keep bodies concise — very long
+bodies are subject to the same per-tool truncation as any tool result
+(`settings.max_tool_result_chars`).
+
+#### Adding and removing skills flexibly
+
+Skills are just a list — add, reorder, or drop entries and re-run. Two things to
+know:
+
+- **To disable all skills, use `skills: []`** — an explicit empty list. A bare
+  `skills:` with every entry commented out parses as `null`, which fails the
+  "must be a list" check:
+
+  ```yaml
+  # ✗ fails: "role.skills: Input should be a valid list"
+  role:
+    skills:
+    #  - citation_strict
+
+  # ✓ valid: no skills
+  role:
+    skills: []
+    #  - citation_strict   # keep options as comments below the empty list
+  ```
+
+- **Removing a skill is safe for old sessions.** Because a loaded body was
+  recorded in the session log, resuming or replaying a past session still
+  reproduces it verbatim — dropping the skill from `role.skills` only affects
+  *new* turns, which no longer see it in the menu.
+
+#### What it looks like at run time
+
+Ask two questions back to back and compare the traces in `reigner chat`:
+
+1. *"What does Orbit cost?"* — answered directly; no skill loaded.
+2. *"Give me the pricing in our house voice, leading with the number."* — the
+   model calls `load_skill(name="house_style")` first (visible as a tool call in
+   `--json` / `--verbose`), its body enters history, and the answer follows the
+   method.
+
+That contrast is the whole point: question 1 pays nothing for a skill it doesn't
+need, and question 2 pulls the guidance in exactly when it applies.
+
+---
+
 ## 4. Configuration reference
 
 ### `reigner.yaml`
@@ -1104,7 +1272,7 @@ settings:                    # guardrail knobs (see `inspect config`)
 
 role:
   file: REIGNER.md
-  skills: []                 # on-demand skill modules (⏳ see Section 5)
+  skills: []                 # on-demand skill modules — bundled names or dotted paths (§3.9)
 
 tools:                       # commented out in the blank scaffold —
   artifacts:                 # uncomment to wire the artifact toolbox
@@ -1167,7 +1335,7 @@ settings:                   # all optional — these defaults are the source of 
 
 role:
   file: REIGNER.md          # str · default "REIGNER.md" · the instruction file
-  skills: []                # list[dotted-path] · default [] · ⏳ accepted, not yet wired (§5)
+  skills: []                # list[str] · default [] · bundled names | dotted paths → Skill subclasses (§3.9)
   # cascade: ...            # ✗ HARD-REJECTED at load (SPEC §9) — there is no runtime cascade
 
 tools:                      # every sub-block optional; omit one to leave that surface unwired
@@ -1252,8 +1420,6 @@ tracking issue.
   the CLI. Each case runs in a fresh session and never aborts the suite.
 - **`reigner init --recipe`** — ⏳ `--help` says *"not yet bundled"*; the
   `recipes/` package ships empty. Use `--blank` (or `--guided`) for now.
-- **Skills** (`role.skills:`) — ⏳ the on-demand skill loader package is empty;
-  the config key is accepted but does nothing yet.
 - **`reigner serve --mcp`** — ⏳ exits with a "not yet implemented" message
   ([Section 3.6](#36-serve-the-agent--reigner-serve)).
 - **Real-time steering interrupt-preemption** — ⏳ deliberately not built.
