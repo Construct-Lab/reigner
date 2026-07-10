@@ -100,14 +100,7 @@ def test_force_overwrites_scaffold_keeps_foreign(tmp_path: Path) -> None:
     assert (target / "notes.txt").read_text() == "keep me"
 
 
-def test_recipe_stub_exits_with_not_bundled_message(tmp_path: Path) -> None:
-    result = _run(["init", "demo", "--recipe", "document_qa"], tmp_path)
-    assert result.exit_code == 1
-    # Pinned: when recipe bundling lands, update this test together with the stub.
-    assert "not yet bundled" in result.stderr
-    assert not (tmp_path / "demo").exists()
-
-
+# `--recipe` behavior is covered in test_init_recipe.py.
 # Guided is the default mode; its behavior is covered in test_init_guided.py.
 
 

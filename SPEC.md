@@ -126,8 +126,7 @@ reigner/
 │   └── scratchpad_discipline.py
 ├── recipes/                     # init-time scaffolds (§9, §14)
 │   ├── document_qa/             # the v0 hero recipe (ApolloScope-shaped)
-│   │   ├── __init__.py
-│   │   ├── recipe.py
+│   │   ├── __init__.py          # curated files only — a recipe is data, not code
 │   │   ├── REIGNER.md           # copied into the user's project at init
 │   │   ├── reigner.yaml         # copied into the user's project at init
 │   │   ├── schema.yaml          # copied into the user's project at init
@@ -208,13 +207,14 @@ async def main():
 asyncio.run(main())
 ```
 
-The recipe path — same agent, three lines:
+The recipe path — same agent, three commands. `reigner init --recipe document_qa`
+copies a tuned project (REIGNER.md, reigner.yaml, schema.yaml) into place; from
+then on it runs through the ordinary `reigner.yaml` path above:
 
-```python
-from reigner.recipes import document_qa
-
-harness = document_qa.build(artifacts_root="library/artifacts")
-session = harness.session()
+```bash
+reigner init demo --recipe document_qa
+reigner ingest
+reigner chat
 ```
 
 ---
@@ -1179,19 +1179,23 @@ This is the recipe that proves the design works. It wires every piece together f
 - The skills: `citation_strict`, `clarify_when_ambiguous`, `targeted_retrieval`.
 - Tuned `reigner.yaml` defaults for retrieval workloads.
 
-### 17.2 Build call
+### 17.2 How it is used
 
-```python
-from reigner.recipes import document_qa
+The recipe is a bundle of curated files, not a runtime import — a recipe is
+init-time scaffold, not a runtime source (§9). `reigner init` copies them into
+the project and gets out of the way; the project runs through the ordinary
+`Harness.from_config` path over the copied `reigner.yaml`:
 
-harness = document_qa.build(
-    artifacts_root="library/artifacts",
-    index_path="search-index/documents.json",
-    schema=document_qa.SCHEMA,            # default ApolloScope-style schema
-    role_overrides={"identity": "..."},   # tweak parts of the bundled ROLE
-    model="claude-opus-4-7",
-)
+```bash
+reigner init demo --recipe document_qa   # copies REIGNER.md + reigner.yaml + schema.yaml + extractor stub
+cd demo
+reigner ingest                           # compile raw docs into artifacts
+reigner chat                             # ask questions with citations
 ```
+
+The bundled `schema.yaml` is authored to match `ArtifactSchema.document_qa_default()`
+and guarded against drift by a test. Customize by editing the copied files —
+they are the project's own, with no cascade back to the recipe.
 
 ### 17.3 Reference corpus for v0 launch
 

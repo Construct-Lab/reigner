@@ -1,0 +1,31 @@
+# schema.yaml — the compiled-artifact shape for the document_qa recipe.
+#
+# Loaded by ArtifactSchema.from_yaml(). The same declaration is shared by the
+# ingestion extractor (to validate what it writes) and the artifact tools (to
+# know what lives on disk). This file mirrors ArtifactSchema.document_qa_default()
+# — the uniform "every document shares a shape" layout the recipe is built for.
+#
+# Adapt it to your corpus; keep it in sync with your extractor's output.
+
+# Each artifact directory is keyed by entity id + version, e.g. AAPL/2024/.
+entity_path: "{entity_id}/{version}"
+
+sections:
+  # One free-form summary of the whole document.
+  - name: document_summary
+  # A glob prefix (note the *): one artifact per source section, e.g.
+  # sections/business, sections/risk_factors, sections/mdna. Globs are open —
+  # the extractor decides the exact leaf names — so they can't be `required`.
+  - name: "sections/*"
+  # Derived, cross-cutting notes the agent can retrieve, e.g. insights/liquidity.
+  - name: "insights/*"
+
+json_artifacts:
+  # Structured, queryable facts about the document. Kept field-free here so the
+  # recipe stays corpus-agnostic; declare fields once you know your metrics, e.g.
+  #   - name: metadata.json
+  #     fields:
+  #       entity_id: str
+  #       version: str
+  #       title: str
+  - name: metadata.json
