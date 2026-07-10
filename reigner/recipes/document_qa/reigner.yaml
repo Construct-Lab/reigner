@@ -1,0 +1,60 @@
+# reigner.yaml — tuned configuration for the document_qa recipe.
+#
+# Copied verbatim into your project by `reigner init --recipe document_qa`.
+# After init this file — not the recipe — is the source of truth; edit it freely.
+
+name: document_qa
+version: 0.1.0
+
+# Retrieval workloads reward a strong, low-temperature model.
+model:
+  provider: openai
+  name: gpt-5.5
+  temperature: 0.2
+
+# Single-turn escalation. The agent can call `escalate_to_oracle` to get a
+# fresh-context second opinion on a hard question. Same tier as the main loop —
+# a clean-slate reviewer, not a bigger model. Drop this block to remove the tool.
+oracle:
+  provider: openai
+  model: gpt-5.5
+
+settings:
+  max_iterations: 25
+  context_budget_tokens: 100000
+  max_tool_result_chars: 4000
+  nudge_interval: 3
+  max_consecutive_errors: 3
+  compaction_thresholds: [0.80, 0.90, 0.95]
+  parallel_reads: true
+
+role:
+  file: REIGNER.md
+  skills:
+    - citation_strict          # every numeric claim must map to a retrieved citation
+    - clarify_when_ambiguous   # ask instead of guessing when the entity is unclear
+    - targeted_retrieval       # search narrowly, read in bounded chunks
+
+tools:
+  # Compiled artifacts are the grounded answer surface.
+  artifacts:
+    root: library/artifacts
+    schema: ./schema.yaml
+  # BM25 keyword search over the compiled index locates artifacts to read.
+  search:
+    type: bm25
+    index_path: search-index/documents.json
+  custom: []
+
+sessions:
+  store_path: ./.reigner/sessions
+  auto_save: true
+
+eval:
+  cases: eval/cases.yaml
+  checks:
+    - faithfulness
+    - repeated_calls
+    - coverage
+
+plugins: []

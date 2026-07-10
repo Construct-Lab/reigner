@@ -221,7 +221,7 @@ All Phase 1 tracks must be stable before these begin.
   - Done — merged in #113. `chart_intent` intentionally dropped (no renderer consumes a chart block; revisit as a declarative `ChartIntentEvent` when a surface exists)
 
 - [ ] **[T-32 #32](https://github.com/Construct-Lab/reigner/issues/32)** `feat: document_qa recipe` `L`
-  - `recipes/document_qa/`: bundled REIGNER.md, reigner.yaml, schema.yaml, extractor stub (init-time scaffolds); `recipe.py` wires store, BM25, pseudo-tools, skills into a three-line API
+  - `recipes/document_qa/`: bundled REIGNER.md, reigner.yaml (artifacts + BM25 + pseudo-tools + skills + oracle), schema.yaml, extractor stub — curated init-time scaffolds copied by `reigner init --recipe document_qa`; a recipe is data, not code (no runtime `build()`)
   - Depends on: #8, #9, #10, #31
   - _The integration milestone — if this works end-to-end, the design is sound_
 
