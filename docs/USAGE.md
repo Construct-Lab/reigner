@@ -72,7 +72,7 @@ output in Section 3 is marked representative.
 |---|---|---|---|
 | Scaffold — blank | ✅ | `reigner init NAME --blank` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
 | Scaffold — guided (default) | ✅ | `reigner init NAME --guided` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
-| Scaffold — recipe | ⏳ | `reigner init NAME --recipe X` | not yet bundled |
+| Scaffold — recipe | ✅ | `reigner init NAME --recipe document_qa` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
 | Ingest (compile docs) | ✅ | `reigner ingest` | [Section 3.2](#32-ingest-your-documents--reigner-ingest) |
 | Ingest dry-run | ✅ | `reigner ingest --dry-run` | [Section 3.2](#32-ingest-your-documents--reigner-ingest) |
 | Chat — REPL | ✅ | `reigner chat` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
@@ -103,8 +103,11 @@ have a working project by Section 3.4 (and a talking agent by Section 3.3 once y
   following this guide.
 - `--guided` — *the default*; an interactive Q&A that asks a model to generate
   your `REIGNER.md`/`schema.yaml`/extractor. ✅ Needs a model key.
-- `--recipe NAME` — ⏳ would copy a bundled recipe, but **no recipes ship yet**
-  (`--help` says *"not yet bundled"*).
+- `--recipe NAME` — ✅ copies a bundled recipe (curated `reigner.yaml` /
+  `REIGNER.md` / `schema.yaml` + a fill-in extractor and a wired pipeline) over
+  the shared layout. One ships today: `document_qa` (see
+  [Section 3.1.1](#311-the-document_qa-recipe)). An unknown name fails loudly
+  with the list of what's bundled.
 
 Add `--force` to overwrite scaffold files when the target directory is non-empty.
 
@@ -152,6 +155,69 @@ What each piece is (full reference in [Section 4](#4-configuration-reference)):
 
 ```console
 $ cd mydocs
+```
+
+#### 3.1.1 The `document_qa` recipe
+
+`--blank` gives you empty stubs; `--guided` asks a model to generate your files.
+The **recipe** is the middle path: a curated, ready-to-run project for the
+common case — question-answering over a corpus of same-shaped documents — copied
+in verbatim. It's the fastest 0→1, and unlike `--guided` it needs no model call
+to scaffold.
+
+```console
+$ reigner init acme-docs --recipe document_qa
+✓ Scaffolded acme-docs/ (document_qa recipe mode)
+
+acme-docs/
+├── eval/
+│   └── cases.yaml
+├── extractors/
+│   ├── __init__.py
+│   ├── my_extractor.py
+│   └── pipeline.py
+├── library/
+│   ├── artifacts/
+│   └── raw/
+├── search-index/
+├── .env.example
+├── .gitignore
+├── README.md
+├── REIGNER.md
+├── reigner.yaml
+└── schema.yaml
+
+Next:
+  cd acme-docs
+  cp .env.example .env   # add your API key
+  # edit extractors/my_extractor.py — write the extraction prompt
+  # edit extractors/pipeline.py — name your entities
+  reigner ingest
+  reigner chat
+```
+
+Same tree as `--blank`, but the files are **filled in, not stubbed**:
+
+| File | State out of the box |
+|---|---|
+| `reigner.yaml` | ✅ Tuned model / oracle / skills / tool wiring — runs as-is |
+| `REIGNER.md` | ✅ Targeted-retrieval instructions over the real tool grammar |
+| `schema.yaml` | ✅ The `document_qa` artifact shape (`document_summary`, `sections/*`, `insights/*`, `metadata.json`) |
+| `extractors/pipeline.py` | ✅ Runnable pipeline wired to the recipe schema — one marked TODO is the entity-naming rule |
+| `extractors/my_extractor.py` | ✍️ A single-call `LLMExtractor` — you write the extraction **prompt** for your documents |
+
+A recipe is **init-time data, not runtime code**: after `init` the copied files
+*are* your project, and the recipe is never referenced again (no cascade — see
+[`REIGNER.md`](#reignermd)). So the only **required** work before `ingest` is
+domain-specific: drop your documents in `library/raw/`, add an API key, and write
+the extraction prompt. The pipeline and schema run on their defaults; edit them
+only to change how entities are named or what shape you extract.
+
+An unknown recipe name fails loudly with what's available:
+
+```console
+$ reigner init x --recipe nope
+✗ unknown recipe 'nope'. Available: document_qa.
 ```
 
 ### 3.2 Ingest your documents — `reigner ingest`
@@ -1417,8 +1483,9 @@ tracking issue.
   (`EvalSuite.from_yaml(...).run(harness, checks=[...])` → `render_scorecard` /
   `render_report`); see [Section 3.8](#38-evaluate-your-agent--reigner-eval) for
   the CLI. Each case runs in a fresh session and never aborts the suite.
-- **`reigner init --recipe`** — ⏳ `--help` says *"not yet bundled"*; the
-  `recipes/` package ships empty. Use `--blank` (or `--guided`) for now.
+- **`reigner init --recipe`** — ✅ ships the `document_qa` recipe
+  ([Section 3.1.1](#311-the-document_qa-recipe)). `code_navigator` (the contrast
+  recipe named in the SPEC) is not bundled yet.
 - **`reigner serve --mcp`** — ⏳ exits with a "not yet implemented" message
   ([Section 3.6](#36-serve-the-agent--reigner-serve)).
 - **Real-time steering interrupt-preemption** — ⏳ deliberately not built.
