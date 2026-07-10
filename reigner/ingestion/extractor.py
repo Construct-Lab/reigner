@@ -30,6 +30,7 @@ from reigner.harness.adapters import (
     AdapterError,
     ModelAdapter,
     TransientAdapterError,
+    build_adapter,
 )
 from reigner.harness.adapters.base import TokenUsage
 from reigner.harness.state import Prompt, Turn
@@ -40,6 +41,7 @@ from reigner.ingestion.results import (
     TransientError,
     ValidationError,
 )
+from reigner.types import ConfigError, ProviderName
 
 # ---------------------------------------------------------------------------
 # Adapter resolution from "provider:model_id" strings
@@ -49,36 +51,22 @@ from reigner.ingestion.results import (
 def resolve_adapter(model_str: str) -> ModelAdapter:
     """Construct an adapter from a ``"provider:model_id"`` string.
 
-    Users who need to pass api keys or other config should construct the
-    adapter directly and pass it to ``LLMExtractor(adapter=...)``; this
-    helper is the convenience path for the common case.
+    A thin string-parsing convenience over
+    :func:`reigner.harness.adapters.build_adapter`: it splits the shorthand and
+    delegates construction (and error handling) to the canonical builder. Users
+    who need to pass api keys or other config should construct the adapter
+    directly and pass it to ``LLMExtractor(adapter=...)``.
     """
     if ":" not in model_str:
-        raise ValueError(
+        raise ConfigError(
             f"model {model_str!r} must be of the form 'provider:model_id' "
-            "(e.g. 'anthropic:claude-opus-4-7'). Supported providers: "
-            "anthropic, openai, gemini."
+            "(e.g. 'anthropic:claude-opus-4-7')."
         )
     provider, model_id = model_str.split(":", 1)
-    provider = provider.strip().lower()
-    model_id = model_id.strip()
-
-    if provider == "anthropic":
-        from reigner.harness.adapters.anthropic import AnthropicAdapter
-
-        return AnthropicAdapter(model=model_id)
-    if provider == "openai":
-        from reigner.harness.adapters.openai import OpenAIAdapter
-
-        return OpenAIAdapter(model=model_id)
-    if provider == "gemini":
-        from reigner.harness.adapters.gemini import GeminiAdapter
-
-        return GeminiAdapter(model=model_id)
-    raise ValueError(
-        f"unknown provider {provider!r} in model={model_str!r}. "
-        "Supported providers: anthropic, openai, gemini."
-    )
+    # ``build_adapter`` enforces ProviderName at runtime via its fall-through, so
+    # an unknown provider here still raises ConfigError — the cast only silences
+    # the static checker on the raw split string.
+    return build_adapter(cast(ProviderName, provider.strip().lower()), model_id.strip())
 
 
 # ---------------------------------------------------------------------------

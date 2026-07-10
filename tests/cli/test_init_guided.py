@@ -103,7 +103,7 @@ def _drive(
         monkeypatch.setenv(env_key, "test-key")
 
     stub = adapter or StubAdapter()
-    monkeypatch.setattr("reigner.harness.agent._build_adapter", lambda provider, model: stub)
+    monkeypatch.setattr("reigner.harness.adapters.build_adapter", lambda provider, model: stub)
 
     answer_iter = iter(answers)
     monkeypatch.setattr("reigner.cli._guided.RichPrompt.ask", lambda *a, **k: next(answer_iter))
