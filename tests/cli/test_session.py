@@ -379,7 +379,7 @@ def _no_adapter(monkeypatch: pytest.MonkeyPatch) -> Callable[[], None]:
     def _install() -> None:
         from reigner.harness import agent as agent_mod
 
-        monkeypatch.setattr(agent_mod, "_build_adapter", lambda provider, model: object())
+        monkeypatch.setattr(agent_mod, "build_adapter", lambda provider, model: object())
 
     return _install
 

@@ -340,9 +340,9 @@ def run_guided(name: str, *, force: bool) -> None:
     answers = _collect_answers(console)
     console.print()
 
-    from reigner.harness.agent import _build_adapter
+    from reigner.harness.adapters import build_adapter
 
-    adapter = _build_adapter(provider, model)
+    adapter = build_adapter(provider, model)
     try:
         role_md, schema_yaml = asyncio.run(_generate(console, adapter, answers))
     except AdapterError as exc:

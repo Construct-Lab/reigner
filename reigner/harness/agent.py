@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from reigner.config import ReignerConfig, SessionsConfig, SettingsConfig
+from reigner.harness.adapters import build_adapter
 from reigner.harness.adapters.base import ModelAdapter
 from reigner.harness.cache import ToolResultCache
 from reigner.harness.events import Event, FinalAnswerEvent, UserQueryEvent
@@ -39,7 +40,7 @@ from reigner.tools.pseudo import (
 )
 from reigner.tools.registry import ToolRegistry
 from reigner.tools.skills import build_skill_tools
-from reigner.types import ConfigError, Profile, ProviderName, ensure_importable, import_dotted
+from reigner.types import ConfigError, Profile, ensure_importable, import_dotted
 
 if TYPE_CHECKING:
     pass
@@ -121,11 +122,9 @@ class Harness:
         # (role.skills, tools.custom, plugins) resolve regardless of cwd.
         ensure_importable(cfg.config_path.parent if cfg.config_path else None)
 
-        adapter = _build_adapter(cfg.model.provider, cfg.model.name)
+        adapter = build_adapter(cfg.model.provider, cfg.model.name)
         oracle_adapter = (
-            _build_adapter(cfg.oracle.provider, cfg.oracle.model)
-            if cfg.oracle is not None
-            else None
+            build_adapter(cfg.oracle.provider, cfg.oracle.model) if cfg.oracle is not None else None
         )
 
         # Resolve configured skills and compose their menu into the ROLE. Only
@@ -590,35 +589,6 @@ class Session:
 # ---------------------------------------------------------------------------
 # Helpers — adapter resolution and role-file loading
 # ---------------------------------------------------------------------------
-
-
-def _build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
-    """Resolve a provider literal to a concrete adapter instance.
-
-    Lazy-imports the per-provider module so users only pay for what they use.
-    SDK absence surfaces as a clear :class:`ConfigError` rather than an opaque
-    ``ImportError`` deep in adapter code.
-    """
-    try:
-        if provider == "openai":
-            from reigner.harness.adapters.openai import OpenAIAdapter
-
-            return OpenAIAdapter(model=model)
-        if provider == "anthropic":
-            from reigner.harness.adapters.anthropic import AnthropicAdapter
-
-            return AnthropicAdapter(model=model)
-        if provider == "gemini":
-            from reigner.harness.adapters.gemini import GeminiAdapter
-
-            return GeminiAdapter(model=model)
-    except ImportError as e:
-        raise ConfigError(
-            f"provider {provider!r} requires its optional dependency to be "
-            f"installed (e.g. `uv add reigner[{provider}]`): {e}"
-        ) from e
-
-    raise ConfigError(f"unknown model provider: {provider!r}")
 
 
 def build_artifact_tools(cfg: ReignerConfig) -> list[RunnableTool]:

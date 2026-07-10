@@ -22,6 +22,7 @@ from reigner.ingestion import (
     ValidationError,
     resolve_adapter,
 )
+from reigner.types import ConfigError
 from tests.ingestion.conftest import StubAdapter, make_response
 
 
@@ -71,12 +72,12 @@ def test_resolve_adapter_dispatches_anthropic() -> None:
 
 
 def test_resolve_adapter_unknown_provider_raises() -> None:
-    with pytest.raises(ValueError, match="unknown provider"):
+    with pytest.raises(ConfigError, match="unknown model provider"):
         resolve_adapter("nope:foo")
 
 
 def test_resolve_adapter_requires_provider_prefix() -> None:
-    with pytest.raises(ValueError, match="provider:model_id"):
+    with pytest.raises(ConfigError, match="provider:model_id"):
         resolve_adapter("claude-opus-4-7")
 
 
