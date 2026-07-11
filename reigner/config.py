@@ -15,6 +15,7 @@ Design notes:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -182,9 +183,17 @@ class SearchToolsConfig(BaseModel):
 class FsToolsConfig(BaseModel):
     """``tools.fs`` — bound to :class:`reigner.tools.fs.FsTools`.
 
-    ``root`` is the sandbox directory the agent is allowed to see; resolved
-    relative to the config file. ``write_enabled`` toggles whether
-    :func:`fs_write` is exposed (defaults off — read-only is the safe default).
+    Configure exactly one of:
+
+    - ``root`` — a single sandbox directory the agent is allowed to see.
+    - ``roots`` — a name→directory map exposed as one virtual tree, so the
+      agent can converse across several repos at once (e.g. ``backend`` and
+      ``frontend``). Each name becomes a top-level directory; a root name must
+      match ``[A-Za-z0-9_-]+``.
+
+    Paths are resolved relative to the config file. ``write_enabled`` toggles
+    whether :func:`fs_write` is exposed (defaults off — read-only is the safe
+    default).
 
     FsTools' other knobs (per-call caps, text-extension allowlist, ignored
     dirs) stay at library defaults for now; promote them into this block when
@@ -193,8 +202,21 @@ class FsToolsConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    root: str
+    root: str | None = None
+    roots: dict[str, str] | None = None
     write_enabled: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_root(self) -> FsToolsConfig:
+        if (self.root is None) == (self.roots is None):
+            raise ValueError("tools.fs needs exactly one of 'root' or 'roots'")
+        if self.roots is not None:
+            if not self.roots:
+                raise ValueError("tools.fs.roots must be a non-empty map")
+            for name in self.roots:
+                if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+                    raise ValueError(f"invalid root name {name!r}: use [A-Za-z0-9_-]")
+        return self
 
 
 class ToolsConfig(BaseModel):
@@ -314,13 +336,15 @@ class ReignerConfig(BaseModel):
         return self._config_path
 
     def resolve(self, sub_path: str | Path) -> Path:
-        """Resolve a relative path against the config file's parent directory.
+        """Resolve a path against the config file's parent directory.
 
-        Absolute paths pass through unchanged. If the config was constructed
-        in memory (no ``_config_path``), resolves against the current working
-        directory.
+        A leading ``~`` is expanded to the user's home directory first, so
+        ``~/repos/api`` works as a path. Absolute paths (including expanded
+        ``~`` ones) pass through unchanged. If the config was constructed in
+        memory (no ``_config_path``), relative paths resolve against the
+        current working directory.
         """
-        sub = Path(sub_path)
+        sub = Path(sub_path).expanduser()
         if sub.is_absolute():
             return sub
         base = self._config_path.parent if self._config_path else Path.cwd()

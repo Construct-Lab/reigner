@@ -20,7 +20,8 @@ def build_fs_read(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
         """Read a chunk of a text file under the fs root.
 
         Args:
-            path: Root-relative path (e.g. ``src/loop.py``).
+            path: Virtual-tree path (e.g. ``src/loop.py``, or
+                ``backend/src/loop.py`` when multiple roots are configured).
             offset: Character offset to start at.
             limit: Maximum characters to return. Capped at ``max_read_chars``.
 
@@ -34,7 +35,7 @@ def build_fs_read(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
             raise ValueError(f"limit must be > 0, got {limit}")
         if limit > fs.max_read_chars:
             limit = fs.max_read_chars
-        target = fs.resolve(path)
+        _root_name, target = fs.resolve(path)
         if not target.is_file():
             raise FileNotFoundError(f"no file at {path!r}")
         if not fs.is_text_extension(target):

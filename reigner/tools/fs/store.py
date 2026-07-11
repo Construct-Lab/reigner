@@ -2,9 +2,23 @@
 
 The store is the trust boundary: every path the agent supplies passes
 through :meth:`FsTools.resolve`, which rejects absolute paths, ``..``
-traversal, and symlinks that resolve outside the root. The same store
+traversal, and symlinks that resolve outside its root. The same store
 also owns the per-tool bounds, the ignore predicate, and the text-file
 extension allowlist so each tool module stays small.
+
+FsTools works in two modes:
+
+- **Single-root** (``FsTools(root)``): the agent sees one directory. Paths
+  are plain root-relative strings (``src/app.py``).
+- **Multi-root** (``FsTools(roots={...})``): a name→directory map is exposed
+  as one virtual tree. The first path segment selects the root
+  (``backend/src/app.py``); everything after it is validated inside *that*
+  root. This lets one agent converse across several repos at once without
+  merging them into a monorepo.
+
+Either way :meth:`resolve` returns ``(root_name, absolute_path)`` (the name is
+``""`` in single-root mode), and :meth:`display` turns an absolute path back
+into the string the agent should see — root-prefixed only when multi-root.
 
 ``fs_write`` is the only mutating tool. It is **only emitted** from
 :meth:`FsTools.tools` when ``write_enabled=True`` — there is no runtime
@@ -81,9 +95,16 @@ DEFAULT_IGNORED_DIRS: frozenset[str] = frozenset(
 class FsTools:
     """Root-bound sandbox for raw filesystem tools.
 
+    Pass exactly one of ``root`` (single-root mode) or ``roots`` (multi-root
+    mode). See the module docstring for how the two modes differ.
+
     Args:
-        root: Directory the agent is allowed to see. All tool paths are
-            interpreted relative to this root and validated against it.
+        root: Single directory the agent is allowed to see. All tool paths are
+            interpreted relative to this root and validated against it. Mutually
+            exclusive with ``roots``.
+        roots: Name→directory map exposed as one virtual tree. Each root name
+            becomes a top-level directory; the first path segment selects the
+            root. Mutually exclusive with ``root``.
         write_enabled: When True, ``tools()`` also emits ``fs_write``.
             Defaults to False so the read-only case is the obvious default.
         max_read_chars: Per-call character cap for ``fs_read``.
@@ -97,8 +118,9 @@ class FsTools:
 
     def __init__(
         self,
-        root: str | Path,
+        root: str | Path | None = None,
         *,
+        roots: dict[str, str | Path] | None = None,
         write_enabled: bool = False,
         max_read_chars: int = 8000,
         max_grep_matches: int = 20,
@@ -107,7 +129,17 @@ class FsTools:
         text_extensions: frozenset[str] | set[str] | None = None,
         ignored_dirs: frozenset[str] | set[str] | None = None,
     ) -> None:
-        self.root = Path(root).resolve()
+        if (root is None) == (roots is None):
+            raise ValueError("FsTools requires exactly one of 'root' or 'roots'")
+        if roots is not None:
+            if not roots:
+                raise ValueError("FsTools 'roots' must be a non-empty map")
+            self.multi_root = True
+            self.roots: dict[str, Path] = {name: Path(p).resolve() for name, p in roots.items()}
+        else:
+            assert root is not None
+            self.multi_root = False
+            self.roots = {"": Path(root).resolve()}
         self.write_enabled = write_enabled
         self.max_read_chars = max_read_chars
         self.max_grep_matches = max_grep_matches
@@ -118,39 +150,84 @@ class FsTools:
         )
         self.ignored_dirs = frozenset(ignored_dirs) if ignored_dirs else DEFAULT_IGNORED_DIRS
 
+    @property
+    def root(self) -> Path:
+        """The sole root, in single-root mode. Raises in multi-root mode."""
+        if self.multi_root:
+            raise AttributeError("FsTools is in multi-root mode; use .roots / .iter_roots()")
+        return self.roots[""]
+
+    def iter_roots(self) -> list[tuple[str, Path]]:
+        """(name, absolute-path) for every root, in configured order."""
+        return list(self.roots.items())
+
     # ---- Trust boundary ----------------------------------------------------
 
-    def resolve(self, rel: str) -> Path:
-        """Resolve a root-relative path, rejecting traversal escapes.
+    def resolve(self, rel: str) -> tuple[str, Path]:
+        """Resolve a virtual-tree path, rejecting traversal escapes.
 
-        ``rel`` must be a non-empty relative POSIX-style path. The resolved
-        path is rejected if it doesn't stay under ``self.root`` — this
-        catches both ``..`` traversal and symlinks pointing outside the
-        root (``Path.resolve()`` follows symlinks before the check).
+        ``rel`` must be a non-empty relative POSIX-style path. In single-root
+        mode it is interpreted directly under the sole root. In multi-root mode
+        the first segment names the root and the remainder is validated inside
+        that root. Returns ``(root_name, absolute_path)`` — ``root_name`` is
+        ``""`` in single-root mode.
+
+        The resolved path is rejected if it doesn't stay under its selected
+        root: this catches both ``..`` traversal and symlinks pointing outside
+        the root (``Path.resolve()`` follows symlinks before the check).
         """
         if not isinstance(rel, str) or not rel:
             raise ValueError("path must be a non-empty string")
         if rel.startswith(("/", "\\")):
             raise ValueError(f"path must be relative, got {rel!r}")
-        candidate = (self.root / rel).resolve()
+        if not self.multi_root:
+            return "", self._within("", rel)
+        head, _, tail = rel.partition("/")
+        if head not in self.roots:
+            known = ", ".join(sorted(self.roots))
+            raise ValueError(f"unknown root {head!r}; roots are: {known}")
+        return head, self._within(head, tail or ".")
+
+    def _within(self, root_name: str, rel: str) -> Path:
+        """Resolve ``rel`` inside the named root, rejecting escapes."""
+        base = self.roots[root_name]
+        candidate = (base / rel).resolve()
         try:
-            candidate.relative_to(self.root)
+            candidate.relative_to(base)
         except ValueError as exc:
-            raise ValueError(f"path {rel!r} escapes fs root") from exc
+            where = f"root {root_name!r}" if self.multi_root else "fs root"
+            raise ValueError(f"path {rel!r} escapes {where}") from exc
         return candidate
+
+    def display(self, root_name: str, path: Path) -> str:
+        """Render an absolute ``path`` as the agent-facing virtual-tree string.
+
+        Root-relative in single-root mode; root-prefixed (``name/rel``) in
+        multi-root mode so cross-repo references stay unambiguous.
+        """
+        rel = path.relative_to(self.roots[root_name]).as_posix()
+        if not self.multi_root:
+            return rel
+        return root_name if rel == "." else f"{root_name}/{rel}"
 
     # ---- Ignore predicate --------------------------------------------------
 
-    def is_ignored(self, path: Path, *, include_hidden: bool = False) -> bool:
-        """True if ``path`` (under root) should be skipped during walks.
+    def is_ignored(
+        self, path: Path, base: Path | None = None, *, include_hidden: bool = False
+    ) -> bool:
+        """True if ``path`` should be skipped during walks.
 
         Skips any segment in :attr:`ignored_dirs`. When ``include_hidden``
         is False (the default), also skips any segment starting with ``.``
-        except the literal current-directory ``.`` placeholder that can
-        appear when the path equals root.
+        except the ``.``/``..`` placeholders. Segments are measured relative
+        to ``base`` — the owning root a caller already knows; when omitted it
+        is inferred (a path outside every root is treated as ignored).
         """
+        root_base = base if base is not None else self._owning_root(path)
+        if root_base is None:
+            return True
         try:
-            rel_parts = path.relative_to(self.root).parts
+            rel_parts = path.relative_to(root_base).parts
         except ValueError:
             return True
         for part in rel_parts:
@@ -159,6 +236,16 @@ class FsTools:
             if not include_hidden and part.startswith(".") and part not in (".", ".."):
                 return True
         return False
+
+    def _owning_root(self, path: Path) -> Path | None:
+        """Return the root directory containing ``path``, or None if outside all."""
+        for base in self.roots.values():
+            try:
+                path.relative_to(base)
+                return base
+            except ValueError:
+                continue
+        return None
 
     def is_text_extension(self, path: Path) -> bool:
         """True if ``path``'s suffix is in :attr:`text_extensions`."""

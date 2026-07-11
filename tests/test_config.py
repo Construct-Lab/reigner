@@ -66,6 +66,12 @@ def test_resolve_absolute_path_passthrough(tmp_path: Path) -> None:
     assert cfg.resolve(abs_path) == abs_path
 
 
+def test_resolve_expands_home_tilde(tmp_path: Path) -> None:
+    cfg = ReignerConfig.load(_write(tmp_path, MINIMAL_YAML))
+    resolved = cfg.resolve("~/repos/api")
+    assert resolved == Path.home() / "repos" / "api"
+
+
 # ---------------------------------------------------------------------------
 # write_default round-trip
 # ---------------------------------------------------------------------------
@@ -188,6 +194,40 @@ def test_tools_fs_defaults_to_read_only(tmp_path: Path) -> None:
 def test_tools_fs_rejects_unknown_key(tmp_path: Path) -> None:
     body = MINIMAL_YAML + "tools:\n  fs:\n    root: .\n    bogus: 1\n"
     with pytest.raises(ConfigError, match="bogus"):
+        ReignerConfig.load(_write(tmp_path, body))
+
+
+def test_tools_fs_roots_parses(tmp_path: Path) -> None:
+    body = (
+        MINIMAL_YAML + "tools:\n  fs:\n    roots:\n      backend: ../api\n      frontend: ../web\n"
+    )
+    cfg = ReignerConfig.load(_write(tmp_path, body))
+    assert cfg.tools.fs is not None
+    assert cfg.tools.fs.root is None
+    assert cfg.tools.fs.roots == {"backend": "../api", "frontend": "../web"}
+
+
+def test_tools_fs_rejects_both_root_and_roots(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    root: .\n    roots:\n      backend: ../api\n"
+    with pytest.raises(ConfigError, match="exactly one of 'root' or 'roots'"):
+        ReignerConfig.load(_write(tmp_path, body))
+
+
+def test_tools_fs_rejects_neither_root_nor_roots(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    write_enabled: true\n"
+    with pytest.raises(ConfigError, match="exactly one of 'root' or 'roots'"):
+        ReignerConfig.load(_write(tmp_path, body))
+
+
+def test_tools_fs_rejects_empty_roots(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    roots: {}\n"
+    with pytest.raises(ConfigError, match="non-empty map"):
+        ReignerConfig.load(_write(tmp_path, body))
+
+
+def test_tools_fs_rejects_bad_root_name(tmp_path: Path) -> None:
+    body = MINIMAL_YAML + "tools:\n  fs:\n    roots:\n      'back end': ../api\n"
+    with pytest.raises(ConfigError, match="invalid root name"):
         ReignerConfig.load(_write(tmp_path, body))
 
 

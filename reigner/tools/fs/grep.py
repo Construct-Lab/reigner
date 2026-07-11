@@ -32,8 +32,9 @@ def build_fs_grep(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
 
         Args:
             query: Literal substring to search for. Not a regex.
-            path: Optional root-relative directory or file to limit the
-                search. Defaults to the sandbox root.
+            path: Optional virtual-tree directory or file to limit the
+                search (e.g. ``backend`` scopes to one root, ``backend/app``
+                to a subtree). When omitted, searches every root.
             extensions: Restrict to files with these suffixes (each must
                 start with ``.``). When omitted, defaults to
                 ``fs.text_extensions``.
@@ -43,46 +44,58 @@ def build_fs_grep(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
 
         Returns:
             ``{matches, total_files_searched, truncated}``. ``matches`` is
-            a list of ``{path, line_no, line}`` (1-indexed ``line_no``),
+            a list of ``{path, line_no, line}`` (1-indexed ``line_no``,
+            root-prefixed ``path`` when multiple roots are configured),
             capped at ``max_grep_matches``.
         """
         if not isinstance(query, str) or not query:
             raise ValueError("query must be a non-empty string")
         suffixes = _normalise_extensions(extensions) or fs.text_extensions
 
-        base = fs.resolve(path) if path else fs.root
-        if not base.exists():
-            raise FileNotFoundError(f"no path at {path!r}")
-        if base.is_file():
-            search_paths: list[Path] = [base]
+        # Determine which (root_name, base) pairs to walk: one scoped base when
+        # a path is given, otherwise fan out across every configured root.
+        if path:
+            root_name, base = fs.resolve(path)
+            if not base.exists():
+                raise FileNotFoundError(f"no path at {path!r}")
+            search_roots = [(root_name, base)]
         else:
-            search_paths = sorted(
-                p
-                for p in base.rglob("*")
-                if p.is_file() and not fs.is_ignored(p, include_hidden=include_hidden)
-            )
+            search_roots = fs.iter_roots()
 
         needle = query.casefold() if case_insensitive else query
         matches: list[dict[str, Any]] = []
         files_searched = 0
         truncated = False
 
-        for target in search_paths:
-            if target.suffix.lower() not in suffixes:
-                continue
-            files_searched += 1
-            try:
-                text = target.read_text()
-            except (OSError, UnicodeDecodeError):
-                continue
-            rel = target.relative_to(fs.root).as_posix()
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                hay = line.casefold() if case_insensitive else line
-                if needle in hay:
-                    matches.append({"path": rel, "line_no": line_no, "line": line})
-                    if len(matches) >= fs.max_grep_matches:
-                        truncated = True
-                        break
+        for root_name, base in search_roots:
+            root_base = fs.roots[root_name]
+            if base.is_file():
+                search_paths: list[Path] = [base]
+            else:
+                search_paths = sorted(
+                    p
+                    for p in base.rglob("*")
+                    if p.is_file()
+                    and not fs.is_ignored(p, root_base, include_hidden=include_hidden)
+                )
+            for target in search_paths:
+                if target.suffix.lower() not in suffixes:
+                    continue
+                files_searched += 1
+                try:
+                    text = target.read_text()
+                except (OSError, UnicodeDecodeError):
+                    continue
+                rel = fs.display(root_name, target)
+                for line_no, line in enumerate(text.splitlines(), start=1):
+                    hay = line.casefold() if case_insensitive else line
+                    if needle in hay:
+                        matches.append({"path": rel, "line_no": line_no, "line": line})
+                        if len(matches) >= fs.max_grep_matches:
+                            truncated = True
+                            break
+                if truncated:
+                    break
             if truncated:
                 break
 
