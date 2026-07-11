@@ -160,9 +160,9 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - `server/fastapi_app.py`: `POST /run` (SSE streaming), `GET /health`
   - Depends on: #5, #17
 
-- [ ] **[T-23 #23](https://github.com/Construct-Lab/reigner/issues/23)** `feat: MCP server export` `M`
-  - `server/mcp_export.py`: expose all `@tool`-decorated functions as MCP-callable tools
-  - Depends on: #7, #22
+- [ ] **[T-23 #23](https://github.com/Construct-Lab/reigner/issues/23)** `feat: MCP export — serve the composed agent as one MCP tool` `M` `(v1)`
+  - `server/mcp_export.py`: expose the composed agent as a single `ask_<project>` MCP tool over `harness.run`, not the individual `@tool` primitives
+  - Depends on: #22
 
 - [ ] **[T-74 #74](https://github.com/Construct-Lab/reigner/issues/74)** `feat: auto-load project .env at CLI startup` `S`
   - `cli/_env.py`: `load_project_env(config_path)` — `load_dotenv(root/".env", override=False)` from the resolved project root (`--config` parent or CWD); real OS env wins, no walk-up past root
@@ -225,8 +225,11 @@ All Phase 1 tracks must be stable before these begin.
   - Depends on: #8, #9, #10, #31
   - _The integration milestone — if this works end-to-end, the design is sound_
 
-- [ ] **[T-33 #33](https://github.com/Construct-Lab/reigner/issues/33)** `feat: code_navigator recipe` `M`
-  - `recipes/code_navigator/`: bundled REIGNER.md (exploration-oriented), FS tools, no schema
+- [ ] **[T-33 #33](https://github.com/Construct-Lab/reigner/issues/33)** `feat: code_navigator recipe (multi-repo)` `L`
+  - Multi-root `FsTools`: `tools.fs` accepts `root` (single) **or** `roots` (name→dir map) exposed as one virtual tree; first path segment selects the root, validated per-root; `fs_grep`/`fs_glob` fan out across roots (scope by root name), `fs_ls("")` lists roots; `build_fs_tools` validates each root exists at startup. Extends the FsTools from #11.
+  - `recipes/code_navigator/`: sidecar recipe (data, not code) — bundled REIGNER.md (cross-repo exploration), reigner.yaml (`tools.fs.roots` placeholders, `write_enabled: false`), README, .gitignore. No schema/extractors/library/search-index; lean init via `_RECIPE_SKIP`.
+  - Docs: SPEC §6 FS tools + §18 reframed (multi-repo navigator, sidecar, read-only default with opt-in write); this entry + issue #33.
+  - _Why: one agent conversing across several repos at once (e.g. backend + frontend) is the wedge a single-working-directory coding agent can't match._
   - Depends on: #11, #30
 
 - [ ] **[T-34 #34](https://github.com/Construct-Lab/reigner/issues/34)** `feat: SEC 10-K example` `L`

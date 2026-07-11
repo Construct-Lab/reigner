@@ -631,14 +631,33 @@ def build_fs_tools(cfg: ReignerConfig) -> list[RunnableTool]:
 
     Mirrors :func:`build_artifact_tools` / :func:`build_search_tools` so the
     CLI's ``reigner inspect tools`` and the harness use the same construction
-    path.
+    path. Each configured root is checked to be an existing directory here —
+    filesystem I/O the config layer deliberately avoids — so a bad path fails
+    loudly at ``chat``/``serve`` startup instead of silently exploring nothing.
     """
     from reigner.tools.fs import FsTools
 
-    assert cfg.tools.fs is not None
-    root = cfg.resolve(cfg.tools.fs.root)
-    fs = FsTools(root, write_enabled=cfg.tools.fs.write_enabled)
+    fscfg = cfg.tools.fs
+    assert fscfg is not None
+    if fscfg.root is not None:
+        root = _require_fs_dir(cfg, "tools.fs.root", fscfg.root)
+        fs = FsTools(root, write_enabled=fscfg.write_enabled)
+    else:
+        assert fscfg.roots is not None
+        roots: dict[str, str | Path] = {
+            name: _require_fs_dir(cfg, f"tools.fs.roots[{name!r}]", path)
+            for name, path in fscfg.roots.items()
+        }
+        fs = FsTools(roots=roots, write_enabled=fscfg.write_enabled)
     return list(fs.tools())
+
+
+def _require_fs_dir(cfg: ReignerConfig, key: str, path: str) -> Path:
+    """Resolve ``path`` against the config and require it to be a directory."""
+    resolved = cfg.resolve(path)
+    if not resolved.is_dir():
+        raise ConfigError(f"{key} does not exist or is not a directory: {resolved} (from {path!r})")
+    return resolved
 
 
 def _load_role(cfg: ReignerConfig, role_file: str | Path | None = None) -> str:

@@ -12,7 +12,9 @@ from reigner.tools.fs import FsTools
 
 
 def test_resolve_accepts_relative_path(fs: FsTools, repo: Path) -> None:
-    assert fs.resolve("src/app.py") == repo / "src" / "app.py"
+    root_name, resolved = fs.resolve("src/app.py")
+    assert root_name == ""
+    assert resolved == repo / "src" / "app.py"
 
 
 def test_resolve_rejects_absolute_path(fs: FsTools) -> None:
@@ -50,7 +52,7 @@ def test_resolve_follows_in_root_symlink(fs: FsTools, repo: Path) -> None:
     target = repo / "src" / "app.py"
     link = repo / "link.py"
     os.symlink(target, link)
-    resolved = fs.resolve("link.py")
+    _root_name, resolved = fs.resolve("link.py")
     assert resolved == target.resolve()
 
 

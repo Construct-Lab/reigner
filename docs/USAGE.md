@@ -72,7 +72,8 @@ output in Section 3 is marked representative.
 |---|---|---|---|
 | Scaffold — blank | ✅ | `reigner init NAME --blank` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
 | Scaffold — guided (default) | ✅ | `reigner init NAME --guided` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
-| Scaffold — recipe | ✅ | `reigner init NAME --recipe document_qa` | [Section 3.1](#31-scaffold-a-project--reigner-init) |
+| Scaffold — recipe (`document_qa`) | ✅ | `reigner init NAME --recipe document_qa` | [Section 3.1.1](#311-the-document_qa-recipe) |
+| Scaffold — recipe (`code_navigator`, multi-repo) | ✅ | `reigner init NAME --recipe code_navigator` | [Section 3.1.2](#312-the-code_navigator-recipe-multi-repo) |
 | Ingest (compile docs) | ✅ | `reigner ingest` | [Section 3.2](#32-ingest-your-documents--reigner-ingest) |
 | Ingest dry-run | ✅ | `reigner ingest --dry-run` | [Section 3.2](#32-ingest-your-documents--reigner-ingest) |
 | Chat — REPL | ✅ | `reigner chat` | [Section 3.3](#33-chat-with-your-agent--reigner-chat) |
@@ -103,11 +104,13 @@ have a working project by Section 3.4 (and a talking agent by Section 3.3 once y
   following this guide.
 - `--guided` — *the default*; an interactive Q&A that asks a model to generate
   your `REIGNER.md`/`schema.yaml`/extractor. ✅ Needs a model key.
-- `--recipe NAME` — ✅ copies a bundled recipe (curated `reigner.yaml` /
-  `REIGNER.md` / `schema.yaml` + a fill-in extractor and a wired pipeline) over
-  the shared layout. One ships today: `document_qa` (see
-  [Section 3.1.1](#311-the-document_qa-recipe)). An unknown name fails loudly
-  with the list of what's bundled.
+- `--recipe NAME` — ✅ copies a bundled recipe over the shared layout. **Two
+  ship today**: `document_qa` — question-answering over a corpus, the ingestion
+  hero case (see [Section 3.1.1](#311-the-document_qa-recipe)) — and
+  `code_navigator` — a read-only *sidecar* over one or more existing repos, the
+  no-ingestion contrast case (see
+  [Section 3.1.2](#312-the-code_navigator-recipe-multi-repo)). An unknown name
+  fails loudly with the list of what's bundled.
 
 Add `--force` to overwrite scaffold files when the target directory is non-empty.
 
@@ -217,8 +220,132 @@ An unknown recipe name fails loudly with what's available:
 
 ```console
 $ reigner init x --recipe nope
-✗ unknown recipe 'nope'. Available: document_qa.
+✗ unknown recipe 'nope'. Available: code_navigator, document_qa.
 ```
+
+#### 3.1.2 The `code_navigator` recipe (multi-repo)
+
+`document_qa` compiles a corpus into artifacts and answers over them.
+`code_navigator` is the **contrast case**: there is *no ingestion*. It's a
+**sidecar** — a small project that lives in its own directory and points at one
+or more repositories you already have. At `chat` time the agent reads across all
+of them in a single conversation, so you can ask how a frontend call reaches its
+backend route, or trace a shared name from where it's defined to where it's used
+— **without merging the repos into a monorepo**. The target repos are read-only
+by default and never modified.
+
+This is the real-world "one agent over N repos" use case, and it's powered by
+**multi-root filesystem tools** ([Section 4](#4-configuration-reference) covers
+the config). Each repo is mounted under an arbitrary *name* that becomes a
+top-level directory in the agent's virtual tree; the agent addresses files as
+`name/path/to/file`, and unqualified `fs_grep`/`fs_glob` fan out across every
+root at once.
+
+**`init` prompts for your repos interactively** and writes them into
+`reigner.yaml` — you don't hand-edit YAML to get started. Give each repo a name
+and a path (relative, absolute, or `~/…`); an empty name finishes:
+
+```console
+$ reigner init cnav --recipe code_navigator
+Repos to explore — add one or more. Each name becomes a top-level directory the
+agent sees.
+Path can be relative (to this project), absolute, or ~/...
+Press Enter on an empty name to finish.
+  Root name: backend
+  Path to 'backend': ../api
+  Root name: frontend
+  Path to 'frontend': ../web
+  Root name:                       # ← empty, finishes
+✓ Scaffolded cnav/ (code_navigator recipe mode)
+
+cnav/
+├── .env.example
+├── .gitignore
+├── README.md
+├── REIGNER.md
+└── reigner.yaml
+
+Next:
+  cd cnav
+  cp .env.example .env   # add your API key
+  # edit reigner.yaml — point tools.fs.roots at your repos
+  reigner chat
+```
+
+The tree is **lean by design** — no `schema.yaml`, `extractors/`, `library/`, or
+`search-index/`. A sidecar reads live repos; it never compiles artifacts, so the
+ingestion-shaped scaffolding is simply absent. What the prompts produced lands in
+`tools.fs.roots`:
+
+```yaml
+tools:
+  fs:
+    roots:
+      backend: ../api
+      frontend: ../web
+    write_enabled: false   # read-only is the safe default for a navigator
+```
+
+Any names, any number of repos — `backend`/`frontend` is just the placeholder.
+Add `shared: ../shared-lib`, `infra: ~/code/infra`, and so on. Edit `roots`
+freely after init; it's plain config. Names are validated (`[A-Za-z0-9_-]+`), and
+a root that doesn't resolve to a real directory **fails loudly at `chat`
+startup** rather than silently vanishing:
+
+```console
+$ reigner chat
+✗ tools.fs.roots['backend'] does not exist or is not a directory: /abs/path/api (from '../api')
+```
+
+Pressing Enter on the very first name keeps the bundled `backend`/`frontend`
+placeholders, so the file is still a valid, editable template you can fill in
+later.
+
+Once the roots point at real repos and you've added a key, explore across them:
+
+```console
+$ reigner chat --print "How does the web client call the login endpoint, and where is it handled in the api?"
+# representative output
+The web client posts to `/api/login` from frontend/src/api/auth.ts, which is
+handled by login_view in backend/app/routes/auth.py. [1][2]
+```
+
+You can verify the wiring **entirely offline** (no key, no tokens) — the same
+check used to validate this recipe. `inspect tools` shows the read-only fs tools
+(`fs_read`, `fs_grep`, `fs_glob`, `fs_ls` — all `readonly`, source `fs`), and
+driving them directly proves the fan-out. `fs_ls("")` lists the roots as the
+top-level tree, and a single unqualified `fs_grep` returns matches from **both**
+repos, each path root-prefixed:
+
+```python
+import asyncio
+from reigner.config import ReignerConfig
+from reigner.harness.agent import build_fs_tools
+
+tools = {t.name: t for t in build_fs_tools(ReignerConfig.load("reigner.yaml"))}
+
+async def demo():
+    print(await tools["fs_ls"].run({"path": ""}))
+    print(await tools["fs_grep"].run({"query": "/api/login"}))
+
+asyncio.run(demo())
+```
+
+```python
+# fs_ls — the roots ARE the top-level tree:
+{'entries': [{'name': 'backend', 'type': 'dir', ...},
+             {'name': 'frontend', 'type': 'dir', ...}], 'count': 2, ...}
+
+# fs_grep — one call, both repos, paths root-prefixed:
+{'matches': [{'path': 'backend/app/routes/auth.py', 'line_no': 2, ...},
+             {'path': 'frontend/src/api/auth.ts',  'line_no': 2, ...}],
+ 'total_files_searched': 2, ...}
+```
+
+To let the agent **edit** the target repos (e.g. a refactor across repos), set
+`write_enabled: true` — an `fs_write` tool then registers, resolving through the
+same per-root sandbox. Left off (the default), the navigator explores without
+risk.
 
 ### 3.2 Ingest your documents — `reigner ingest`
 
@@ -1410,8 +1537,11 @@ tools:                      # every sub-block optional; omit one to leave that s
   search:
     type: bm25              # str · default "bm25" (only bm25 ships today)
     index_path: search-index/documents.json
-  fs:                       # optional read-only filesystem tool
-    root: .                 # sandbox dir the agent may see, resolved against the config file
+  fs:                       # optional read-only filesystem tool · EXACTLY ONE of root|roots
+    root: .                 # single sandbox dir the agent may see, resolved against the config
+    # roots:                # OR multi-root: name → repo path (the code_navigator recipe, §3.1.2)
+    #   backend: ../api     #   each name becomes a top-level dir; names match [A-Za-z0-9_-]+
+    #   frontend: ~/code/web  # paths may be relative (to config), absolute, or ~/…
     write_enabled: false    # bool · default false — read-only is the safe default
   custom: []                # list[dotted-path] · default [] · extra @tool surfaces to register
 
@@ -1483,9 +1613,9 @@ tracking issue.
   (`EvalSuite.from_yaml(...).run(harness, checks=[...])` → `render_scorecard` /
   `render_report`); see [Section 3.8](#38-evaluate-your-agent--reigner-eval) for
   the CLI. Each case runs in a fresh session and never aborts the suite.
-- **`reigner init --recipe`** — ✅ ships the `document_qa` recipe
-  ([Section 3.1.1](#311-the-document_qa-recipe)). `code_navigator` (the contrast
-  recipe named in the SPEC) is not bundled yet.
+- **`reigner init --recipe`** — ✅ ships **both** SPEC recipes: `document_qa`
+  ([Section 3.1.1](#311-the-document_qa-recipe)) and `code_navigator`
+  ([Section 3.1.2](#312-the-code_navigator-recipe-multi-repo)).
 - **`reigner serve --mcp`** — ⏳ exits with a "not yet implemented" message
   ([Section 3.6](#36-serve-the-agent--reigner-serve)).
 - **Real-time steering interrupt-preemption** — ⏳ deliberately not built.

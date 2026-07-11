@@ -33,7 +33,7 @@ def build_fs_write(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
         """
         if not isinstance(content, str):
             raise TypeError(f"content must be a string, got {type(content).__name__}")
-        target = fs.resolve(path)
+        root_name, target = fs.resolve(path)
         if not fs.is_text_extension(target):
             raise ValueError(
                 f"{path!r} is not a writable text file "
@@ -45,7 +45,7 @@ def build_fs_write(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         return {
-            "path": target.relative_to(fs.root).as_posix(),
+            "path": fs.display(root_name, target),
             "bytes_written": len(content.encode("utf-8")),
             "created": created,
         }

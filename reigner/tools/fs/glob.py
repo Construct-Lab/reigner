@@ -28,36 +28,47 @@ def build_fs_glob(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
 
         Args:
             pattern: Glob pattern (e.g. ``**/*.py`` or ``src/*.ts``).
-            base: Optional root-relative directory to glob from. Defaults
-                to the sandbox root.
+            base: Optional virtual-tree directory to glob from (e.g.
+                ``backend`` scopes to one root). When omitted, the pattern
+                is matched under every configured root.
             include_hidden: When False (default), paths under dotfile
                 segments or ignored directories are filtered out.
 
         Returns:
-            ``{paths, truncated, count}``. ``paths`` is a sorted list of
-            root-relative POSIX strings, capped at ``max_glob_results``.
+            ``{paths, truncated, count}``. ``paths`` is a list of virtual-tree
+            POSIX strings (root-prefixed when multiple roots are configured),
+            sorted within each root, capped at ``max_glob_results``.
         """
         if not isinstance(pattern, str) or not pattern:
             raise ValueError("pattern must be a non-empty string")
         if pattern.startswith("/"):
             raise ValueError(f"pattern must be relative, got {pattern!r}")
 
-        root = fs.root if base is None else fs.resolve(base)
-        if not root.is_dir():
-            raise NotADirectoryError(f"glob base is not a directory: {base!r}")
+        # One scoped base when given, otherwise fan out across every root.
+        if base is None:
+            glob_roots = fs.iter_roots()
+        else:
+            root_name, resolved = fs.resolve(base)
+            if not resolved.is_dir():
+                raise NotADirectoryError(f"glob base is not a directory: {base!r}")
+            glob_roots = [(root_name, resolved)]
 
         paths: list[str] = []
         truncated = False
-        for match in sorted(root.glob(pattern)):
-            if fs.is_ignored(match, include_hidden=include_hidden):
-                continue
-            try:
-                match.relative_to(fs.root)
-            except ValueError:
-                continue
-            paths.append(str(match.relative_to(fs.root).as_posix()))
-            if len(paths) >= fs.max_glob_results:
-                truncated = True
+        for root_name, gbase in glob_roots:
+            root_base = fs.roots[root_name]
+            for match in sorted(gbase.glob(pattern)):
+                if fs.is_ignored(match, root_base, include_hidden=include_hidden):
+                    continue
+                try:
+                    match.relative_to(root_base)
+                except ValueError:
+                    continue
+                paths.append(fs.display(root_name, match))
+                if len(paths) >= fs.max_glob_results:
+                    truncated = True
+                    break
+            if truncated:
                 break
 
         return {"paths": paths, "truncated": truncated, "count": len(paths)}

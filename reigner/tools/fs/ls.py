@@ -19,7 +19,9 @@ def build_fs_ls(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
         """List entries directly under a directory.
 
         Args:
-            path: Root-relative directory. ``"."`` lists the root itself.
+            path: Virtual-tree directory. ``"."`` (or ``""``) lists the top:
+                the sole root in single-root mode, or the root names in
+                multi-root mode. ``"backend"`` lists the top of that root.
             include_hidden: Include dotfile entries in the result. Ignored
                 directory names (``.git``, ``node_modules``, etc.) are
                 still filtered out regardless of this flag.
@@ -30,7 +32,14 @@ def build_fs_ls(fs: FsTools) -> Callable[..., Awaitable[dict[str, Any]]]:
             ``size`` is bytes for files and ``None`` for dirs), capped at
             ``max_ls_entries``.
         """
-        target = fs.root if path == "." else fs.resolve(path)
+        # At the top of a multi-root tree, the "entries" are the roots.
+        if fs.multi_root and path in ("", "."):
+            root_entries = [
+                {"name": name, "type": "dir", "size": None} for name in sorted(fs.roots)
+            ]
+            return {"entries": root_entries, "truncated": False, "count": len(root_entries)}
+
+        _root_name, target = fs.resolve(path or ".")
         if not target.is_dir():
             raise NotADirectoryError(f"not a directory: {path!r}")
 
