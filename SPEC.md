@@ -22,9 +22,9 @@ A Python library for building **single-agent, retrieval-shaped, citation-faithfu
 - A typed streaming event protocol any UI can drive from.
 - Forkable on-disk sessions you can replay and branch.
 - A project-local `REIGNER.md` instruction file scaffolded at init time, with on-demand skill blocks composed in at runtime.
-- One opinionated recipe (`document_qa`) that wires everything together for the ApolloScope-shaped use case, plus a contrast recipe (`code_navigator`) for raw filesystem access.
+- One opinionated recipe (`document_qa`) that wires everything together for the ApolloScope-shaped use case, plus a `code_navigator` recipe that reads across one or more repositories at once via multi-root `FsTools`.
 - A CLI with `init`, `ingest`, `chat`, `eval`, `inspect`, `serve`.
-- An MCP server export so any Reigner tool is also an MCP-callable tool.
+- An MCP server export so the whole Reigner agent is a tool other agents can call — grounded, bounded, cited. (v1.)
 
 ### Isn't
 
@@ -47,7 +47,7 @@ These are non-negotiable. Every module is judged against them.
 4. **Citations are first-class.** Every numeric or factual claim flows through a `citation` event tied to a source artifact and locator. Faithfulness is checkable, not just asserted.
 5. **Single agent, plural sessions.** One loop, one ROLE, one tool registry per Harness. Sessions are durable, forkable, branchable on disk.
 6. **Convention by default, override when needed.** Defaults reflect what worked in production (the ApolloScope artifact layout, the H1–H11 settings). Every default is explicit and overridable.
-7. **MCP as export, not entry.** Python-native tools are the front door; MCP servers are a renderer over the same tool definitions.
+7. **MCP as export, not entry.** Python is the front door. The MCP server exports the composed agent as one delegatable tool, not its internal primitives. Reigner is the agent behind the tool, never a bag of primitives a foreign orchestrator drives.
 8. **The CLI is utility, not the product.** Reigner is a library first. The CLI exists to scaffold, run, and inspect.
 
 ---
@@ -131,7 +131,7 @@ reigner/
 │   │   ├── reigner.yaml         # copied into the user's project at init
 │   │   ├── schema.yaml          # copied into the user's project at init
 │   │   └── extractor_stub.py    # copied to extractors/my_extractor.py at init
-│   └── code_navigator/          # contrast recipe (Flue-shaped, opt-in)
+│   └── code_navigator/          # multi-repo navigator recipe (multi-root FsTools)
 │       └── ...
 ├── sessions/                    # forkable, branchable, durable
 │   ├── store.py                 # SessionStore, on-disk JSONL format
@@ -159,7 +159,7 @@ reigner/
 │   └── serve.py                 # FastAPI HTTP server / MCP server export
 ├── server/
 │   ├── fastapi_app.py           # SSE streaming endpoint
-│   └── mcp_export.py            # expose tools as MCP server
+│   └── mcp_export.py            # expose the composed agent as one MCP tool
 ├── config.py                    # reigner.yaml schema, loading, validation
 └── types.py                     # shared types
 ```
@@ -518,17 +518,26 @@ async def list_versions(entity_id: str) -> list[str]: ...
 
 - `fs_read`, `fs_grep`, `fs_glob`, `fs_ls`, optionally `fs_write`.
 - All bounded by config (max bytes, max lines, max matches), but explicit warning in docs that bounded ≠ self-describing the way artifact tools are.
+- **Single-root or multi-root.** Config `tools.fs` takes exactly one of `root` (a single directory) or `roots` (a name→directory map). In multi-root mode the roots are exposed as one virtual tree — each root name is a top-level directory, so the agent reads `backend/app/main.py` and `frontend/src/App.tsx` in the same conversation. The first path segment selects the root; the remainder is validated inside *that* root (traversal and symlink escapes are rejected per-root). `fs_grep`/`fs_glob` fan out across every root when unscoped, or scope to one when passed a root name; `fs_ls("")` lists the root names. Every configured root is checked to be a real directory at `chat`/`serve` startup, so a bad path fails loudly. This is what lets one agent reason *across* repositories without merging them into a monorepo.
+
+  ```yaml
+  tools:
+    fs:
+      roots:                 # exactly one of `root:` or `roots:`
+        backend: ../api      # each name becomes a top-level dir in the tree
+        frontend: ../web
+      write_enabled: false   # read-only default; flip to allow fs_write
+  ```
 
 Use cases devs reach for `FsTools` for:
 
-- **Code navigator / repo Q&A** — agent answers "where is X defined", "what calls Y" over a live repo. The canonical case; `code_navigator` recipe.
+- **Multi-repo code navigator** — one agent converses across several repos at once (e.g. a backend and a frontend), tracing a request from a frontend call site to the backend route that serves it. Claude Code (single working directory) can't do this without a monorepo; multi-root `FsTools` can. The canonical case; `code_navigator` recipe.
 - **Log / config investigator** — point at a log or config tree; agent triages incidents or explains drift. No compile step makes sense; contents change constantly.
 - **Migration / refactor assistant** — `write_enabled=True`, scoped to a feature branch. Agent renames symbols, updates imports, rewrites configs.
 - **Doc-site author** — agent reads markdown sources, writes new pages. Whole-file writes match the workflow.
 - **Scratch / sandbox agents** — quick prototypes where building an artifact schema is overkill. Point at a `notes/` directory and ship.
 - **Ingestion debugging** — run an agent over the raw, pre-ingestion corpus to figure out what the schema should be, then graduate to `ArtifactStore`.
 - **Hybrid recipes with hard separation** — `ArtifactStore` for the grounded answer surface plus `FsTools` scoped to a read-only side directory (e.g. `examples/`) the agent can cite from without polluting the main corpus.
-- **MCP export** — every `@tool` is MCP-clean, so `FsTools` becomes a sandboxed filesystem MCP server for external clients with no extra code.
 
 `FsTools` and `ArtifactStore` are alternatives, not complements: a recipe picks one as the primary surface. Registering both in the same agent is supported but loses the grounding `ArtifactStore` exists to enforce — the model will reach for `fs_read` and bypass the schema. The "hybrid" case above works only because the two surfaces cover disjoint paths.
 
@@ -1159,9 +1168,9 @@ results = await suite.run(harness, checks=["faithfulness", "repeated_calls"])
 Optional. For developers who want to deploy.
 
 - `reigner serve --http` — FastAPI app with `POST /run` (SSE streaming) and `GET /health`. Mirrors the ApolloScope gateway shape.
-- `reigner serve --mcp` — exports registered tools as an MCP server. Any Reigner tool is also an MCP tool, callable by Claude Desktop, Cursor, Cline, mcp-agent, and friends.
+- `reigner serve --mcp` — exports the composed agent as a single MCP tool (`ask_<project>`), callable by Claude Desktop, Cursor, Cline, mcp-agent, and friends. The client delegates a question; Reigner's own loop answers it, with REIGNER.md grounding, guardrails, and citations intact. (v1.)
 
-The MCP export means: developers can build their domain tools once with `@tool`, get a Python callable AND an MCP server. This is the interop story.
+The MCP export means the Reigner project is a grounded, bounded, cited sub-agent other agents can call. The agent is the tool, not each primitive — exporting the primitives would hand orchestration to a foreign agent and drop everything that makes the answer trustworthy. This is the interop story.
 
 ---
 
@@ -1210,16 +1219,16 @@ The example lives in `examples/sec_10k/` with a README, a tiny ingestion script,
 
 ---
 
-## 18. The `code_navigator` recipe (contrast)
+## 18. The `code_navigator` recipe (multi-repo)
 
-A deliberately Flue-shaped recipe so the comparison is fair and developers can pick the right tool.
+The contrast to `document_qa` — raw filesystem instead of compiled artifacts — but it carries its own wedge: **it lets one agent converse across several repositories at once.** Point it at a backend and a frontend and ask how a request flows from one into the other; the agent reads narrowly across both without merging them into a monorepo and without loading both whole trees into context. Claude Code, bound to a single working directory, can't do that.
 
-- Uses `FsTools` (raw `fs_read`, `fs_grep`, `fs_glob`, `fs_ls`).
-- No artifact schema.
-- No citation skills.
-- ROLE oriented around exploration rather than grounding.
+- Uses `FsTools` in **multi-root** mode (`tools.fs.roots`) — raw `fs_read`, `fs_grep`, `fs_glob`, `fs_ls`, exposed as one virtual tree (§6, FS tools). Single-root still works for a one-repo navigator.
+- **Sidecar project.** `reigner init <name> --recipe code_navigator` scaffolds its own directory; the `roots` point at target repos, which are never modified. The scaffold is lean — no schema, extractors, `library/`, or `search-index/` (there is no ingestion step).
+- **Read-only by default.** `write_enabled: false`; the flip to write mode is documented in the bundled `reigner.yaml`. SPEC's earlier "your agent must write" framing is now an opt-in, not the reason to reach for this recipe.
+- No artifact schema, no eval, no skills. ROLE oriented around cross-repo exploration and light root-prefixed `file:line` references rather than cite-or-refuse grounding.
 
-Documented as: *"Use this when your corpus is unstructured, when your agent must write, or when the work is closer to coding than to research. For most retrieval use cases, prefer `document_qa`."*
+Documented as: *"Use this to explore and explain code across one or more repositories — 'where is X defined', 'how does the frontend reach this backend route'. For grounded, citation-faithful Q&A over a compiled corpus, prefer `document_qa`."*
 
 ---
 
@@ -1253,8 +1262,8 @@ A v0 sequence that gets to a working public release. Solo-developer estimate.
 | 3 | `tools/artifacts/`, `artifacts/` write side, `tools/search/bm25.py`. The artifact + BM25 surface works. |
 | 4 | `recipes/document_qa/` built on top. Reference implementation over SEC 10-Ks. The demo notebook works. |
 | 5 | `cli/` (init, chat, ingest, inspect). `ingestion/` skeleton. `role/` cascade composer. `skills/` first three modules. |
-| 6 | `eval/` with faithfulness + repeated_calls + coverage. `tools/fs/` raw tier. `recipes/code_navigator/` contrast example. |
-| 7 | `sessions/` with fork/replay/tree. `plugins/` system. `server/` HTTP + MCP export. Steering implementation. |
+| 6 | `eval/` with faithfulness + repeated_calls + coverage. `tools/fs/` raw tier (single- and multi-root). `recipes/code_navigator/` multi-repo navigator. |
+| 7 | `sessions/` with fork/replay/tree. `plugins/` system. `server/` HTTP (SSE). Steering implementation. (MCP export → v1.) |
 | 8 | Buffer week: docs site, examples, polish, public release. |
 
 That's a real two-month build at one engineer. Halve it with two; double it if you also need to learn a model adapter you haven't used before.
@@ -1269,7 +1278,7 @@ The release is shippable when all of these are true:
 2. The `document_qa` recipe answers 18+ of 20 eval cases correctly with valid citations.
 3. The faithfulness eval flags every hallucinated number.
 4. A second developer can build a custom recipe (different schema, different ROLE) without modifying Reigner's source.
-5. The MCP export works: any `@tool`-decorated function can be served via `reigner serve --mcp` and called from Claude Desktop.
+5. *(v1)* The MCP export works: `reigner serve --mcp` exposes `ask_<project>`, and Claude Desktop can call it to get a grounded, cited answer.
 6. Sessions can be forked, replayed, and exported. A query replayed against a different model produces a different answer that's diff-able against the first.
 7. The CLI emits `--json` output that's a valid event stream consumable by `jq`.
 8. Docs cover: install, quickstart, the document_qa recipe, the artifact schema, writing your own tool, writing your own recipe, evaluation.
@@ -1281,11 +1290,11 @@ The release is shippable when all of these are true:
 1. **Async-first or sync-first?** The spec assumes async (G11 needs it; streaming is naturally async). Sync wrappers for tests/scripts are easy. Confirm.
 2. **`ArtifactSchema` declarative-only, or also code?** Spec is declarative with YAML support. ApolloScope's was effectively code. Confirm declarative is enough.
 3. **Recipes own `reigner.yaml` or generate it?** ✅ Resolved: recipes generate at init time. The recipe's bundled `REIGNER.md`, `reigner.yaml`, `schema.yaml`, and extractor stub are copied into the user's project verbatim by `reigner init --recipe <name>`. After init the recipe is no longer referenced; the project owns its own files (§9, §14).
-4. **MCP export — schemas MCP-clean from day one?** Yes, with the `@tool` decorator enforcing constraints (no positional-only args, no `**kwargs`, JSON-serializable returns). Costs a little flexibility, gains interop.
+4. **MCP export — the agent or the tools?** ✅ Resolved: export the composed agent as one MCP tool (`ask_<project>`), not the individual `@tool` primitives. Exporting primitives hands orchestration to a foreign agent and drops grounding, guardrails, and citations — the whole product. The single-tool return is JSON-clean by construction. Retargeted to v1 (§16, #23).
 5. **Default model adapter?** ✅ Resolved: OpenAI is the default recipe adapter. All three providers (OpenAI, Anthropic, Gemini) are first-class — `harness/adapters/{openai,anthropic,gemini}.py` ship in T-04 — but `document_qa` and `reigner.yaml` defaults point at OpenAI. Earlier draft preferred Anthropic for prompt caching; the OpenAI Responses API also caches stable prefixes automatically and the cost/availability profile is friendlier as the out-of-the-box default. Anthropic remains the natural oracle pick (§5.5).
 6. **Naming of the guardrails: G1–G11 or descriptive only?** I picked G1–G11 because internal communication needs short identifiers. Public docs should still use names. Confirm.
 7. **Session storage: `~/.reigner/sessions/` or `./.reigner/sessions/`?** ✅ Resolved: project-local at `./.reigner/sessions/`. Same reasoning as §9 — runtime state belongs to the project, not the machine. The `.gitignore` scaffolded by `reigner init` excludes this directory.
-8. **`code_navigator` in v0 or v1?** Spec has it in v0 as a contrast. Could push to v1 if week 6 is tight.
+8. **`code_navigator` in v0 or v1?** ✅ Resolved: v0. Built as the multi-repo navigator on multi-root `FsTools` — one agent reading across several repositories at once, the capability a single-working-directory coding agent can't match (§18).
 9. **Runtime instruction cascade?** ✅ Resolved: no cascade. The project's `./REIGNER.md` is the single runtime source of truth. Recipes are init-time scaffolds; there is no `~/.reigner/REIGNER.md`. Skills remain the only on-demand layer (§9).
 10. **`reigner init` default mode?** ✅ Resolved: `--guided` is the default. Most users start from scratch on a domain that no recipe covers. `--recipe` and `--blank` are the explicit alternatives (§14).
 
