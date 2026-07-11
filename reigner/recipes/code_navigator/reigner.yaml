@@ -1,0 +1,52 @@
+# reigner.yaml — tuned configuration for the code_navigator recipe.
+#
+# Copied verbatim into your project by `reigner init --recipe code_navigator`.
+# After init this file — not the recipe — is the source of truth; edit it freely.
+
+name: code_navigator
+version: 0.1.0
+
+# Code reading rewards a strong, low-temperature model.
+model:
+  provider: openai
+  name: gpt-5.5
+  temperature: 0.2
+
+settings:
+  max_iterations: 25
+  context_budget_tokens: 100000
+  max_tool_result_chars: 4000
+  nudge_interval: 3
+  max_consecutive_errors: 3
+  compaction_thresholds: [0.80, 0.90, 0.95]
+  parallel_reads: true
+
+role:
+  file: REIGNER.md
+  skills: []
+
+tools:
+  # Each entry under `roots` points a name at a repository you want to explore.
+  # The name is arbitrary and becomes a top-level directory in the agent's
+  # virtual tree — use any names, and add as many repos as you like. So one
+  # conversation can span several repos: the agent reads `api/app/main.py` and
+  # `web/src/App.tsx` in the same session, without a monorepo.
+  #
+  # `reigner init` fills these in for you; edit them here anytime. A path can be
+  # relative (to this file), absolute, or start with ~/. This is a sidecar
+  # project: the repos below are read, never written.
+  fs:
+    roots:
+      backend: ../path-to-backend
+      frontend: ../path-to-frontend
+    # Read-only is the safe default for a navigator. Set this to true only if
+    # you want the agent to edit the repos above (fs_write resolves through the
+    # same per-root sandbox); leave it off to explore without risk.
+    write_enabled: false
+  custom: []
+
+sessions:
+  store_path: ./.reigner/sessions
+  auto_save: true
+
+plugins: []

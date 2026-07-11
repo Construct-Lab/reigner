@@ -22,9 +22,15 @@ from typing import Final
 
 import typer
 from rich.console import Console
+from rich.prompt import Prompt as RichPrompt
 from rich.tree import Tree
 
 from reigner.config import ReignerConfig
+
+# Root names in `tools.fs.roots` must be segment-safe (same rule the config
+# validator enforces): they become top-level directory names in the agent's
+# virtual tree.
+_ROOT_NAME_RE: Final = re.compile(r"[A-Za-z0-9_-]+")
 
 NAME_RE: Final = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
@@ -37,6 +43,24 @@ _RECIPES_PKG: Final = "reigner.recipes"
 _RECIPE_RENAME: Final = {
     "my_extractor.py": "extractors/my_extractor.py",
     "pipeline.py": "extractors/pipeline.py",
+}
+
+# Blank-template paths a recipe wants omitted entirely. ``code_navigator`` is a
+# sidecar over existing repos — it has no ingestion step, so the whole
+# ingestion-shaped layout (schema, extractors, eval, library/, search-index/)
+# would only be clutter. Keyed by recipe name; paths are project-relative and
+# include the ``.gitkeep`` markers so their empty directories aren't realised.
+_RECIPE_SKIP: Final[dict[str, set[str]]] = {
+    "code_navigator": {
+        "schema.yaml",
+        "eval/cases.yaml",
+        "extractors/__init__.py",
+        "extractors/my_extractor.py",
+        "extractors/pipeline.py",
+        "library/artifacts/.gitkeep",
+        "library/raw/.gitkeep",
+        "search-index/.gitkeep",
+    },
 }
 
 # Filenames within the blank template that should be rendered with substitutions.
@@ -82,7 +106,13 @@ def _init(
     if recipe is not None:
         target = Path(name)
         overrides = _recipe_overrides(recipe)
-        _scaffold(target, force=force, overrides=overrides)
+        if recipe == "code_navigator":
+            # The one thing every user must set. Ask for it up front and write
+            # it into the scaffolded reigner.yaml so the project is runnable —
+            # but check writability first so we never waste the interaction.
+            ensure_writable(target, force=force)
+            _configure_navigator_roots(target, overrides)
+        _scaffold(target, force=force, overrides=overrides, skip=_RECIPE_SKIP.get(recipe))
         _print_success(target, mode=f"{recipe} recipe")
         return
 
@@ -147,21 +177,23 @@ def _scaffold(
         root_path = Path(root)
         for src in _walk(root_path):
             rel = src.relative_to(root_path)
-            if rel.name == _KEEP_MARKER:
-                # Realise the directory but skip the marker file itself.
-                (target / rel.parent).mkdir(parents=True, exist_ok=True)
-                continue
             rel_str = rel.as_posix()
+            if rel.name == _KEEP_MARKER:
+                # `.gitkeep` only exists to ship an empty directory. Realise the
+                # directory — unless the recipe skipped this marker, in which
+                # case the empty directory is unwanted too.
+                if rel_str not in skip:
+                    (target / rel.parent).mkdir(parents=True, exist_ok=True)
+                continue
             template_paths.add(rel_str)
             if rel_str in skip:
                 continue
             dest = target / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             if rel_str in overrides:
-                dest.write_text(overrides[rel_str])
+                dest.write_text(_maybe_render(rel, overrides[rel_str], target.name))
             elif rel.name in _RENDER:
-                rendered = src.read_text().replace("{project_name}", target.name)
-                dest.write_text(rendered)
+                dest.write_text(src.read_text().replace("{project_name}", target.name))
             else:
                 shutil.copyfile(src, dest)
 
@@ -172,7 +204,7 @@ def _scaffold(
             continue
         dest = target / rel_str
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
+        dest.write_text(_maybe_render(Path(rel_str), content, target.name))
 
     # Generate the default reigner.yaml unless a recipe already supplied its own
     # tuned one via overrides. Single source of truth — the blank default is
@@ -184,6 +216,120 @@ def _scaffold(
 # ---------------------------------------------------------------------------
 # Recipe scaffolds
 # ---------------------------------------------------------------------------
+
+
+def _configure_navigator_roots(target: Path, overrides: dict[str, str]) -> None:
+    """Interactively collect repo roots and write them into the recipe yaml.
+
+    Prompts for as many ``name → path`` pairs as the user wants (any names, any
+    count) and injects them into the scaffolded ``reigner.yaml``. If the user
+    enters none, the bundled placeholder roots are left in place so the file is
+    still a valid, editable template.
+    """
+    console = Console()
+    roots = _prompt_roots(console, target)
+    if roots and "reigner.yaml" in overrides:
+        overrides["reigner.yaml"] = _inject_roots(overrides["reigner.yaml"], roots)
+    elif not roots:
+        console.print(
+            "[dim]No repos entered — left placeholder roots in reigner.yaml; "
+            "edit them before `reigner chat`.[/dim]"
+        )
+
+
+def _prompt_roots(console: Console, target: Path) -> list[tuple[str, str]]:
+    """Ask for ``name → path`` repo pairs until an empty name is entered."""
+    console.print(
+        "\n[bold]Repos to explore[/bold] — add one or more. "
+        "Each name becomes a top-level directory the agent sees.\n"
+        "[dim]Path can be relative (to this project), absolute, or ~/...[/dim]\n"
+        "[dim]Press Enter on an empty name to finish.[/dim]"
+    )
+    roots: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    while True:
+        try:
+            name = RichPrompt.ask("  Root name", default="", show_default=False).strip()
+        except EOFError:
+            break
+        if not name:
+            break
+        if not _ROOT_NAME_RE.fullmatch(name):
+            console.print(f"    [yellow]![/yellow] invalid name {name!r}; use [A-Za-z0-9_-]")
+            continue
+        if name in seen:
+            console.print(f"    [yellow]![/yellow] {name!r} already added")
+            continue
+        try:
+            path = RichPrompt.ask(f"  Path to {name!r}", default="", show_default=False).strip()
+        except EOFError:
+            break
+        if not path:
+            console.print("    [yellow]![/yellow] path can't be empty")
+            continue
+        _warn_if_not_dir(console, target, path)
+        roots.append((name, path))
+        seen.add(name)
+    return roots
+
+
+def _warn_if_not_dir(console: Console, target: Path, path: str) -> None:
+    """Note (don't block) if a path doesn't resolve to a directory yet.
+
+    Mirrors how the config resolves paths at runtime: ``~`` expands, absolute
+    paths pass through, relative paths resolve against the project directory.
+    Non-blocking — ``build_fs_tools`` enforces existence at ``chat`` startup.
+    """
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute():
+        resolved = target / resolved
+    if not resolved.resolve().is_dir():
+        console.print(
+            f"    [yellow]![/yellow] {path} isn't a directory yet — "
+            "it must exist before `reigner chat`."
+        )
+
+
+def _inject_roots(yaml_text: str, roots: list[tuple[str, str]]) -> str:
+    """Replace the ``roots:`` mapping in the recipe yaml with ``roots``.
+
+    Rewrites only the ``roots:`` line and its indented entries; surrounding
+    comments and keys (``write_enabled`` etc.) are preserved verbatim.
+    """
+    block = "    roots:\n" + "".join(f"      {name}: {path}\n" for name, path in roots)
+    lines = yaml_text.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    replaced = False
+    while i < len(lines):
+        if not replaced and lines[i].rstrip() == "    roots:":
+            out.append(block)
+            i += 1
+            # Skip the old entries: 6-space-indented, non-comment mapping lines.
+            while (
+                i < len(lines)
+                and lines[i].startswith("      ")
+                and lines[i].strip()
+                and not lines[i].lstrip().startswith("#")
+            ):
+                i += 1
+            replaced = True
+            continue
+        out.append(lines[i])
+        i += 1
+    return "".join(out)
+
+
+def _maybe_render(rel: Path, content: str, project_name: str) -> str:
+    """Substitute ``{project_name}`` in files whose name is in ``_RENDER``.
+
+    A recipe can ship a rendered file (e.g. ``README.md``); its ``{project_name}``
+    placeholder should still be filled in with the target directory name, same
+    as the blank template's copy.
+    """
+    if rel.name in _RENDER:
+        return content.replace("{project_name}", project_name)
+    return content
 
 
 def _recipe_overrides(recipe: str) -> dict[str, str]:
@@ -236,16 +382,24 @@ def _print_success(target: Path, *, mode: str = "blank") -> None:
     _build_tree(tree, target)
     console.print(tree)
 
-    # A recipe ships a working config, but extraction is domain-specific: the
-    # user writes the prompt / entity naming before `ingest` can run. Blank and
-    # guided stop at `--help`.
+    # A recipe ships a working config, but the follow-up differs. An ingestion
+    # recipe (has extractors/) needs a domain-specific prompt before `ingest`
+    # can run; a sidecar recipe (no extractors/, e.g. code_navigator) just needs
+    # its roots pointed at real repos before `chat`. Blank and guided stop at
+    # `--help`.
     if mode.endswith("recipe"):
-        last = (
-            "  [dim]# edit extractors/my_extractor.py — write the extraction prompt[/dim]\n"
-            "  [dim]# edit extractors/pipeline.py — name your entities[/dim]\n"
-            "  reigner ingest\n"
-            "  reigner chat"
-        )
+        if (target / "extractors").is_dir():
+            last = (
+                "  [dim]# edit extractors/my_extractor.py — write the extraction prompt[/dim]\n"
+                "  [dim]# edit extractors/pipeline.py — name your entities[/dim]\n"
+                "  reigner ingest\n"
+                "  reigner chat"
+            )
+        else:
+            last = (
+                "  [dim]# edit reigner.yaml — point tools.fs.roots at your repos[/dim]\n"
+                "  reigner chat"
+            )
     else:
         last = "  reigner --help"
     console.print(

@@ -1,0 +1,10 @@
+# Per-project runtime state (sessions).
+.reigner/
+
+# Secrets.
+.env
+
+# Python.
+__pycache__/
+*.py[cod]
+.venv/
