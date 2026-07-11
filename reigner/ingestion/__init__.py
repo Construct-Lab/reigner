@@ -11,6 +11,7 @@ from reigner.ingestion.extractor import (
     resolve_adapter,
 )
 from reigner.ingestion.loaders import (
+    HtmlLoader,
     JsonLoader,
     LoadedDocument,
     Loader,
@@ -41,6 +42,7 @@ __all__ = [
     "ExtractionError",
     "ExtractionResult",
     "IngestionPipeline",
+    "HtmlLoader",
     "IngestionReport",
     "InputOverflowError",
     "JsonLoader",
