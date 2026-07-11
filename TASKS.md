@@ -117,6 +117,11 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - `ingestion/loaders/`: `PdfLoader`, `MdLoader`, `JsonLoader`, `UrlLoader`
   - Depends on: #1
 
+- [ ] **[T-117 #117](https://github.com/Construct-Lab/reigner/issues/117)** `feat: HtmlLoader for HTML document ingestion` `S`
+  - `ingestion/loaders/html.py`: bytes-only `HtmlLoader` owning `.html`/`.htm`, mirrors `PdfLoader` (tag-stripping stays the extractor's job); register + re-export
+  - Depends on: #1
+  - _Unblocks #34 (SEC 10-K example — filings are served as HTML); no `.html`/`.htm` loader exists today_
+
 - [ ] **[T-16 #16](https://github.com/Construct-Lab/reigner/issues/16)** `feat: IngestionPipeline` `M`
   - `ingestion/pipeline.py` + `ingestion/writers/`: concurrency, progress, dead-letter, idempotency, final report
   - Depends on: #13, #14, #15
