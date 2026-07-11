@@ -477,7 +477,7 @@ $ reigner ingest
 
 #### Loaders, writers, and custom pipelines
 
-The pipeline maps each source file to a **loader** by extension. Four ship in
+The pipeline maps each source file to a **loader** by extension. Five ship in
 `reigner.ingestion.loaders`:
 
 | Loader | Handles |
@@ -485,6 +485,7 @@ The pipeline maps each source file to a **loader** by extension. Four ship in
 | `MdLoader` | Markdown / text |
 | `PdfLoader` | PDF (via PyMuPDF — **AGPL**, the `[ingestion]` extra) |
 | `JsonLoader` | JSON documents |
+| `HtmlLoader` | On-disk HTML (`.html` / `.htm`) |
 | `UrlLoader` | Fetches an `http(s)` URL |
 
 Writers (`reigner.ingestion.writers`): `ArtifactWriter` (compiled artifacts on
