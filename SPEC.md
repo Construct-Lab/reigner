@@ -110,7 +110,7 @@ reigner/
 │   ├── pipeline.py              # IngestionPipeline
 │   ├── extractor.py             # LLMExtractor base class
 │   ├── results.py               # ExtractionResult, ExtractionError, TransientError, ValidationError
-│   ├── loaders/                 # PdfLoader, MdLoader, JsonLoader, UrlLoader
+│   ├── loaders/                 # PdfLoader, MdLoader, JsonLoader, HtmlLoader, UrlLoader
 │   ├── writers/                 # ArtifactWriter, Bm25IndexWriter
 │   └── transforms/              # base classes for non-LLM transforms
 ├── role/                        # REIGNER.md handling
@@ -775,7 +775,7 @@ The pipeline handles:
 
 - `IngestionPipeline` (the runner).
 - `LLMExtractor` base class with all scaffolding described in §8.2.
-- Loaders: `PdfLoader`, `MdLoader`, `JsonLoader`, `UrlLoader`.
+- Loaders: `PdfLoader`, `MdLoader`, `JsonLoader`, `HtmlLoader`, `UrlLoader`.
 - Writers: `ArtifactWriter`, `Bm25IndexWriter`.
 - Transform base classes for non-LLM transforms (e.g. deterministic parsers, format converters).
 
