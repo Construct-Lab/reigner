@@ -73,7 +73,7 @@ class SecTenKMapReduce(MapReduceExtractor):
         'sections. Return {{"summary": "..."}}.'
     )
 
-    async def preprocess_pdf(self, raw: bytes) -> str:
+    async def raw_to_text(self, raw: bytes) -> str:
         """Strip the HTML and paginate so the base class can chunk it.
 
         The base splits on form-feeds, so we hand it page-sized pieces and let it

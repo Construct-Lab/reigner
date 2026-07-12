@@ -33,10 +33,12 @@ The tool docstrings describe each call; this is the order to use them in:
 3. **Pull structured facts** with `get_json_field` against `metadata.json` —
    this is the right tool for a specific number or attribute.
 4. **Read prose in bounded chunks.** When you already know which section holds
-   the answer, address it by its full artifact path — `read_artifact_file` with
-   `path='AAPL/2024/sections/risk_factors'`, or `grep_artifact` scoped with
-   `file_path` — rather than an entity-wide sweep. Read only what you need; page
-   with `offset` if a result is truncated.
+   the answer, read it with `get_section` — name the `section` plus the entity
+   identifiers (`section='sections/risk_factors', entity_id='AAPL', version='2024'`).
+   You can also address a section by its full artifact path with
+   `read_artifact_file`, or `grep_artifact` scoped to one `entity` to search
+   within it — either way, retrieve a known target rather than an entity-wide
+   sweep. Read only what you need; page with `offset` if a result is truncated.
 
 Use `save_note` to keep intermediate findings across steps. When a question is
 genuinely hard or the sources conflict, `escalate_to_oracle` for a
