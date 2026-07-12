@@ -237,7 +237,7 @@ All Phase 1 tracks must be stable before these begin.
   - _Why: one agent conversing across several repos at once (e.g. backend + frontend) is the wedge a single-working-directory coding agent can't match._
   - Depends on: #11, #30
 
-- [ ] **[T-34 #34](https://github.com/Construct-Lab/reigner/issues/34)** `feat: SEC 10-K example` `L`
+- [x] **[T-34 #34](https://github.com/Construct-Lab/reigner/issues/34)** `feat: SEC 10-K example` `L`
   - `examples/sec_10k/`: extractor, ingestion script, 20 eval cases, README
   - Validates SPEC.md §21 acceptance criteria end-to-end
   - Depends on: #16, #28, #32

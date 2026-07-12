@@ -1,0 +1,18 @@
+# Raw filings are not committed (they're large and public). Build them with
+# `python fetch_filings.py`, which downloads them from EDGAR into library/raw/.
+library/raw/*.htm
+
+# Compiled artifacts and derived data — regenerable from raw + extractor.
+library/artifacts/
+search-index/
+
+# Per-project runtime state (sessions).
+.reigner/
+
+# Secrets.
+.env
+
+# Python.
+__pycache__/
+*.py[cod]
+.venv/

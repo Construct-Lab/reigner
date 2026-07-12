@@ -1,0 +1,44 @@
+# The shape every filing compiles to. The extractor validates against this and
+# the agent's tools read it. Keeping the shape identical across filings is what
+# lets the agent compare companies and years.
+
+# One directory per filing: AAPL/2024/, MSFT/2023/, and so on.
+entity_path: "{entity_id}/{version}"
+
+sections:
+  - name: document_summary
+  # Fixed names (not globs) so citations point at stable paths.
+  - name: sections/business        # Item 1: what the company does
+  - name: sections/risk_factors    # Item 1A: principal risks
+  - name: sections/mdna            # Item 7: management's discussion
+  # Optional derived notes, e.g. insights/liquidity.
+  - name: "insights/*"
+
+json_artifacts:
+  # The financials, kept as strings so "391,035" stays exactly as printed (the
+  # faithfulness check compares against these). In millions unless noted; null
+  # when a filing doesn't report a line.
+  - name: metadata.json
+    fields:
+      entity_id: str          # ticker, e.g. AAPL
+      company_name: str
+      fiscal_year: str        # e.g. 2024
+      form_type: str          # 10-K
+      currency: str           # e.g. USD
+      units: str              # e.g. millions
+      revenue: str            # total net sales / total revenue
+      cost_of_revenue: str
+      gross_profit: str
+      operating_income: str
+      net_income: str
+      rnd_expense: str        # research and development expense
+      total_assets: str
+      diluted_eps: str        # diluted earnings per share
+    # Require only the basics and the two figures every filing has. The rest can
+    # be missing when a company doesn't break them out.
+    required_fields:
+      - entity_id
+      - company_name
+      - fiscal_year
+      - revenue
+      - net_income
