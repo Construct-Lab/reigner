@@ -338,7 +338,9 @@ async def test_cache_key_includes_schema_version() -> None:
 # ---- Cost accounting ------------------------------------------------------
 
 
-async def test_cost_zero_when_no_pricing() -> None:
+async def test_cost_zero_when_model_unknown_to_all_tables() -> None:
+    # No per-extractor override and the adapter's model (``stub-model``) isn't in
+    # reigner.pricing either, so both paths miss and cost reports 0.0.
     adapter = StubAdapter(
         responses=[
             make_response(
@@ -351,6 +353,25 @@ async def test_cost_zero_when_no_pricing() -> None:
     extractor = _Extractor(adapter=adapter)
     result = await extractor.run(raw=b"x", meta={})
     assert result.meta["cost_usd"] == 0.0
+
+
+async def test_cost_falls_back_to_pricing_table() -> None:
+    # No per-extractor override, but the adapter's model is in reigner.pricing:
+    # cost is priced from that single origin table with no hand-written rates.
+    adapter = StubAdapter(
+        responses=[
+            make_response(
+                sections={"document_summary": "ok"},
+                json_artifacts={"metadata.json": {"ticker": "AAPL", "fiscal_year": 2024}},
+            ),
+        ],
+        usage=TokenUsage(prompt=1_000_000, completion=500_000, total=1_500_000),
+    )
+    adapter.model = "claude-opus-4-8"  # in reigner.pricing: $5/M in, $25/M out
+    extractor = _Extractor(adapter=adapter)
+    result = await extractor.run(raw=b"x", meta={})
+    # 1M * $5/M (input) + 0.5M * $25/M (output) = 5 + 12.5 = 17.5
+    assert result.meta["cost_usd"] == pytest.approx(17.5)
 
 
 async def test_cost_uses_pricing_table_when_present() -> None:

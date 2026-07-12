@@ -41,6 +41,7 @@ from reigner.ingestion.results import (
     TransientError,
     ValidationError,
 )
+from reigner.pricing import cost_usd
 from reigner.types import ConfigError, ProviderName
 
 # ---------------------------------------------------------------------------
@@ -141,8 +142,11 @@ class LLMExtractor(ABC):
     * ``max_input_chars`` (default 200_000) — single-shot input ceiling; see
       :meth:`call_model`. Set to ``None`` to disable the overflow guard.
     * ``overflow_mode`` (default ``"warn"``) — what the guard does on overflow.
-    * ``pricing`` — optional ``{model_full_id: {"input": $/Mtok,
-      "output": $/Mtok}}``. None ⇒ ``cost_usd`` is reported as 0.0.
+    * ``pricing`` — optional per-extractor rate override,
+      ``{"provider:model_id": {"input": $/Mtok, "output": $/Mtok}}``. Unset (or
+      no entry for the active model) ⇒ cost falls back to
+      :func:`reigner.pricing.cost_usd`, the same origin table chat/eval price
+      from, so ``cost_usd`` is only 0.0 when that table also lacks the model.
 
     The subclass implements :meth:`extract`. Inside ``extract`` it can call:
 
@@ -448,16 +452,19 @@ class LLMExtractor(ABC):
         return hashlib.sha256(self.PROMPT.encode("utf-8")).hexdigest()
 
     def _compute_cost(self, usage: TokenUsage) -> float:
-        if not self.pricing:
-            return 0.0
-        key = f"{self._adapter.name}:{self._adapter.model}"
-        rates = self.pricing.get(key)
-        if rates is None:
-            return 0.0
-        return (
-            rates.get("input", 0.0) * usage.prompt / 1_000_000.0
-            + rates.get("output", 0.0) * usage.completion / 1_000_000.0
-        )
+        # A per-extractor ``pricing`` override wins when it knows this model;
+        # otherwise fall back to reigner.pricing, the single origin table
+        # chat/eval already price from, so ingest cost works with no hand-written
+        # rates. cost_usd returns None for a model it doesn't know -> report 0.0.
+        if self.pricing:
+            key = f"{self._adapter.name}:{self._adapter.model}"
+            rates = self.pricing.get(key)
+            if rates is not None:
+                return (
+                    rates.get("input", 0.0) * usage.prompt / 1_000_000.0
+                    + rates.get("output", 0.0) * usage.completion / 1_000_000.0
+                )
+        return cost_usd(usage, self._adapter.model) or 0.0
 
 
 # ---------------------------------------------------------------------------
