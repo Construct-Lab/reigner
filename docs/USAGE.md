@@ -1240,6 +1240,12 @@ The scorecard (representative — needs a model):
 2 cases · 2 passed · 0 failed
 ```
 
+Cases run sequentially — each a full agent loop — so while the suite runs it
+prints a `Running N eval case(s)…` banner and a per-case `✓`/`✗` tick **to
+stderr** as each finishes. That progress is only a liveness signal: the scorecard
+(and `--json` / `--report`) still goes to stdout unchanged, so piping and
+redirects are unaffected.
+
 **The five built-in checks** (all deterministic — no model calls; `na` = inapplicable):
 
 | Check | Passes when |

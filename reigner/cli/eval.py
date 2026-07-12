@@ -32,6 +32,7 @@ from reigner.eval import (
     render_scorecard,
 )
 from reigner.eval.cases import EvalCase
+from reigner.eval.runner import CaseResult
 from reigner.harness.agent import Harness
 from reigner.tools.registry import Profile
 from reigner.types import ConfigError
@@ -104,7 +105,22 @@ def _eval(
         typer.echo(f"✗ {e}", err=True)
         raise typer.Exit(EXIT_USAGE) from e
 
-    result = asyncio.run(suite.run(harness, checks=checks, profile=cast(Profile, profile)))
+    # Progress goes to stderr so the deterministic scorecard on stdout stays
+    # byte-for-byte (``--json`` / piping unaffected). Cases run sequentially,
+    # each a full agent loop, so without this the terminal sits blank for
+    # minutes; the banner + per-case tick show it's alive.
+    typer.echo(
+        f"Running {len(suite.cases)} eval case(s) — this may take a few minutes…",
+        err=True,
+    )
+
+    def _tick(cr: CaseResult) -> None:
+        mark = "✓" if cr.passed else "✗"
+        typer.echo(f"  {mark} {cr.case.id}", err=True)
+
+    result = asyncio.run(
+        suite.run(harness, checks=checks, profile=cast(Profile, profile), on_case_done=_tick)
+    )
 
     if json_output:
         print(json.dumps(_as_dict(result), indent=2))
