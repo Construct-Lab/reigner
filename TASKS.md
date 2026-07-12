@@ -110,7 +110,7 @@ Everyone is blocked on this. One person does it, then all five tracks can start.
   - _Unblocks #14, #16_
 
 - [ ] **[T-14 #14](https://github.com/Construct-Lab/reigner/issues/14)** `feat: LLMExtractor base class` `L`
-  - `ingestion/extractor.py` + `ingestion/results.py`: retry, validation, idempotency, cost tracking, `preprocess_pdf`
+  - `ingestion/extractor.py` + `ingestion/results.py`: retry, validation, idempotency, cost tracking, `raw_to_text`
   - Depends on: #4, #13
 
 - [ ] **[T-15 #15](https://github.com/Construct-Lab/reigner/issues/15)** `feat: document loaders` `S`

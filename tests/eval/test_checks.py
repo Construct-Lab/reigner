@@ -21,6 +21,7 @@ from reigner.harness.events import (
     Event,
     FinalAnswerEvent,
     ToolCallEvent,
+    ToolResultEvent,
 )
 from reigner.tools.provenance.lineage import Citation
 
@@ -35,6 +36,18 @@ def _final(text: str) -> FinalAnswerEvent:
 
 def _tool_call(name: str, args: dict[str, object], seq: int = 0) -> ToolCallEvent:
     return ToolCallEvent(seq=seq, session_id="s", turn=0, name=name, args=args, call_id=f"c{seq}")
+
+
+def _tool_result(result: object, seq: int = 1) -> ToolResultEvent:
+    return ToolResultEvent(
+        seq=seq,
+        session_id="s",
+        turn=0,
+        call_id=f"c{seq}",
+        result=result,
+        truncated=False,
+        cached=False,
+    )
 
 
 def _clarification() -> ClarificationEvent:
@@ -219,6 +232,25 @@ def test_coverage_passes_on_exact_retrieval() -> None:
 def test_coverage_passes_on_directory_prefix_retrieval() -> None:
     run = _run(events=[_tool_call("grep_artifact", {"file_path": "AAPL/2024"})])
     case = _case(expected_citations=["AAPL/2024/metrics.json#field=rnd"])
+    assert coverage(case, run).status == "pass"
+
+
+def test_coverage_passes_on_entity_scoped_grep() -> None:
+    # grep_artifact(entity="AAPL/2024") names the scope via ``entity``, not a
+    # path arg; the prefix match should still cover a source under it.
+    run = _run(events=[_tool_call("grep_artifact", {"query": "R&D", "entity": "AAPL/2024"})])
+    case = _case(expected_citations=["AAPL/2024/sections/risk_factors#para=3"])
+    assert coverage(case, run).status == "pass"
+
+
+def test_coverage_passes_on_get_section_result_path() -> None:
+    # get_section carries the resolved path only in its result, not its args.
+    events = [
+        _tool_call("get_section", {"section": "risk_factors", "ticker": "AAPL", "year": "2024"}),
+        _tool_result({"section": "risk_factors", "path": "AAPL/2024/sections/risk_factors"}),
+    ]
+    run = _run(events=events)
+    case = _case(expected_citations=["AAPL/2024/sections/risk_factors#para=3"])
     assert coverage(case, run).status == "pass"
 
 

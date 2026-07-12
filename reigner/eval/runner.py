@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import inspect
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -106,16 +107,27 @@ class EvalSuite:
         checks: list[str] | None = None,
         *,
         profile: Profile = "eval",
+        on_case_done: Callable[[CaseResult], None] | None = None,
     ) -> SuiteResult:
         """Run every case through ``harness`` and score it.
 
         ``checks`` names the registered analyzers to run on top of the
         always-on intrinsic assertions. Unknown names raise ``KeyError`` *before*
         any case runs, so a typo never costs a model call.
+
+        ``on_case_done``, if given, is called with each :class:`CaseResult` as
+        soon as that case finishes — the hook the CLI uses to stream progress
+        without this module knowing anything about the terminal. Cases run
+        sequentially, so the callback fires in case order.
         """
         # Resolve up front: fail fast on a bad name before spending model calls.
         resolved = [get_check(name) for name in (checks or [])]
-        results = [await self._run_case(harness, case, resolved, profile) for case in self.cases]
+        results: list[CaseResult] = []
+        for case in self.cases:
+            result = await self._run_case(harness, case, resolved, profile)
+            if on_case_done is not None:
+                on_case_done(result)
+            results.append(result)
         return SuiteResult(cases=results)
 
     async def _run_case(

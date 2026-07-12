@@ -33,6 +33,7 @@ import typer
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
@@ -267,13 +268,25 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         else:
             event.app.exit(exception=KeyboardInterrupt())
 
-    # The composer is a bordered box (a Frame) around a single-line input,
-    # rendered as a non-full-screen Application so scrollback still flows above
-    # it via patch_stdout. The Frame title doubles as a live status line: while a
-    # run is in flight it shows a spinner + the renderer's tool/elapsed status
-    # (redrawn in place by prompt_toolkit — no scrollback conflict), which is the
-    # movement collapsed mode can't stream above the prompt.
-    input_area = TextArea(prompt="› ", multiline=False, height=1, wrap_lines=False)
+    # The composer is a bordered box (a Frame) around the input, rendered as a
+    # non-full-screen Application so scrollback still flows above it via
+    # patch_stdout. The Frame title doubles as a live status line: while a run is
+    # in flight it shows a spinner + the renderer's tool/elapsed status (redrawn
+    # in place by prompt_toolkit — no scrollback conflict), which is the movement
+    # collapsed mode can't stream above the prompt.
+    #
+    # multiline + wrap_lines so a long question wraps and the box grows downward
+    # (up to a cap) instead of scrolling off the right edge. Enter still submits:
+    # the explicit ``enter`` key binding above overrides the buffer's default
+    # newline-on-Enter. (There is deliberately no separate insert-newline chord —
+    # Esc/Alt+Enter is already bound to steering, and a chat prompt is one
+    # thought per submit.)
+    input_area = TextArea(
+        prompt="› ",
+        multiline=True,
+        wrap_lines=True,
+        height=Dimension(min=1, max=10),
+    )
 
     def _title() -> Any:
         if not running.is_set():

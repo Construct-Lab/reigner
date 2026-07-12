@@ -688,7 +688,7 @@ class TenKExtractor(LLMExtractor):
     """
 
     async def extract(self, raw: bytes, meta: dict) -> ExtractionResult:
-        text = await self.preprocess_pdf(raw)
+        text = await self.raw_to_text(raw)
         response = await self.call_model(
             prompt=self.PROMPT.format(
                 **meta,
@@ -723,15 +723,15 @@ class TenKExtractor(LLMExtractor):
 - Token and cost tracking per extraction, surfaced in pipeline metrics.
 - Idempotency keyed on `(source_hash, schema_version, prompt_hash)`. If the prompt changes, re-extraction happens automatically; if it doesn't, the cached extraction is reused.
 - Standard error patterns: `TransientError` (retried), `ExtractionError` (routed to dead-letter), `ValidationError` (routed to dead-letter with the malformed payload preserved).
-- A default `preprocess_pdf` implementation using `pymupdf`; override for domain-specific PDF handling (multi-column layouts, tables, scanned pages, etc.). PyMuPDF is AGPL-3.0; downstream users requiring a permissive license can install `pymupdf-pro` or override `preprocess_pdf` with another loader.
+- A default `raw_to_text` implementation using `pymupdf`; override for a non-PDF corpus or domain-specific handling (HTML, multi-column layouts, tables, scanned pages, etc.). The name is format-neutral because the corpus format is arbitrary — the raw→text step just happens to default to PDF. PyMuPDF is AGPL-3.0; downstream users requiring a permissive license can install `pymupdf-pro` or override `raw_to_text` with another loader. (The former name `preprocess_pdf` remains a deprecated alias for one release; overriding it still works, with a warning.)
 
-> **v1 follow-up (#87):** `preprocess_pdf` is text-only, so scanned PDFs fail in v0. v1 adds a multimodal extraction path — page images sent straight to a vision model via the multimodal adapter (#86) — so scanned and image-bearing documents need no OCR. See section 8.5.
+> **v1 follow-up (#87):** the default `raw_to_text` is text-only, so scanned PDFs fail in v0. v1 adds a multimodal extraction path — page images sent straight to a vision model via the multimodal adapter (#86) — so scanned and image-bearing documents need no OCR. See section 8.5.
 
 **What the user provides:**
 
 - `PROMPT` — the actual instructions. Irreducibly domain-specific.
 - `extract()` — the orchestration of preprocess → prompt → parse → return.
-- Optionally, an override of `preprocess_pdf` or any other preprocessing.
+- Optionally, an override of `raw_to_text` or any other preprocessing.
 
 **What Reigner deliberately does not ship:**
 

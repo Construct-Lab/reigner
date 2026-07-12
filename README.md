@@ -33,7 +33,7 @@ Reigner itself is MIT-licensed. The `[ingestion]` extra pulls in
 projects that distribute or network-serve a closed-source product on top of
 `reigner[ingestion]` must comply with AGPL or obtain a
 [PyMuPDF Pro](https://pymupdf.io/) commercial license. To avoid the AGPL
-entirely, override `LLMExtractor.preprocess_pdf` with a permissive-licensed
+entirely, override `LLMExtractor.raw_to_text` with a permissive-licensed
 loader of your choice.
 
 ## Observability

@@ -49,7 +49,7 @@ Output ONLY the JSON object."""
 
     async def extract(self, raw: bytes, meta: dict[str, Any]) -> ExtractionResult:
         """Compile one document into sections + json artifacts in a single call."""
-        text = await self.preprocess_pdf(raw)
+        text = await self.raw_to_text(raw)
         response = await self.call_model(self.PROMPT, text)
         return ExtractionResult(
             sections=response.get("sections", {}),

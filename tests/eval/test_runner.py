@@ -204,6 +204,24 @@ async def test_suite_never_aborts_on_exception() -> None:
     assert ok_result.cases[0].run.answered
 
 
+async def test_on_case_done_fires_per_case_in_order() -> None:
+    # The progress hook fires once per case, in case order, with the CaseResult.
+    adapter = FakeAdapter(actions=[_final("a"), _final("I think b")])
+    suite = EvalSuite(
+        [
+            EvalCase(id="c1", query="q1"),
+            EvalCase(id="c2", query="q2", forbidden_phrases=["I think"]),
+        ]
+    )
+    seen: list[tuple[str, bool]] = []
+    result = await suite.run(
+        _harness(adapter), on_case_done=lambda cr: seen.append((cr.case.id, cr.passed))
+    )
+
+    assert seen == [("c1", True), ("c2", False)]
+    assert [cr.case.id for cr in result.cases] == ["c1", "c2"]
+
+
 async def test_fresh_session_per_case_no_state_leak() -> None:
     # Two cases on one harness must not share citations/history.
     adapter = FakeAdapter(actions=[_final("a"), _final("b")])

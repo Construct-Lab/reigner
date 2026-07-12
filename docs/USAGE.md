@@ -413,13 +413,14 @@ You need three small edits before ingesting:
    "provider:model_id"`, or pass an `adapter` to `__init__`), transient-error
    retries (`max_retries`, default 2; `base_backoff_seconds`, default 1.0),
    validation of your `ExtractionResult` against `schema`, deterministic
-   idempotency keys, token/cost accounting (set `pricing` to get non-zero
-   `cost_usd`), and a default `preprocess_pdf` (PyMuPDF). Inside `extract` you
-   call `call_model(prompt, input_text)` for a single-shot JSON request, or
-   `preprocess_pdf(raw)` for text extraction — **override `preprocess_pdf`** for
-   OCR/multi-column, or to swap out the AGPL PyMuPDF dependency. Failures raise
-   the ingestion error taxonomy: `TransientError`, `ExtractionError`, and
-   `ValidationError`.
+   idempotency keys, token/cost accounting (priced from `reigner.pricing` for
+   any known model, or set `pricing` to override the rates), and a default
+   `raw_to_text` (PyMuPDF). Inside `extract` you call `call_model(prompt,
+   input_text)` for a single-shot JSON request, or `raw_to_text(raw)` for text
+   extraction — **override `raw_to_text`** for HTML/OCR/multi-column, or to swap
+   out the AGPL PyMuPDF dependency. (The old name `preprocess_pdf` still works as
+   a deprecated alias for one release.) Failures raise the ingestion error
+   taxonomy: `TransientError`, `ExtractionError`, and `ValidationError`.
 
 3. **`extractors/pipeline.py`** — assemble loaders → transforms → writers into a
    top-level `pipeline` symbol (what `reigner ingest` resolves by default):
@@ -713,7 +714,7 @@ No eviction: when inputs change the key changes, so stale `<key>.json` files are
 never read again (safe to `rm -rf`). A hit skips `call_model`, so `tokens_in` /
 `cost_usd` count only the calls actually made.
 
-**Scanned / image PDFs.** The default `preprocess_pdf` (PyMuPDF) is **text-only
+**Scanned / image PDFs.** The default `raw_to_text` (PyMuPDF) is **text-only
 in v0** — a scanned PDF with no text layer yields near-empty text, and *no*
 extraction strategy can recover content from text that isn't there (map-reduce
 just loops over nothing). Spot one by comparing page count to extracted length:
@@ -764,6 +765,9 @@ REPL controls:
 | `/expand` | Reprint the **last** turn's per-call tool detail below the recap (scrollback can't fold in place, so it reprints rather than un-collapsing). |
 | `Ctrl+C` | Cancel the current run. |
 | `/exit`, `/quit`, `Ctrl+D` | Quit the REPL. |
+
+The input box wraps and grows downward as you type, so a long question stays
+fully visible instead of scrolling off the right edge; **Enter** still submits.
 
 The prompt stays live while a run streams, so there are two distinct mid-run
 actions. **Enter** is type-ahead: your next question waits in line and runs as
@@ -1238,6 +1242,12 @@ The scorecard (representative — needs a model):
 
 2 cases · 2 passed · 0 failed
 ```
+
+Cases run sequentially — each a full agent loop — so while the suite runs it
+prints a `Running N eval case(s)…` banner and a per-case `✓`/`✗` tick **to
+stderr** as each finishes. That progress is only a liveness signal: the scorecard
+(and `--json` / `--report`) still goes to stdout unchanged, so piping and
+redirects are unaffected.
 
 **The five built-in checks** (all deterministic — no model calls; `na` = inapplicable):
 
