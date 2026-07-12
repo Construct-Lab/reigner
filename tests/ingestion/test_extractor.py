@@ -423,17 +423,55 @@ async def test_subclass_meta_is_preserved_alongside_provenance() -> None:
     assert "source_hash" in result.meta
 
 
-# ---- preprocess_pdf import fallback ---------------------------------------
+# ---- raw_to_text import fallback ------------------------------------------
 
 
-async def test_preprocess_pdf_raises_helpful_error_when_pymupdf_missing(
+async def test_raw_to_text_raises_helpful_error_when_pymupdf_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Hide pymupdf if it happens to be installed.
     monkeypatch.setitem(sys.modules, "pymupdf", None)
     extractor = _Extractor(adapter=StubAdapter(responses=[]))
     with pytest.raises(ImportError, match="reigner\\[ingestion\\]"):
+        await extractor.raw_to_text(b"%PDF-1.4 fake")
+
+
+# ---- preprocess_pdf deprecation shim --------------------------------------
+
+
+async def test_preprocess_pdf_alias_warns_and_delegates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The deprecated public alias emits a DeprecationWarning and delegates to
+    # raw_to_text (here surfaced via the pymupdf-missing ImportError).
+    monkeypatch.setitem(sys.modules, "pymupdf", None)
+    extractor = _Extractor(adapter=StubAdapter(responses=[]))
+    with pytest.warns(DeprecationWarning, match="raw_to_text"), pytest.raises(ImportError):
         await extractor.preprocess_pdf(b"%PDF-1.4 fake")
+
+
+async def test_deprecated_preprocess_pdf_override_is_still_honoured() -> None:
+    # A subclass that still overrides preprocess_pdf keeps working for one
+    # release: _raw_to_text picks up the override (with a deprecation warning)
+    # instead of running the pymupdf default.
+    class LegacyMapReduce(MapReduceExtractor):
+        schema = ArtifactSchema(
+            entity_path="{ticker}/{fiscal_year}",
+            sections=[SectionSpec(name="document_summary", required=True)],
+        )
+        MAP_PROMPT = "{section_spec}"
+        REDUCE_PROMPT = "{section} {max_chars}"
+        base_backoff_seconds = 0.0
+
+        async def preprocess_pdf(self, raw: bytes) -> str:
+            return raw.decode()
+
+    # Map returns section-name keys directly; one chunk ⇒ one model call.
+    adapter = StubAdapter(responses=['{"document_summary": "ok"}'])
+    extractor = LegacyMapReduce(adapter=adapter)
+    with pytest.warns(DeprecationWarning, match="raw_to_text"):
+        result = await extractor.run(raw=b"legacy text body", meta={})
+    assert result.sections["document_summary"] == "ok"
 
 
 # ---- Overflow guard -------------------------------------------------------

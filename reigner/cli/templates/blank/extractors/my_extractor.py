@@ -18,7 +18,7 @@ prompt and any preprocessing are yours.
 #     """
 #
 #     async def extract(self, raw: bytes, meta: dict) -> "ExtractionResult":
-#         text = await self.preprocess_pdf(raw)
+#         text = await self.raw_to_text(raw)
 #         response = await self.call_model(
 #             prompt=self.PROMPT.format(**meta),
 #             input_text=text,

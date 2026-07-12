@@ -1,7 +1,7 @@
 """PDF loader.
 
 Reads ``.pdf`` files into raw bytes. Decoding to text is the extractor's
-job (default: ``LLMExtractor.preprocess_pdf`` via ``pymupdf``); leaving
+job (default: ``LLMExtractor.raw_to_text`` via ``pymupdf``); leaving
 the bytes untouched lets domain extractors swap in OCR, table extraction,
 multi-column handling, etc.
 """

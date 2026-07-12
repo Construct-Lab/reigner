@@ -3,7 +3,7 @@
 The base class owns everything that's the same regardless of domain: model
 adapter wiring, retry on transient adapter errors, schema validation against
 :class:`reigner.artifacts.ArtifactSchema`, deterministic idempotency keys,
-token + cost accounting, and a default ``preprocess_pdf``. The subclass owns
+token + cost accounting, and a default ``raw_to_text``. The subclass owns
 ``PROMPT`` and ``extract()`` — the irreducibly domain-specific parts.
 
 The pipeline calls :meth:`LLMExtractor.run` per document. ``run`` calls the
@@ -153,8 +153,9 @@ class LLMExtractor(ABC):
     * :meth:`call_model` — single-shot JSON request; raises
       :class:`TransientError` after retries, :class:`ExtractionError` on
       unparseable response.
-    * :meth:`preprocess_pdf` — default ``pymupdf`` text extraction; override
-      for OCR or multi-column handling.
+    * :meth:`raw_to_text` — default ``pymupdf`` text extraction; override for a
+      non-PDF corpus (HTML, OCR, multi-column). (The old name
+      ``preprocess_pdf`` still works as a deprecated alias for one release.)
     """
 
     schema: ClassVar[ArtifactSchema]
@@ -314,18 +315,19 @@ class LLMExtractor(ABC):
         # convinced about the return type.
         raise TransientError(f"transient adapter error (unreachable); last error: {last_transient}")
 
-    async def preprocess_pdf(self, raw: bytes) -> str:
-        r"""Default PDF → text using pymupdf.
+    async def raw_to_text(self, raw: bytes) -> str:
+        r"""Default raw bytes → text using pymupdf (PDF).
 
-        Pages are joined by form-feed (``\f``) so downstream consumers can
-        recover page boundaries. Override for OCR, multi-column layouts, or
-        scanned documents.
+        This is the format-neutral "raw → text" hook the extraction path runs
+        before chunking. The default reads a PDF; pages are joined by form-feed
+        (``\f``) so downstream consumers can recover page boundaries. Override
+        for a non-PDF corpus (HTML, OCR, multi-column, scanned documents).
 
         Args:
-            raw: The raw PDF bytes.
+            raw: The raw source bytes.
 
         Returns:
-            The extracted text, with pages separated by form-feed characters.
+            The extracted text, with PDF pages separated by form-feed characters.
 
         Raises:
             ImportError: If the optional ``pymupdf`` dependency is missing.
@@ -334,9 +336,9 @@ class LLMExtractor(ABC):
             import pymupdf
         except ImportError as exc:
             raise ImportError(
-                "preprocess_pdf needs pymupdf. Install with "
+                "raw_to_text needs pymupdf. Install with "
                 "`uv add reigner[ingestion]` (or `pip install reigner[ingestion]`), "
-                "or override preprocess_pdf in your subclass."
+                "or override raw_to_text in your subclass."
             ) from exc
 
         doc = pymupdf.open(stream=raw, filetype="pdf")
@@ -344,6 +346,43 @@ class LLMExtractor(ABC):
             return "\f".join(page.get_text() for page in doc)
         finally:
             doc.close()
+
+    async def preprocess_pdf(self, raw: bytes) -> str:
+        """Deprecated alias for :meth:`raw_to_text`.
+
+        Kept for one release so existing subclasses that override
+        ``preprocess_pdf`` keep working (the extraction path honours such an
+        override, with a warning — see :meth:`_raw_to_text`). New code should
+        override :meth:`raw_to_text` instead. Removal is slated for a future
+        release.
+        """
+        warnings.warn(
+            "LLMExtractor.preprocess_pdf is deprecated and will be removed in a "
+            "future release; rename it to raw_to_text.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return await self.raw_to_text(raw)
+
+    async def _raw_to_text(self, raw: bytes) -> str:
+        """Resolve the raw→text step, honouring a deprecated override.
+
+        Prefers :meth:`raw_to_text`, but if a subclass still overrides the
+        deprecated :meth:`preprocess_pdf`, that override wins (with a warning)
+        for one release so renaming the corpus hook isn't a silent breaking
+        change. The extraction path calls this, never the public methods
+        directly.
+        """
+        if type(self).preprocess_pdf is not LLMExtractor.preprocess_pdf:
+            warnings.warn(
+                "LLMExtractor.preprocess_pdf is deprecated; rename your override "
+                "to raw_to_text. The preprocess_pdf override is still honoured "
+                "for this release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return await self.preprocess_pdf(raw)
+        return await self.raw_to_text(raw)
 
     # ---- Internals ----------------------------------------------------------
 
@@ -511,7 +550,7 @@ class MapReduceExtractor(LLMExtractor):
     map-reduce machinery and implements :meth:`extract` itself as a template
     method — the subclass no longer writes ``extract``. The flow is::
 
-        preprocess_pdf -> _chunk_pages -> _map -> reduce -> summarize
+        raw_to_text -> _chunk_pages -> _map -> reduce -> summarize
                        -> (enforce max_chars) -> post_process -> ExtractionResult
 
     What the subclass supplies:
@@ -591,7 +630,7 @@ class MapReduceExtractor(LLMExtractor):
         Returns:
             The assembled :class:`ExtractionResult` across all chunks.
         """
-        full_text = await self.preprocess_pdf(raw)
+        full_text = await self._raw_to_text(raw)
         chunks = self._chunk_pages(full_text)
         fragments = await self._map(chunks, meta)
         sections = await self.reduce(fragments, meta)
@@ -651,7 +690,7 @@ class MapReduceExtractor(LLMExtractor):
     def _chunk_pages(self, text: str) -> list[str]:
         r"""Pack pages into ``<=chunk_chars`` windows; never split a page.
 
-        Pages arrive ``\f``-separated from :meth:`preprocess_pdf`. A single
+        Pages arrive ``\f``-separated from :meth:`raw_to_text`. A single
         page larger than ``chunk_chars`` becomes its own over-budget chunk: the
         whole page is still seen by the model, nothing is silently truncated.
         """

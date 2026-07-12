@@ -37,7 +37,7 @@ class _Extractor(MapReduceExtractor):
     chunk_chars = 100  # small so the fixtures cross chunk boundaries
     MAP_EXCLUDE = frozenset({"overview/summary"})
 
-    async def preprocess_pdf(self, raw: bytes) -> str:
+    async def raw_to_text(self, raw: bytes) -> str:
         # Tests feed plain text (already \f-paginated), not real PDF bytes.
         return raw.decode()
 
