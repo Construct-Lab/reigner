@@ -1,0 +1,140 @@
+# eval/cases.yaml — eval suite for the SEC 10-K example.
+#
+# 20 cases over 5 companies (AAPL, MSFT, GOOGL, AMZN, NVDA) x 3 fiscal years
+# (2022-2024). Run with:
+#
+#     reigner eval --profile read_only
+#
+# The ambiguity cases (17-19) need `request_clarification`, which the default
+# `eval` profile strips — so run the whole suite under `read_only`.
+#
+# expected_citations are `source#locator` strings. Coverage matches on the
+# source (before `#`): a root-relative artifact path the agent must retrieve,
+# e.g. "AAPL/2024/metadata.json" or "AAPL/2024/sections/mdna". Faithfulness is a
+# runtime check (every asserted number must trace to a registered citation), so
+# cases don't hardcode figures.
+
+cases:
+  # --- 1-7 · single-fact numeric (one metric, one filing) -------------------
+  - id: aapl_fy2024_rnd
+    query: "What was Apple's research and development expense in fiscal 2024?"
+    expected_citations:
+      - "AAPL/2024/metadata.json#field=rnd_expense"
+    max_tokens: 20000
+
+  - id: msft_fy2024_revenue
+    query: "What was Microsoft's total revenue in fiscal year 2024?"
+    expected_citations:
+      - "MSFT/2024/metadata.json#field=revenue"
+    max_tokens: 20000
+
+  - id: nvda_fy2024_net_income
+    query: "What net income did NVIDIA report for fiscal 2024?"
+    expected_citations:
+      - "NVDA/2024/metadata.json#field=net_income"
+    max_tokens: 20000
+
+  - id: googl_fy2023_revenue
+    query: "What were Alphabet's total revenues in fiscal 2023?"
+    expected_citations:
+      - "GOOGL/2023/metadata.json#field=revenue"
+    max_tokens: 20000
+
+  - id: amzn_fy2024_operating_income
+    query: "What was Amazon's operating income in fiscal 2024?"
+    expected_citations:
+      - "AMZN/2024/metadata.json#field=operating_income"
+    max_tokens: 20000
+
+  - id: aapl_fy2023_net_income
+    query: "What was Apple's net income in fiscal 2023?"
+    expected_citations:
+      - "AAPL/2023/metadata.json#field=net_income"
+    max_tokens: 20000
+
+  - id: msft_fy2022_rnd
+    query: "How much did Microsoft spend on research and development in fiscal 2022?"
+    expected_citations:
+      - "MSFT/2022/metadata.json#field=rnd_expense"
+    max_tokens: 20000
+
+  # --- 8-10 · cross-year trend (one entity, three filings) ------------------
+  - id: aapl_rnd_trend
+    query: "Show Apple's research and development expense for each of fiscal 2022, 2023, and 2024, and describe the trend."
+    expected_citations:
+      - "AAPL/2022/metadata.json#field=rnd_expense"
+      - "AAPL/2023/metadata.json#field=rnd_expense"
+      - "AAPL/2024/metadata.json#field=rnd_expense"
+
+  - id: nvda_revenue_growth
+    query: "Show NVIDIA's revenue for each of fiscal 2022, 2023, and 2024, and describe how much it grew."
+    expected_citations:
+      - "NVDA/2022/metadata.json#field=revenue"
+      - "NVDA/2023/metadata.json#field=revenue"
+      - "NVDA/2024/metadata.json#field=revenue"
+
+  - id: msft_net_income_trend
+    query: "Show Microsoft's net income for each of fiscal 2022, 2023, and 2024."
+    expected_citations:
+      - "MSFT/2022/metadata.json#field=net_income"
+      - "MSFT/2023/metadata.json#field=net_income"
+      - "MSFT/2024/metadata.json#field=net_income"
+
+  # --- 11-13 · cross-entity comparison --------------------------------------
+  - id: compare_rnd_aapl_msft_2024
+    query: "Compare Apple's and Microsoft's research and development expense in fiscal 2024."
+    expected_citations:
+      - "AAPL/2024/metadata.json#field=rnd_expense"
+      - "MSFT/2024/metadata.json#field=rnd_expense"
+
+  - id: compare_net_income_2024
+    query: "Which had higher net income in fiscal 2024, Alphabet or Amazon?"
+    expected_citations:
+      - "GOOGL/2024/metadata.json#field=net_income"
+      - "AMZN/2024/metadata.json#field=net_income"
+
+  - id: compare_operating_income_2023
+    query: "Compare Apple's and Amazon's operating income in fiscal 2023."
+    expected_citations:
+      - "AAPL/2023/metadata.json#field=operating_income"
+      - "AMZN/2023/metadata.json#field=operating_income"
+
+  # --- 14-16 · qualitative / section (no numeric claim) ---------------------
+  - id: aapl_risk_factors_2024
+    query: "What principal risks does Apple identify in its fiscal 2024 annual report?"
+    expected_citations:
+      - "AAPL/2024/sections/risk_factors"
+
+  - id: nvda_business_2024
+    query: "What does NVIDIA describe as its business in its fiscal 2024 10-K?"
+    expected_citations:
+      - "NVDA/2024/sections/business"
+
+  - id: amzn_mdna_2024
+    query: "Summarize how Amazon's management discussed its fiscal 2024 results of operations."
+    expected_citations:
+      - "AMZN/2024/sections/mdna"
+
+  # --- 17-19 · ambiguity / entity resolution (must clarify) -----------------
+  - id: ambiguous_company
+    query: "What was the company's revenue last year?"
+    expected_clarification: true
+
+  - id: ambiguous_year
+    query: "What was Apple's net income?"
+    expected_clarification: true
+
+  - id: ambiguous_metric_owner
+    query: "How much did they spend on research and development?"
+    expected_clarification: true
+
+  # --- 20 · out-of-corpus / hallucination trap ------------------------------
+  # Tesla is not in the corpus. The right answer is to decline; any figure the
+  # agent volunteers is uncited and fails faithfulness. forbidden_phrases guards
+  # against the most likely recalled-from-memory fabrications.
+  - id: tesla_out_of_corpus
+    query: "What was Tesla's total revenue in fiscal 2024?"
+    forbidden_phrases:
+      - "97,690"
+      - "97.7 billion"
+      - "96,773"

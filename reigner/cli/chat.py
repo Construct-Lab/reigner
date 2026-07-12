@@ -286,6 +286,11 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         multiline=True,
         wrap_lines=True,
         height=Dimension(min=1, max=10),
+        # Hug the content: grow one row per typed/wrapped line up to the cap,
+        # then shrink back. Without this the window extends to fill whatever
+        # vertical space the terminal offers, so an empty prompt balloons to the
+        # max height in any terminal that reports its size (CPR-capable).
+        dont_extend_height=True,
     )
 
     def _title() -> Any:

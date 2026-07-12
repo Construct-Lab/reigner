@@ -1,0 +1,2 @@
+# Raw SEC filings are downloaded here by `python fetch_filings.py`.
+# The .htm files are gitignored; this keeps the directory in the repo.
