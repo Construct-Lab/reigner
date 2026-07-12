@@ -9,9 +9,16 @@ right.
 Deterministic — it reads only ``run.events``. Ground truth is the *source* of
 each expected citation: the part of the ``citation_id`` string before ``#``
 (e.g. ``"AAPL/2024/metrics.json#field=rnd"`` → ``"AAPL/2024/metrics.json"``).
-"Retrieved" means a :class:`~reigner.harness.events.ToolCallEvent` carried that
-path in a ``path`` / ``file_path`` argument — the keys used by
-``read_artifact_file``, ``get_json_field``, and ``grep_artifact``.
+"Retrieved" means one of:
+
+- a :class:`~reigner.harness.events.ToolCallEvent` carried the path in a
+  ``path`` / ``file_path`` / ``entity`` argument — the keys used by
+  ``read_artifact_file``, ``get_json_field``, and ``grep_artifact`` (``entity``
+  scopes the search to a directory, which the prefix match below then treats as
+  retrieving everything under it); or
+- a :class:`~reigner.harness.events.ToolResultEvent` reported a resolved
+  ``path`` in its result — how ``get_section`` names its target, since its call
+  args are ``section`` + identifiers rather than a path.
 
 A retrieved path covers an expected source when they are equal or one is a
 path-segment prefix of the other (so reading a directory or a file under it
@@ -28,11 +35,13 @@ from __future__ import annotations
 
 from reigner.eval.cases import EvalCase
 from reigner.eval.checks import CaseRun, CheckResult, check
-from reigner.harness.events import ToolCallEvent
+from reigner.harness.events import ToolCallEvent, ToolResultEvent
 
-# Tool arguments that name an artifact path (read_artifact_file / get_json_field
-# use ``path``; grep_artifact uses ``file_path``).
-_PATH_KEYS = ("path", "file_path")
+# Tool arguments that name an artifact path or scope: read_artifact_file /
+# get_json_field use ``path``; grep_artifact uses ``file_path`` or an ``entity``
+# directory (e.g. ``AAPL/2024``), which the prefix match in ``_covers`` then
+# treats as retrieving everything under it.
+_PATH_KEYS = ("path", "file_path", "entity")
 
 
 def _expected_source(citation: str) -> str:
@@ -46,6 +55,15 @@ def _retrieved_paths(run: CaseRun) -> set[str]:
         if isinstance(event, ToolCallEvent):
             for key in _PATH_KEYS:
                 value = event.args.get(key)
+                if isinstance(value, str) and value:
+                    paths.add(value)
+        elif isinstance(event, ToolResultEvent):
+            # ``get_section`` names its target by section + identifiers, not a
+            # path arg — the resolved path is only in the result. Pick it up here
+            # so an idiomatic section read counts as retrieval.
+            result = event.result
+            if isinstance(result, dict):
+                value = result.get("path")
                 if isinstance(value, str) and value:
                     paths.add(value)
     return paths
