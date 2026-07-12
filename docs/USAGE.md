@@ -766,6 +766,9 @@ REPL controls:
 | `Ctrl+C` | Cancel the current run. |
 | `/exit`, `/quit`, `Ctrl+D` | Quit the REPL. |
 
+The input box wraps and grows downward as you type, so a long question stays
+fully visible instead of scrolling off the right edge; **Enter** still submits.
+
 The prompt stays live while a run streams, so there are two distinct mid-run
 actions. **Enter** is type-ahead: your next question waits in line and runs as
 its own turn once the current answer lands (like queuing a follow-up in Claude
