@@ -154,7 +154,7 @@ def test_add_citation_dedup_returns_existing() -> None:
     duplicate = Citation(
         source="src",
         locator={"k": "v"},
-        value=999,  # different value — still considered the same citation
+        value=1,  # same fact re-registered on a later turn
         turn=5,
         tool_call_id="c2",
     )
@@ -162,8 +162,22 @@ def test_add_citation_dedup_returns_existing() -> None:
     assert stored is first
     assert len(state.citations) == 1
     # The first registration wins — replaying citations preserves the
-    # historical value as recorded.
-    assert state.citations[0].value == 1
+    # historical record as originally captured.
+    assert state.citations[0].turn == 0
+
+
+def test_add_citation_distinct_values_at_same_locator_coexist() -> None:
+    # Prose sections are one blob, so distinct facts share a locator
+    # (e.g. {line: 1}). Keying dedup on value keeps every fact alive so
+    # the faithfulness check can find each cited claim.
+    state = _state()
+    loc = {"line": 1}
+    net_sales = Citation(source="AMZN/2024/sections/mdna", locator=loc, value=637_959, turn=0)
+    north_america = Citation(source="AMZN/2024/sections/mdna", locator=loc, value=387_497, turn=0)
+    state.add_citation(net_sales)
+    stored = state.add_citation(north_america)
+    assert stored is north_america
+    assert [c.value for c in state.citations] == [637_959, 387_497]
 
 
 def test_add_citation_dedup_uses_canonical_locator() -> None:

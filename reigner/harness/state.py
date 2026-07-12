@@ -211,18 +211,27 @@ class AgentState:
         return note
 
     def add_citation(self, citation: Citation) -> Citation:
-        """Append a citation, idempotent on ``citation_id(source, locator)``.
+        """Append a citation, idempotent on ``(source, locator, value)``.
 
         Citations are uncapped: a multi-fact answer may need many, and silent
         FIFO eviction would let early citations vanish — the faithfulness
-        check would then flag those claims as hallucinations. Dedup is
-        cheap and the right behavior when the model re-registers the same
-        fact across turns. Returns the existing citation on re-registration
-        so callers see what's actually stored.
+        check would then flag those claims as hallucinations. Dedup is keyed
+        on the full claim (source, locator, and value) so re-registering the
+        *same* fact across turns collapses, while distinct facts that happen
+        to share a locator both survive. The locator alone is not enough:
+        prose sections are stored as a single blob, so every fact in a
+        section resolves to the same ``source#locator`` (e.g. ``{line: 1}``);
+        keying on the locator only would silently drop every fact after the
+        first and the faithfulness check would flag them as hallucinations.
+        Returns the existing citation on re-registration so callers see what's
+        actually stored.
         """
         key = citation_id(citation.source, citation.locator)
         for existing in self.citations:
-            if citation_id(existing.source, existing.locator) == key:
+            if (
+                citation_id(existing.source, existing.locator) == key
+                and existing.value == citation.value
+            ):
                 return existing
         self.citations.append(citation)
         return citation
