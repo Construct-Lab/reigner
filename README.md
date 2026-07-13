@@ -2,6 +2,10 @@
 
 Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.
 
+Reigner is a toolkit to build a single retrieval agent that compiles your
+sources into bounded artifacts and answers over them with faithful, cited
+claims.
+
 > Status: in development. `init`, `ingest`, `chat`, `inspect`, and `serve` work
 > today — see [`docs/USAGE.md`](docs/USAGE.md) for the hands-on guide with
 > per-feature status flags, and [`PRINCIPLES.md`](PRINCIPLES.md) for design
