@@ -31,15 +31,19 @@ from typing import Any
 
 import typer
 from prompt_toolkit.application import Application
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout import Float, FloatContainer, Layout
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
 from prompt_toolkit.widgets import base as _ptk_widgets
 from rich.console import Console
 
+from reigner.cli._banner import render_banner
 from reigner.cli._env import load_project_env
 from reigner.cli._render import TurnRenderer
 from reigner.harness.agent import Harness, Session
@@ -63,6 +67,79 @@ _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 EXIT_OK = 0
 EXIT_RUNTIME = 1
 EXIT_USAGE = 2
+
+# Slash commands: name → one-line description. Single source of truth read by
+# the Tab completer, the `/help` listing, and `_on_enter` dispatch — so the set
+# can't drift across the three. Key chords (Enter, Ctrl+C, …) live in
+# ``_HELP_KEYS`` since they aren't slash-completable.
+_COMMANDS: dict[str, str] = {
+    "/help": "show the command list",
+    "/expand": "show the last retrieval",
+    "/verbose": "toggle live tool calls",
+    "/exit": "quit",
+}
+
+# Non-slash key chords, shown in `/help` for completeness.
+_HELP_KEYS: list[tuple[str, str]] = [
+    ("Enter", "submit — mid-run, queues your next question"),
+    ("Alt/Esc-Enter", "steer the running answer"),
+    ("Ctrl+C", "cancel the current run"),
+    ("Ctrl+D", "quit"),
+]
+
+
+class _SlashCompleter(Completer):
+    """Complete ``/`` commands from :data:`_COMMANDS`, nothing else.
+
+    Only fires when the line starts with ``/`` — a plain question never pops a
+    menu. Each entry carries its description as ``display_meta`` so the dropdown
+    doubles as inline docs.
+    """
+
+    def get_completions(self, document: Document, complete_event: Any) -> Any:
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for name, desc in _COMMANDS.items():
+            if name.startswith(text):
+                yield Completion(name, start_position=-len(text), display_meta=desc)
+
+
+def _accept_open_completion(buf: Any) -> bool:
+    """On Enter with the menu open on a *partial* command, accept it instead.
+
+    The menu pops as soon as the line starts with ``/`` (complete-while-typing),
+    so at Enter the buffer usually still holds a partial like ``/ve`` — submitting
+    that verbatim would be wrong. When a menu is open on a partial, accept the
+    highlighted completion (or the first, if none is highlighted yet) and report
+    handled so Enter doesn't also submit; a second Enter then runs it.
+
+    Returns ``False`` — i.e. let Enter submit normally — when there is no menu, or
+    when the line is already a complete command (so ``/help`` runs on one Enter).
+    """
+    cs = buf.complete_state
+    if cs is None or buf.text.strip() in _COMMANDS:
+        return False
+    completion = cs.current_completion or (cs.completions[0] if cs.completions else None)
+    if completion is None:
+        return False
+    buf.apply_completion(completion)
+    return True
+
+
+def _print_help(console: Console) -> None:
+    """Print the full key/command reference — the body of ``/help``."""
+    rows: list[tuple[str, str]] = [
+        _HELP_KEYS[0],  # Enter
+        _HELP_KEYS[1],  # Alt/Esc-Enter
+        ("/expand", _COMMANDS["/expand"]),
+        ("/verbose", _COMMANDS["/verbose"]),
+        ("/help", _COMMANDS["/help"]),
+        _HELP_KEYS[2],  # Ctrl+C
+        ("/exit  Ctrl+D", _COMMANDS["/exit"]),
+    ]
+    for label, desc in rows:
+        console.print(f"  [bold]{label:<15}[/bold][dim]{desc}[/dim]")
 
 
 @contextlib.contextmanager
@@ -118,13 +195,14 @@ def _chat(
         typer.echo("✗ --json only makes sense with --print", err=True)
         raise typer.Exit(EXIT_USAGE)
 
-    session = _build_session(Path(config))
+    config_path = Path(config)
+    session = _build_session(config_path)
 
     if print_query is not None:
         code = asyncio.run(_run_print(session, print_query, json_output=json_output))
         raise typer.Exit(code)
 
-    asyncio.run(_run_repl(session, verbose=verbose))
+    asyncio.run(_run_repl(session, config_path, verbose=verbose))
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +269,7 @@ async def _run_print(session: Session, query: str, *, json_output: bool) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _run_repl(session: Session, *, verbose: bool = False) -> None:
+async def _run_repl(session: Session, config_path: Path, *, verbose: bool = False) -> None:
     """Interactive REPL. Bottom prompt is always live; output streams above it."""
     if not sys.stdin.isatty():
         typer.echo(
@@ -217,12 +295,19 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         # the NEXT question — the current run answers on its own, then the
         # consumer pulls this one and runs it as a fresh turn (type-ahead).
         buf = event.app.current_buffer
+        # First, if the slash-command menu is open on a partial, Enter accepts the
+        # command rather than submitting the half-typed text.
+        if _accept_open_completion(buf):
+            return
         text = buf.text.strip()
         buf.reset()
         if not text:
             return
         if text in {"/exit", "/quit"}:
             event.app.exit()
+            return
+        if text in {"/help", "/?"}:
+            _print_help(console)
             return
         if text == "/verbose":
             ui["verbose"] = not ui["verbose"]
@@ -291,6 +376,13 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
         # vertical space the terminal offers, so an empty prompt balloons to the
         # max height in any terminal that reports its size (CPR-capable).
         dont_extend_height=True,
+        # The slash-command dropdown pops as soon as the line starts with `/`
+        # (not only on Tab), so the hints are visible while you type. The
+        # completer no-ops on non-slash lines, so normal typing pays nothing. The
+        # `enter` binding guards this via _accept_open_completion so a partial
+        # command isn't submitted verbatim.
+        completer=_SlashCompleter(),
+        complete_while_typing=True,
     )
 
     def _title() -> Any:
@@ -303,22 +395,41 @@ async def _run_repl(session: Session, *, verbose: bool = False) -> None:
 
     with _rounded_border():
         composer = Frame(input_area, title=_title)
+    # Wrap the composer so the completions dropdown can float over scrollback at
+    # the cursor. CompletionsMenu is the compact COLUMN style — right for a short
+    # command set; a wider READLINE_LIKE list would only earn its space with many
+    # commands or sentence-length descriptions.
+    menu = CompletionsMenu(max_height=8, scroll_offset=1)
+    root = FloatContainer(
+        content=composer,
+        floats=[Float(xcursor=True, ycursor=True, content=menu)],
+    )
     app: Application[str] = Application(
-        layout=Layout(composer),
+        layout=Layout(root),
         key_bindings=kb,
-        style=Style.from_dict({"frame.border": "ansimagenta", "frame.label": "ansimagenta bold"}),
+        # Frame accents + the completion dropdown, tied to the same magenta as the
+        # composer border so the menu doesn't fall back to prompt_toolkit's grey.
+        style=Style.from_dict(
+            {
+                "frame.border": "ansimagenta",
+                "frame.label": "ansimagenta bold",
+                "completion-menu": "bg:#2a2233",
+                "completion-menu.completion": "bg:#2a2233 #cfc6da",
+                "completion-menu.completion.current": "bg:ansimagenta #1a1a1a bold",
+                "completion-menu.meta.completion": "bg:#221b2b #8b8398",
+                "completion-menu.meta.completion.current": "bg:ansimagenta #2a1a2a",
+                "scrollbar.background": "bg:#221b2b",
+                "scrollbar.button": "bg:ansimagenta",
+            }
+        ),
         full_screen=False,
         mouse_support=False,
         erase_when_done=True,
         refresh_interval=0.2,  # keep the spinner / elapsed in the title moving
     )
 
-    console.print(
-        "[dim]reigner chat — Enter submits (mid-run: queues your next "
-        "question); Alt+Enter / Esc-then-Enter steers the running answer; "
-        "/expand shows the last retrieval, /verbose toggles live tool calls; "
-        "Ctrl+C cancels; /exit or Ctrl+D to quit.[/dim]"
-    )
+    render_banner(console, session, config_path)
+    console.print("[dim]Enter to ask  ·  /help for commands  ·  Ctrl+D to quit[/dim]")
 
     async def _consume() -> None:
         # Drive runs off the input queue while the prompt stays live. Output
