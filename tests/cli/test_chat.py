@@ -140,7 +140,9 @@ async def test_repl_runs_one_query(make_session, monkeypatch: pytest.MonkeyPatch
     with create_pipe_input() as inp:
         inp.send_text("ask\n")
         with create_app_session(input=inp, output=DummyOutput()):
-            repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+            repl_task = asyncio.ensure_future(
+                chat_module._run_repl(session, Path("no-banner.yaml"))
+            )
             done = await _wait_for(
                 lambda: any(isinstance(e, FinalAnswerEvent) for e in session.events())
             )
@@ -167,7 +169,9 @@ async def test_repl_exit_command(make_session, monkeypatch: pytest.MonkeyPatch) 
     with create_pipe_input() as inp:
         inp.send_text("/exit\n")
         with create_app_session(input=inp, output=DummyOutput()):
-            await asyncio.wait_for(chat_module._run_repl(session), timeout=2.0)
+            await asyncio.wait_for(
+                chat_module._run_repl(session, Path("no-banner.yaml")), timeout=2.0
+            )
 
     assert session.harness.adapter.calls == []
 
@@ -201,7 +205,7 @@ async def test_repl_queues_next_question_midrun(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
 
     with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
-        repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+        repl_task = asyncio.ensure_future(chat_module._run_repl(session, Path("no-banner.yaml")))
 
         inp.send_text("q1\n")
         assert await _wait_for(lambda: bool(adapter.calls)), "q1 never started"
@@ -262,7 +266,7 @@ async def test_repl_captures_midrun_steer(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(chat_module.sys.stdin, "isatty", lambda: True)
 
     with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
-        repl_task = asyncio.ensure_future(chat_module._run_repl(session))
+        repl_task = asyncio.ensure_future(chat_module._run_repl(session, Path("no-banner.yaml")))
 
         # Submit the query, then wait until its model call is genuinely in
         # flight — the blocking adapter records the call, then parks on
@@ -300,3 +304,102 @@ def test_repl_refuses_without_tty(patch_build_session, monkeypatch: pytest.Monke
     result = runner.invoke(app, ["chat"])
     assert result.exit_code == 2
     assert "needs a TTY" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Slash commands: /help + Tab completion
+# ---------------------------------------------------------------------------
+
+
+def _completions(text: str) -> list[str]:
+    from prompt_toolkit.document import Document
+
+    from reigner.cli.chat import _SlashCompleter
+
+    doc = Document(text, len(text))
+    return [c.text for c in _SlashCompleter().get_completions(doc, None)]
+
+
+def test_slash_completer_lists_all_commands() -> None:
+    from reigner.cli.chat import _COMMANDS
+
+    assert _completions("/") == list(_COMMANDS)
+
+
+def test_slash_completer_filters_on_prefix() -> None:
+    # "/ex" narrows to the two commands that start with it.
+    assert _completions("/ex") == ["/expand", "/exit"]
+
+
+def test_slash_completer_ignores_plain_queries() -> None:
+    # A normal question never pops the menu.
+    assert _completions("what is the revenue") == []
+
+
+def test_slash_completions_carry_descriptions() -> None:
+    from prompt_toolkit.document import Document
+
+    from reigner.cli.chat import _COMMANDS, _SlashCompleter
+
+    doc = Document("/help", len("/help"))
+    (comp,) = _SlashCompleter().get_completions(doc, None)
+    # display_meta doubles as inline docs — must match the single command table.
+    assert comp.display_meta_text == _COMMANDS["/help"]
+
+
+def _buffer_with_menu(text: str):
+    """A prompt_toolkit Buffer holding ``text`` with its completion menu open."""
+    from prompt_toolkit.buffer import Buffer, CompletionState
+    from prompt_toolkit.document import Document
+
+    from reigner.cli.chat import _SlashCompleter
+
+    buf = Buffer(document=Document(text, len(text)))
+    comps = list(_SlashCompleter().get_completions(buf.document, None))
+    buf.complete_state = (
+        CompletionState(original_document=buf.document, completions=comps) if comps else None
+    )
+    return buf
+
+
+def test_enter_accepts_partial_command_from_open_menu() -> None:
+    from reigner.cli.chat import _accept_open_completion
+
+    buf = _buffer_with_menu("/e")
+    # Menu open on a partial → Enter accepts (first match) instead of submitting.
+    assert _accept_open_completion(buf) is True
+    assert buf.text == "/expand"
+
+
+def test_enter_runs_a_fully_typed_command() -> None:
+    from reigner.cli.chat import _accept_open_completion
+
+    buf = _buffer_with_menu("/help")
+    # Already a complete command → don't intercept; let Enter submit and run it.
+    assert _accept_open_completion(buf) is False
+    assert buf.text == "/help"
+
+
+def test_enter_submits_a_plain_query() -> None:
+    from reigner.cli.chat import _accept_open_completion
+
+    buf = _buffer_with_menu("what is revenue")
+    # No menu on a normal question → Enter submits as usual.
+    assert _accept_open_completion(buf) is False
+
+
+def test_help_lists_every_slash_command() -> None:
+    from rich.console import Console
+
+    from reigner.cli.chat import _COMMANDS, _print_help
+
+    console = Console(width=80, force_terminal=False, no_color=True)
+    with console.capture() as cap:
+        _print_help(console)
+    out = cap.get()
+
+    for name in _COMMANDS:
+        assert name in out
+    # The non-slash chords show up too.
+    assert "Enter" in out
+    assert "Ctrl+C" in out
