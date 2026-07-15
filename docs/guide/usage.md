@@ -1,23 +1,17 @@
-# Reigner — usage guide
+# Usage guide
 
-A **living, hands-on guide to what Reigner actually does today** — written so a
-dev who has never seen the internals can go *install → scaffold → ingest → chat*
-by following it top to bottom.
-
-It's derived from the shipped code and CLI: every feature carries a status flag,
-and the flags were verified by **running the commands**, not by reading docs or
-task lists.
+This guide walks through Reigner end to end — install, scaffold a project, ingest
+documents, and chat with cited answers — using the commands as they ship today.
+Every feature in the [status table](#2-feature-status) is marked with where it stands.
 
 > **Status legend**
-> - ✅ **shipped** — works today, exercised below.
-> - 🟡 **partial** — usable but incomplete; caveats called out inline.
-> - ⏳ **planned** — scaffolding exists, behavior does not yet. Linked to its issue.
+> - ✅ **shipped** — works today.
+> - 🟡 **partial** — usable but incomplete; caveats noted inline.
+> - ⏳ **planned** — scaffolded but not yet functional; linked to its tracking issue.
 
-A note on the examples: commands that run **offline** (`init`, `ingest
---dry-run`, `inspect`, `serve`) show **real, pasted output**. Commands that need
-a live model and would spend tokens (`chat`, a full `ingest` extraction) show
-the exact command plus a **representative** output block, clearly marked
-`# representative output`.
+Output shown for offline commands (`init`, `ingest --dry-run`, `inspect`, `serve`)
+is real. Commands that call a model (`chat`, a full `ingest`) show a representative
+output block marked `# representative output`.
 
 ---
 
@@ -38,7 +32,7 @@ Reigner ships a thin core; each capability is an opt-in extra:
 | `reigner[gemini]` | Google GenAI SDK | `chat`/ingest with Gemini models |
 | `reigner[server]` | FastAPI + uvicorn | `reigner serve --http` |
 | `reigner[mcp]` | MCP libs | MCP export (⏳ not wired yet) |
-| `reigner[ingestion]` | PyMuPDF loaders | PDF/URL ingestion (**AGPL** — see README) |
+| `reigner[ingestion]` | PyMuPDF loaders | PDF/URL ingestion (PyMuPDF is **AGPL-3.0**) |
 | `reigner[otel]` | OpenTelemetry API | the metrics plugin |
 | `reigner[all]` | everything above | kitchen sink |
 
@@ -397,7 +391,7 @@ You need three small edits before ingesting:
 
    class MyExtractor(LLMExtractor):
        schema = ArtifactSchema.from_yaml("schema.yaml")
-       model = "openai:gpt-4o"
+       model = "openai:gpt-5.5"
        PROMPT = "Summarize this document in one line."
 
        async def extract(self, raw: bytes, meta: dict) -> ExtractionResult:
@@ -839,7 +833,7 @@ $ reigner inspect config
 mydocs  v0.1.0
 config: /path/to/mydocs/reigner.yaml
 
-model: openai:gpt-4o  (temp=0.2)
+model: openai:gpt-5.5  (temp=0.2)
 role.file: REIGNER.md
 sessions.store_path: ./.reigner/sessions
 
@@ -1071,7 +1065,7 @@ Two ship in the box, one of each reference style:
   oracle escalation, steering). Needs the `otel` extra **and** an OTel
   provider configured in *your* app — a missing `otel` dependency raises at
   construction rather than degrading to a silent no-op. Zero-arg, so reference
-  the class directly. See the README's Observability section.
+  the class directly. See the [Observability guide](observability.md).
 - **`PiiRedactPlugin`** (`reigner.plugins.pii_redact`) — regex redaction of tool
   results (before they reach the model) **and** the final answer (before it
   reaches the user). No extra dependency. It requires `patterns`, so it **cannot**
@@ -1142,7 +1136,7 @@ With that provider live and `MetricsPlugin` wired, each tool call prints a span:
 `SimpleSpanProcessor` + `ConsoleSpanExporter` is for local sanity checks — it
 exports synchronously and is noisy. For real backends (Langfuse, Tempo,
 Honeycomb, Jaeger, …) swap in a `BatchSpanProcessor` with an OTLP exporter; the
-README's **Observability** section has that production setup, plus the
+[Observability guide](observability.md) has that production setup, plus the
 `opentelemetry-instrument` env-var alternative.
 
 #### Writing a custom plugin
@@ -1458,7 +1452,7 @@ version: 0.1.0
 
 model:                       # the agent's model
   provider: openai
-  name: gpt-4o
+  name: gpt-5.5
   temperature: 0.2
 
 # oracle:                    # optional single-turn escalation
@@ -1516,7 +1510,7 @@ version: 0.1.0              # str · default "0.1.0"
 
 model:                      # required — the main-loop LLM
   provider: openai          # openai | anthropic | gemini
-  name: gpt-4o              # str, non-empty
+  name: gpt-5.5              # str, non-empty
   temperature: 0.2          # float · default 0.2
 
 oracle:                     # optional · single-turn escalation (SPEC §5.5)
