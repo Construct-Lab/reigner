@@ -1,6 +1,11 @@
-# Reigner
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img alt="Reigner" src="docs/assets/logo-light.svg" width="340">
+  </picture>
+</p>
 
-**Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.**
+<p align="center"><strong>Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.</strong></p>
 
 [![PyPI](https://img.shields.io/pypi/v/reigner.svg)](https://pypi.org/project/reigner/)
 [![Python](https://img.shields.io/pypi/pyversions/reigner.svg)](https://pypi.org/project/reigner/)
