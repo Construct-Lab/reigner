@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
-Reigner is an **early-stage** Python library for single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge. The package skeleton (T-01) is in place — `pyproject.toml`, CI, lint/type/test toolchain, and empty subpackages — but the loop, tools, ingestion, and CLI commands are not yet implemented. The authoritative source of truth is `SPEC.md`; in-flight work and dependencies are tracked in `TASKS.md`.
+Reigner is a Python library for single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge. The core is in place — the agent loop, tools, ingestion, sessions, plugins, CLI, and HTTP server all work today (`serve --mcp` is the notable exception, still stubbed). `SPEC.md` is the authoritative design spec and `PRINCIPLES.md` the rationale; `docs/guide/usage.md` is the hands-on guide with a verified per-feature status flag on everything. Work is tracked in GitHub Issues and Projects.
 
 ## Core Design Documents
 

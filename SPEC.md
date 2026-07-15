@@ -4,10 +4,16 @@
 > Bring your `REIGNER.md`, your ingestion, and your domain tools.
 > Reigner brings the loop that doesn't lose its mind, the retrieval that doesn't blow up your context, the sessions you can fork, and the citations that survive into the final answer.
 
-**Status:** Draft v0 — single source of truth for the package design.
+**Status:** v0 design spec — the single source of truth for the package design.
 **Target language:** Python 3.12+
 **Default install:** `pip install reigner` (also `uv add reigner`)
-**License (planned):** Apache-2.0
+**License:** MIT
+
+> **This is a design document, not a feature checklist.** It describes the v0
+> architecture and the reasoning behind it; some sections describe target behavior that
+> may still be in progress. For a hands-on, per-feature account of what works *today*, see
+> the [usage guide](https://construct-lab.github.io/reigner/guide/usage/), where every
+> feature carries a verified status flag.
 
 ---
 
@@ -22,7 +28,7 @@ A Python library for building **single-agent, retrieval-shaped, citation-faithfu
 - A typed streaming event protocol any UI can drive from.
 - Forkable on-disk sessions you can replay and branch.
 - A project-local `REIGNER.md` instruction file scaffolded at init time, with on-demand skill blocks composed in at runtime.
-- One opinionated recipe (`document_qa`) that wires everything together for the ApolloScope-shaped use case, plus a `code_navigator` recipe that reads across one or more repositories at once via multi-root `FsTools`.
+- One opinionated recipe (`document_qa`) that wires everything together for the document-QA use case, plus a `code_navigator` recipe that reads across one or more repositories at once via multi-root `FsTools`.
 - A CLI with `init`, `ingest`, `chat`, `eval`, `inspect`, `serve`.
 - An MCP server export so the whole Reigner agent is a tool other agents can call — grounded, bounded, cited. (v1.)
 
@@ -46,7 +52,7 @@ These are non-negotiable. Every module is judged against them.
 3. **Read-mostly by default.** Writes go through ingestion contracts, never agent tools. The corpus is *compiled*, not *navigated*.
 4. **Citations are first-class.** Every numeric or factual claim flows through a `citation` event tied to a source artifact and locator. Faithfulness is checkable, not just asserted.
 5. **Single agent, plural sessions.** One loop, one ROLE, one tool registry per Harness. Sessions are durable, forkable, branchable on disk.
-6. **Convention by default, override when needed.** Defaults reflect what worked in production (the ApolloScope artifact layout, the H1–H11 settings). Every default is explicit and overridable.
+6. **Convention by default, override when needed.** Defaults reflect what held up under real production queries (the artifact layout, the guardrail settings). Every default is explicit and overridable.
 7. **MCP as export, not entry.** Python is the front door. The MCP server exports the composed agent as one delegatable tool, not its internal primitives. Reigner is the agent behind the tool, never a bag of primitives a foreign orchestrator drives.
 8. **The CLI is utility, not the product.** Reigner is a library first. The CLI exists to scaffold, run, and inspect.
 
@@ -125,7 +131,7 @@ reigner/
 │   ├── targeted_retrieval.py
 │   └── scratchpad_discipline.py
 ├── recipes/                     # init-time scaffolds (§9, §14)
-│   ├── document_qa/             # the v0 hero recipe (ApolloScope-shaped)
+│   ├── document_qa/             # the v0 hero recipe (document-QA)
 │   │   ├── __init__.py          # curated files only — a recipe is data, not code
 │   │   ├── REIGNER.md           # copied into the user's project at init
 │   │   ├── reigner.yaml         # copied into the user's project at init
@@ -346,7 +352,7 @@ async def run_loop(state: AgentState) -> AsyncIterator[Event]:
 
 ### 5.4 The eleven guardrails
 
-Renamed from H1–H11 (ApolloScope's "Harness" prefix) to G1–G11 (Guardrail). These are baked-in defaults a developer opts *out* of, not into.
+Numbered G1–G11 (Guardrail). These are baked-in defaults a developer opts *out* of, not into.
 
 | ID | Name | Module | Brief |
 |---|---|---|---|
@@ -673,7 +679,7 @@ from reigner.ingestion import LLMExtractor, ExtractionResult
 
 class TenKExtractor(LLMExtractor):
     schema = schema                  # the ArtifactSchema from §8.1
-    model = "gemini-2.0-pro"          # or "anthropic:claude-...", "openai:gpt-..."
+    model = "openai:gpt-5.5"           # or "anthropic:claude-opus-4-8", "gemini:..."
     max_retries = 2
 
     PROMPT = """
@@ -1167,7 +1173,7 @@ results = await suite.run(harness, checks=["faithfulness", "repeated_calls"])
 
 Optional. For developers who want to deploy.
 
-- `reigner serve --http` — FastAPI app with `POST /run` (SSE streaming) and `GET /health`. Mirrors the ApolloScope gateway shape.
+- `reigner serve --http` — FastAPI app with `POST /run` (SSE streaming) and `GET /health`.
 - `reigner serve --mcp` — exports the composed agent as a single MCP tool (`ask_<project>`), callable by Claude Desktop, Cursor, Cline, mcp-agent, and friends. The client delegates a question; Reigner's own loop answers it, with REIGNER.md grounding, guardrails, and citations intact. (v1.)
 
 The MCP export means the Reigner project is a grounded, bounded, cited sub-agent other agents can call. The agent is the tool, not each primitive — exporting the primitives would hand orchestration to a foreign agent and drop everything that makes the answer trustworthy. This is the interop story.
@@ -1180,7 +1186,7 @@ This is the recipe that proves the design works. It wires every piece together f
 
 ### 17.1 What it includes
 
-- An `ArtifactSchema` matching the ApolloScope-style layout (`{entity}/{version}/...`).
+- An `ArtifactSchema` matching the reference layout (`{entity}/{version}/...`).
 - An `ArtifactStore` with the six artifact tools.
 - A `Bm25Index` reading from `search-index/documents.json`.
 - The pseudo-tools: `save_note`, `request_clarification`, `escalate_to_oracle`.
@@ -1208,7 +1214,7 @@ they are the project's own, with no cascade back to the recipe.
 
 ### 17.3 Reference corpus for v0 launch
 
-To prove the recipe works on something other than NIRF without revealing ApolloScope, v0 ships with a working example over a public corpus. **Recommended: SEC 10-K filings for 5 large-cap companies over 3 years.** Reasoning:
+To prove the recipe works on a real corpus, v0 ships with a working example over public data. **Recommended: SEC 10-K filings for 5 large-cap companies over 3 years.** Reasoning:
 
 - Public, structured (Item 1, 1A, 7, 8…), comparable across years, comparable across companies.
 - Repeated entities, repeated metrics — the same shape that makes retrieval discipline matter.
@@ -1253,50 +1259,32 @@ Calling these out so they don't sneak back in during the build:
 
 ## 20. Build order
 
-A v0 sequence that gets to a working public release. Solo-developer estimate.
+Reigner is layered so each stage builds on the one before it:
 
-| Week | Milestone |
-|---|---|
-| 1 | `harness/` core: loop, events, state, OpenAI + Anthropic adapters. `tools/base.py` decorator. `tools/pseudo/`. `config.py`. Manually wired test agent works end-to-end. |
-| 2 | `truncation.py`, `compaction.py`, `nudges.py`, `cache.py`, `parallel.py`, `oracle.py`. All G1–G11 in place with unit tests. |
-| 3 | `tools/artifacts/`, `artifacts/` write side, `tools/search/bm25.py`. The artifact + BM25 surface works. |
-| 4 | `recipes/document_qa/` built on top. Reference implementation over SEC 10-Ks. The demo notebook works. |
-| 5 | `cli/` (init, chat, ingest, inspect). `ingestion/` skeleton. `role/` cascade composer. `skills/` first three modules. |
-| 6 | `eval/` with faithfulness + repeated_calls + coverage. `tools/fs/` raw tier (single- and multi-root). `recipes/code_navigator/` multi-repo navigator. |
-| 7 | `sessions/` with fork/replay/tree. `plugins/` system. `server/` HTTP (SSE). Steering implementation. (MCP export → v1.) |
-| 8 | Buffer week: docs site, examples, polish, public release. |
+1. **Harness core** — the loop, events, state, model adapters, and the `@tool` decorator, plus config. Enough to wire a test agent end-to-end.
+2. **Guardrails** — truncation, compaction, nudges, caching, parallel reads, oracle escalation: all of G1–G11, with tests.
+3. **Artifacts & retrieval** — the artifact tools, the write-side artifact store, and BM25 search.
+4. **The `document_qa` recipe** — the reference implementation over SEC 10-Ks, built on the layers above.
+5. **CLI & ingestion** — `init`, `chat`, `ingest`, `inspect`; the ingestion pipeline; the first skills.
+6. **Eval & the raw tier** — the eval suite (faithfulness, repeated calls, coverage), the `fs` tools, and the multi-repo `code_navigator` recipe.
+7. **Sessions, plugins & server** — fork / replay / tree, the plugin system, and the HTTP (SSE) server.
 
-That's a real two-month build at one engineer. Halve it with two; double it if you also need to learn a model adapter you haven't used before.
+Later stages depend on earlier ones; the MCP export is deferred to v1.
 
 ---
 
-## 21. Acceptance criteria for v0
+## 21. What v0 delivers
 
-The release is shippable when all of these are true:
+The v0 surface is defined by these guarantees:
 
-1. `pip install reigner && reigner init demo --recipe document_qa && cd demo && reigner ingest && reigner chat` works on a clean machine in under 5 minutes against the SEC 10-K example.
-2. The `document_qa` recipe answers 18+ of 20 eval cases correctly with valid citations.
-3. The faithfulness eval flags every hallucinated number.
-4. A second developer can build a custom recipe (different schema, different ROLE) without modifying Reigner's source.
-5. *(v1)* The MCP export works: `reigner serve --mcp` exposes `ask_<project>`, and Claude Desktop can call it to get a grounded, cited answer.
-6. Sessions can be forked, replayed, and exported. A query replayed against a different model produces a different answer that's diff-able against the first.
-7. The CLI emits `--json` output that's a valid event stream consumable by `jq`.
-8. Docs cover: install, quickstart, the document_qa recipe, the artifact schema, writing your own tool, writing your own recipe, evaluation.
+1. **Five-minute quickstart.** `pip install reigner && reigner init demo --recipe document_qa && cd demo && reigner ingest && reigner chat` works on a clean machine against the SEC 10-K example.
+2. **Faithful answers.** The `document_qa` recipe answers the great majority of its eval cases with valid citations, and the faithfulness check flags every uncited number.
+3. **Extensible without forking.** A developer can build a custom recipe — different schema, different `REIGNER.md` — without modifying Reigner's source.
+4. **Forkable sessions.** Sessions fork, replay, and export; a query replayed against a different model yields a diff-able answer.
+5. **Scriptable output.** The CLI emits `--json` as a valid event stream consumable by `jq`.
+6. **Documented surface.** Install, quickstart, the `document_qa` recipe, the artifact schema, writing your own tool, writing your own recipe, and evaluation are all covered.
 
----
-
-## 22. Open questions to resolve before week 1
-
-1. **Async-first or sync-first?** The spec assumes async (G11 needs it; streaming is naturally async). Sync wrappers for tests/scripts are easy. Confirm.
-2. **`ArtifactSchema` declarative-only, or also code?** Spec is declarative with YAML support. ApolloScope's was effectively code. Confirm declarative is enough.
-3. **Recipes own `reigner.yaml` or generate it?** ✅ Resolved: recipes generate at init time. The recipe's bundled `REIGNER.md`, `reigner.yaml`, `schema.yaml`, and extractor stub are copied into the user's project verbatim by `reigner init --recipe <name>`. After init the recipe is no longer referenced; the project owns its own files (§9, §14).
-4. **MCP export — the agent or the tools?** ✅ Resolved: export the composed agent as one MCP tool (`ask_<project>`), not the individual `@tool` primitives. Exporting primitives hands orchestration to a foreign agent and drops grounding, guardrails, and citations — the whole product. The single-tool return is JSON-clean by construction. Retargeted to v1 (§16, #23).
-5. **Default model adapter?** ✅ Resolved: OpenAI is the default recipe adapter. All three providers (OpenAI, Anthropic, Gemini) are first-class — `harness/adapters/{openai,anthropic,gemini}.py` ship in T-04 — but `document_qa` and `reigner.yaml` defaults point at OpenAI. Earlier draft preferred Anthropic for prompt caching; the OpenAI Responses API also caches stable prefixes automatically and the cost/availability profile is friendlier as the out-of-the-box default. Anthropic remains the natural oracle pick (§5.5).
-6. **Naming of the guardrails: G1–G11 or descriptive only?** I picked G1–G11 because internal communication needs short identifiers. Public docs should still use names. Confirm.
-7. **Session storage: `~/.reigner/sessions/` or `./.reigner/sessions/`?** ✅ Resolved: project-local at `./.reigner/sessions/`. Same reasoning as §9 — runtime state belongs to the project, not the machine. The `.gitignore` scaffolded by `reigner init` excludes this directory.
-8. **`code_navigator` in v0 or v1?** ✅ Resolved: v0. Built as the multi-repo navigator on multi-root `FsTools` — one agent reading across several repositories at once, the capability a single-working-directory coding agent can't match (§18).
-9. **Runtime instruction cascade?** ✅ Resolved: no cascade. The project's `./REIGNER.md` is the single runtime source of truth. Recipes are init-time scaffolds; there is no `~/.reigner/REIGNER.md`. Skills remain the only on-demand layer (§9).
-10. **`reigner init` default mode?** ✅ Resolved: `--guided` is the default. Most users start from scratch on a domain that no recipe covers. `--recipe` and `--blank` are the explicit alternatives (§14).
+The MCP export (`reigner serve --mcp`, exposing `ask_<project>`) is planned; the HTTP server ships today.
 
 ---
 
@@ -1314,28 +1302,5 @@ The release is shippable when all of these are true:
 - **Profile** — a named tool subset (`full`, `read_only`, `eval`).
 - **Oracle** — a more capable model invoked for one turn via `escalate_to_oracle`.
 - **REIGNER.md** — the project's instruction file at repo root; the single runtime source of truth for the agent (§9).
-
----
-
-## Appendix B — Reference: how this maps from ApolloScope
-
-For internal reference only; not in public docs.
-
-| ApolloScope concept | Reigner equivalent |
-|---|---|
-| `agent.py` loop | `reigner.harness.loop` |
-| H1–H11 | G1–G11 |
-| `library-mcp` tools | `reigner.tools.artifacts` |
-| `analytics-mcp` (NIRF-specific) | User-defined `@tool`s |
-| `agent.yaml` | `reigner.yaml` |
-| ApolloScope's ROLE.md | `recipes/document_qa/REIGNER.md` (template copied into the user's project at init; §9) |
-| `library/artifacts/{nirf_id}/{year}/` | `ArtifactSchema(entity_path="{entity_id}/{version}")` |
-| `documents.json` BM25 sidecar | `tools.search.Bm25Index` |
-| FastAPI gateway | `reigner.server.fastapi_app` |
-| `nirf_id`, `alias_resolver`, scorecard | None — domain-specific, stays in ApolloScope |
-
-The carve-out direction: ApolloScope itself depends on Reigner once Reigner is published. If ApolloScope can't be refactored to consume Reigner cleanly, the abstractions are wrong.
-
----
 
 *End of v0 spec.*
