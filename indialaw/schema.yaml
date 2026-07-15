@@ -1,0 +1,65 @@
+entity_path: "{course_module}/{topic_id}"
+sections:
+  # Required of every document. The reduce step always produces a summary.
+  - name: "overview/topic_summary"
+    required: true
+    max_chars: 1800
+  # Topical sections — optional, because the corpus is heterogeneous: a single
+  # document fills only the sections it actually covers. The extractor reads the
+  # WHOLE PDF (map over chunks) so content from any page can reach these.
+  - name: "overview/learning_objectives"
+    required: false
+    max_chars: 1200
+  - name: "foundations/rule_of_law"
+    required: false
+    max_chars: 2500
+  - name: "constitution/framework"
+    required: false
+    max_chars: 3000
+  - name: "constitution/fundamental_rights"
+    required: false
+    max_chars: 3500
+  - name: "constitution/fundamental_duties"
+    required: false
+    max_chars: 2200
+  - name: "constitution/directive_principles"
+    required: false
+    max_chars: 2600
+  - name: "constitution/union_state_structure"
+    required: false
+    max_chars: 2600
+  - name: "judiciary/court_structure"
+    required: false
+    max_chars: 3500
+  - name: "procedure/case_flow"
+    required: false
+    max_chars: 3200
+  - name: "comparisons/rights_duties_directive_principles"
+    required: false
+    max_chars: 2800
+  - name: "citations/source_evidence"
+    required: false
+    max_chars: 4000
+  - name: "assessment/learner_questions"
+    required: false
+    max_chars: 1800
+json_artifacts:
+  - name: "topic_metadata.json"
+    fields:
+      course_module: str
+      topic_id: str
+      topic_title: str
+      primary_source_document: str
+      source_count: int
+      citation_strictness: str
+      strict_citations_required: bool
+  - name: "concept_coverage.json"
+    fields:
+      rule_of_law_covered: bool
+      fundamental_rights_covered: bool
+      fundamental_duties_covered: bool
+      directive_principles_covered: bool
+      constitution_framework_covered: bool
+      judiciary_structure_covered: bool
+      legal_procedure_covered: bool
+      coverage_score: float

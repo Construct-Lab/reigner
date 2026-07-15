@@ -1,0 +1,46 @@
+name: indialaw
+version: 0.1.0
+
+model:
+  provider: openai
+  name: gpt-5.5
+  temperature: 0.2
+
+# oracle: optional single-turn escalation (SPEC §5.5)
+# oracle:
+#   provider: anthropic
+#   model: claude-opus-4-7
+
+settings:
+  max_iterations: 25
+  context_budget_tokens: 100000
+  max_tool_result_chars: 4000
+  nudge_interval: 3
+  max_consecutive_errors: 3
+  compaction_thresholds: [0.80, 0.90, 0.95]
+  parallel_reads: true
+
+role:
+  file: REIGNER.md
+  skills: []
+  #  - skills.rule_of_law:RuleOfLawAnalysis   # deep rule-of-law analysis (Block-1)
+  #  - skills.case_flow:CaseFlowWalkthrough   # court-procedure walkthrough
+  #  - citation_strict                        # or a bundled skill, by bare name
+
+tools:
+  artifacts:
+    root: library/artifacts
+    schema: ./schema.yaml
+  search:
+    type: bm25
+    index_path: search-index/documents.json
+  # fs:
+  #   root: .
+  #   write_enabled: false
+  custom: []
+
+sessions:
+  store_path: ./.reigner/sessions
+  auto_save: true
+
+plugins: []

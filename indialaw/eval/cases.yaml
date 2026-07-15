@@ -1,0 +1,16 @@
+# eval/cases.yaml — eval suite for `reigner eval`.
+#
+# Each case is one query with assertions about the agent's answer.
+# See SPEC.md §15.
+
+cases: []
+
+# Example case:
+#
+# cases:
+#   - id: example_basic
+#     query: "What does the system know about X?"
+#     expected_citations:
+#       - "entity_id/version/metadata.json#field"
+#     forbidden_phrases: ["I think", "approximately"]
+#     expected_clarification: false
