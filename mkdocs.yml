@@ -7,7 +7,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  logo: assets/logo.svg
+  logo: assets/reigner-icon-dark.svg
   favicon: assets/favicon.svg
   features:
     - navigation.sections

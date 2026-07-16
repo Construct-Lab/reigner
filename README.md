@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img alt="Reigner" src="docs/assets/logo-light.svg" width="340">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/reigner-logo-dark.svg">
+    <img alt="reigner" src="assets/reigner-logo-light.svg" width="360">
   </picture>
 </p>
 
