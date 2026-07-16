@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+import reigner
 from reigner.config import ReignerConfig
 from reigner.harness.agent import Session
 
@@ -55,9 +56,10 @@ def render_banner(console: Console, session: Session, config_path: Path) -> None
 
     info = Text()
     info.append("reigner", style="bold magenta")
-    info.append(f"  v{cfg.version}\n", style="dim")
+    info.append(f"  v{reigner.__version__}\n", style="dim")
 
     info.append(cfg.name, style="bold white")
+    info.append(f"  v{cfg.version}", style="dim")
     if role_exists:
         info.append(f"  ·  {cfg.role.file}", style="dim")
     else:
