@@ -1,0 +1,36 @@
+# demo.tape — source for the README demo GIF (docs/assets/demo.gif).
+#
+# Recorded manually, not in CI: the run hits a live model with a real
+# ingested project, so it needs an API key, network, and spends tokens.
+#
+# To record (from the repo root, with an ingested project in ./indialaw):
+#   brew install vhs
+#   vhs demo.tape
+
+Output docs/assets/demo.gif
+
+Set FontSize 15
+Set Width 1100
+Set Height 650
+Set Padding 16
+Set TypingSpeed 40ms
+Set WaitTimeout 300s
+
+# Enter the project quietly; the recording starts at a clean prompt.
+# (Hide only pauses frame capture — clear the screen before Show.)
+Hide
+Type "cd indialaw"
+Enter
+Wait
+Type "clear"
+Enter
+Show
+
+Sleep 1s
+Type `uv run reigner chat --verbose --print "What are the main concerns about the rule of law?"`
+Sleep 500ms
+Enter
+
+# Wait for the run to finish (shell prompt returns), then hold the answer.
+Wait@300s
+Sleep 6s

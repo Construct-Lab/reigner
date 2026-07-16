@@ -58,6 +58,8 @@ reigner ingest                             # compile documents into artifacts
 reigner chat                               # ask questions, get cited answers
 ```
 
+![reigner chat answering a question with per-claim citations](docs/assets/demo.gif)
+
 The full walkthrough — every command with real output and a per-feature status flag —
 is in the [usage guide](https://construct-lab.github.io/reigner/guide/usage/).
 

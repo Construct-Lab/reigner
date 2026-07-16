@@ -8,6 +8,8 @@ then a single retrieval agent answers over them — every factual claim traced b
 source. It is a library first: not a chat app, not a coding-agent harness, not a
 multi-agent orchestrator.
 
+![reigner chat answering a question with per-claim citations](assets/demo.gif)
+
 ## One core, three surfaces
 
 You meet the same agent core — the harness, the artifact store, and a single
