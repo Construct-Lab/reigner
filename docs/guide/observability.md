@@ -7,8 +7,8 @@ Loop-managed pseudo-tools (e.g. `register_citation`, `save_note`) emit no tool s
 `escalate_to_oracle` and `stop` instead surface through their dedicated marker hooks.
 
 Reigner ships **only `opentelemetry-api`** — the interface, not an exporter. The plugin
-calls the global OpenTelemetry `TracerProvider`, so spans only go somewhere once **your
-application** configures one. Add the plugin without a provider and spans hit a no-op
+calls the global OpenTelemetry `TracerProvider`, so spans only go somewhere once a real
+provider is configured in the process. Add the plugin without one and spans hit a no-op
 tracer and are silently discarded — by design, Reigner never hijacks your telemetry setup.
 
 ## 1. Install the API plus an SDK and exporter
@@ -19,10 +19,64 @@ The SDK and exporter are your choice, not part of the extra:
 uv add 'reigner[otel]' opentelemetry-sdk opentelemetry-exporter-otlp
 ```
 
-## 2. Configure OpenTelemetry once, at app startup
+## 2. Wire the plugin — and a provider
 
-Setting the global provider is what makes spans real; every span emitted through the OTel
-API in the process then flows to your exporter (Langfuse, Tempo, Honeycomb, Jaeger, …):
+Who sets the provider depends on who owns telemetry.
+
+### Project-owned: a telemetry sidecar module (recommended)
+
+For projects driven through the CLI (`chat`, `serve`, `eval`), let the project itself
+own the wiring. Create a sidecar module at the project root:
+
+```python
+# otel.py — wires the provider, then exposes the plugin instance.
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+from reigner.plugins.metrics import MetricsPlugin
+
+provider = TracerProvider(resource=Resource.create({"service.name": "my-reigner-app"}))
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))  # endpoint/headers via env
+trace.set_tracer_provider(provider)
+
+metrics = MetricsPlugin()
+```
+
+and reference the instance instead of the bare class path:
+
+```yaml
+plugins:
+  - otel:metrics
+```
+
+Loading the config imports the module, so the provider is set before the plugin is
+constructed — the import side effect is the point. Reigner puts the project root on the
+import path, so a root-level `otel.py` resolves regardless of where you run from.
+
+Every surface that loads this config — `reigner chat`, `reigner serve`, `reigner eval`,
+or your own `Harness.from_config(...)` — now exports spans identically, with no
+per-surface setup. On exit the SDK's registered shutdown flushes the last batch, so
+short CLI runs don't lose the tail.
+
+!!! tip "Keep your tracked config untouched"
+    If you are only experimenting, put the sidecar reference in a copy of the config
+    (say `reigner.otel.yaml`) and load that — flipping plugins on and off in the
+    tracked `reigner.yaml` churns your project file.
+
+### App-owned: bare class path
+
+If Reigner is embedded in an application that already configures OpenTelemetry, keep
+the yaml to the bare class path — `MetricsPlugin` is zero-arg, so it resolves directly:
+
+```yaml
+plugins:
+  - reigner.plugins.metrics.MetricsPlugin
+```
+
+and set the provider once at app startup, before the harness loads:
 
 ```python
 from opentelemetry import trace
@@ -38,26 +92,18 @@ trace.set_tracer_provider(provider)
 Or skip the Python and use `opentelemetry-instrument` with the standard
 `OTEL_EXPORTER_OTLP_ENDPOINT` environment variables.
 
-## 3. Add the plugin to `reigner.yaml`
+!!! warning "Short scripts must `force_flush()`"
+    `BatchSpanProcessor` exports in the background. A script that builds its own
+    provider and exits right after the run drops whatever is still buffered — call
+    `provider.force_flush()` before exit. (Long-running servers don't need this;
+    the batch timer catches up.)
 
-It is zero-arg, so a bare class path resolves:
-
-```yaml
-plugins:
-  - reigner.plugins.metrics.MetricsPlugin
-```
-
-The plugin is instantiated when the harness loads; if `[otel]` is not installed, that is
-where a clear `ImportError` is raised.
-
-!!! tip "Keep your tracked config untouched"
-    If you are only experimenting, put the plugin in a copy of the config
-    (say `reigner.otel.yaml`) and load that — flipping plugins on and off in the
-    tracked `reigner.yaml` churns your project file.
+Either way, the plugin is instantiated when the harness loads; if `[otel]` is not
+installed, that is where a clear `ImportError` is raised.
 
 ## Worked example: OpenObserve
 
-Steps 1–3 work with any OTLP backend. Here is the full path end to end with
+The full path end to end with the sidecar form and
 [OpenObserve](https://openobserve.ai/) — a single container with a traces UI.
 
 ### Run the backend
@@ -74,40 +120,22 @@ The UI is at `http://localhost:5080`; OTLP HTTP trace ingest is
 
 ### Point the exporter at it
 
-The OTLP exporter picks up the standard environment variables, so no endpoint needs to
-be hardcoded:
+The OTLP exporter picks up the standard environment variables, so nothing is
+hardcoded in the sidecar:
 
 ```bash
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:5080/api/default/v1/traces
 export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Basic $(printf 'root@example.com:Complexpass#123' | base64)"
 ```
 
-### Run a session and flush
+### Add the sidecar and chat
 
-```python
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+Drop the `otel.py` sidecar from above into the project root, point `plugins:` at
+`otel:metrics`, and run a normal session:
 
-provider = TracerProvider(resource=Resource.create({"service.name": "my-reigner-app"}))
-provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))  # endpoint/headers via env
-trace.set_tracer_provider(provider)
-
-from reigner.harness.agent import Harness
-
-harness = Harness.from_config("reigner.otel.yaml")
-session = harness.session()
-await session.run("What are the main concerns about the rule of law?")
-
-provider.force_flush()  # don't lose the tail batch
+```bash
+uv run reigner chat --print "What are the main concerns about the rule of law?"
 ```
-
-!!! warning "Short scripts must `force_flush()`"
-    `BatchSpanProcessor` exports in the background. A script that exits right after the
-    run drops whatever is still buffered — call `provider.force_flush()` before exit.
-    (Long-running servers don't need this; the batch timer catches up.)
 
 Then open the UI → **Traces** and filter on `service.name = my-reigner-app`.
 
