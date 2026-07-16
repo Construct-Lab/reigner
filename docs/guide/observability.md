@@ -50,11 +50,93 @@ plugins:
 The plugin is instantiated when the harness loads; if `[otel]` is not installed, that is
 where a clear `ImportError` is raised.
 
+!!! tip "Keep your tracked config untouched"
+    If you are only experimenting, put the plugin in a copy of the config
+    (say `reigner.otel.yaml`) and load that — flipping plugins on and off in the
+    tracked `reigner.yaml` churns your project file.
+
+## Worked example: OpenObserve
+
+Steps 1–3 work with any OTLP backend. Here is the full path end to end with
+[OpenObserve](https://openobserve.ai/) — a single container with a traces UI.
+
+### Run the backend
+
+```bash
+docker run -d --name openobserve -p 5080:5080 \
+  -e ZO_ROOT_USER_EMAIL=root@example.com \
+  -e ZO_ROOT_USER_PASSWORD='Complexpass#123' \
+  -v "$PWD/oo-data:/data" openobserve/openobserve:latest
+```
+
+The UI is at `http://localhost:5080`; OTLP HTTP trace ingest is
+`/api/default/v1/traces` with Basic auth (base64 of `email:password`).
+
+### Point the exporter at it
+
+The OTLP exporter picks up the standard environment variables, so no endpoint needs to
+be hardcoded:
+
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:5080/api/default/v1/traces
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Basic $(printf 'root@example.com:Complexpass#123' | base64)"
+```
+
+### Run a session and flush
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+provider = TracerProvider(resource=Resource.create({"service.name": "my-reigner-app"}))
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))  # endpoint/headers via env
+trace.set_tracer_provider(provider)
+
+from reigner.harness.agent import Harness
+
+harness = Harness.from_config("reigner.otel.yaml")
+session = harness.session()
+await session.run("What are the main concerns about the rule of law?")
+
+provider.force_flush()  # don't lose the tail batch
+```
+
+!!! warning "Short scripts must `force_flush()`"
+    `BatchSpanProcessor` exports in the background. A script that exits right after the
+    run drops whatever is still buffered — call `provider.force_flush()` before exit.
+    (Long-running servers don't need this; the batch timer catches up.)
+
+Then open the UI → **Traces** and filter on `service.name = my-reigner-app`.
+
+!!! note "OpenObserve quirks"
+    - **Blank columns are a display artifact.** Trace streams use a per-stream union
+      schema, so attributes set only by some span types (e.g. `reigner.from_model` on
+      oracle markers) render as empty columns on every other span. The data is there.
+    - **Stream stats lag.** `doc_num` can read 0 right after ingest. If in doubt, query
+      the search API directly (`POST /api/default/_search?type=traces` with SQL) rather
+      than trusting the stats page.
+
+## Span reference
+
+| Span | Emitted when | Attributes |
+|---|---|---|
+| `reigner.tool.<name>` | each real tool call | `reigner.session_id`, `reigner.tool`, `reigner.truncated`, `reigner.cached` |
+| `reigner.compaction` | context is compacted | `reigner.level` |
+| `reigner.error` | an error event fires | `reigner.error`, `reigner.recoverable` |
+| `reigner.oracle` | oracle escalation | `reigner.from_model`, `reigner.to_model` |
+| `reigner.steering` | a steering event fires | `reigner.mode` |
+
 ## What is not emitted yet
 
-Token counts, cost, and per-turn model latency. Those live on the model-adapter calls,
-which don't pass through the tool-call hooks, so they wait on usage tracking landing in
-`AgentState`.
+- **A root span per run.** Spans are currently parentless, so one run shows up as N
+  disconnected traces rather than one trace with children. A `reigner.run` root span is
+  planned.
+- **Token counts, cost, and per-turn model latency.** Usage lives on
+  `final_answer.metadata.usage`, which doesn't pass through the tool-call hooks, so it
+  never reaches telemetry yet. This will ride along with the root span.
 
 ## Redacting PII
 
