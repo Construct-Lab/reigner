@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.</strong></p>
+<p align="center"><strong>A single agent that answers from your compiled corpus — every claim cited.</strong></p>
 
 [![PyPI](https://img.shields.io/pypi/v/reigner.svg)](https://pypi.org/project/reigner/)
 [![Python](https://img.shields.io/pypi/pyversions/reigner.svg)](https://pypi.org/project/reigner/)

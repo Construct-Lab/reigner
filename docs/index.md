@@ -1,6 +1,6 @@
 # Reigner
 
-**Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.**
+**A single agent that answers from your compiled corpus — every claim cited.**
 
 Reigner is a toolkit for building **citation-faithful question-answering agents over a
 knowledge corpus.** You compile your sources into bounded, schema-aware artifacts once,

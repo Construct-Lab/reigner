@@ -1,5 +1,5 @@
 site_name: Reigner
-site_description: Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.
+site_description: A single agent that answers from your compiled corpus — every claim cited.
 site_url: https://construct-lab.github.io/reigner/
 repo_url: https://github.com/Construct-Lab/reigner
 repo_name: Construct-Lab/reigner
