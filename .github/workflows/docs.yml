@@ -1,0 +1,33 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # push the built site to gh-pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git credentials
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Build (strict)
+        run: uv run mkdocs build --strict
+
+      - name: Deploy to gh-pages
+        run: uv run mkdocs gh-deploy --force
