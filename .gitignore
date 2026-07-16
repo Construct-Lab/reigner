@@ -39,6 +39,3 @@ coverage.xml
 
 # MkDocs build output
 /site/
-
-# Local test project (real corpus, not part of the library)
-/indialaw/
