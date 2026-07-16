@@ -1066,8 +1066,9 @@ bare path so the no-arg construction fails) is a loud `ConfigError` at startup.
 Two ship in the box, one of each reference style:
 
 - **`MetricsPlugin`** (`reigner.plugins.metrics`) — turns the loop into
-  OpenTelemetry spans (one per tool call, plus short spans for compaction,
-  errors, oracle escalation, steering). Needs the `otel` extra **and** an OTel
+  OpenTelemetry spans (one per *real* tool call — loop-managed pseudo-tools like
+  `register_citation` are excluded — plus short spans for compaction, errors,
+  oracle escalation, steering). Needs the `otel` extra **and** an OTel
   provider configured in *your* app — a missing `otel` dependency raises at
   construction rather than degrading to a silent no-op. Zero-arg, so reference
   the class directly. See the README's Observability section.
