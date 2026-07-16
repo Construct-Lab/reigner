@@ -41,7 +41,7 @@ You meet the same agent core — the harness, the artifact store, and a single
 ## Install
 
 ```bash
-uv add 'reigner[anthropic]'
+uv add 'reigner[anthropic,ingestion]'      # model adapter + PDF/URL loaders
 ```
 
 Reigner ships a thin core; each capability is an opt-in extra — see the

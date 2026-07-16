@@ -49,7 +49,7 @@ You meet the same agent core — the harness, the artifact store, and a single
 ## Quickstart
 
 ```bash
-uv add 'reigner[anthropic]'
+uv add 'reigner[anthropic,ingestion]'      # model adapter + PDF/URL loaders
 
 reigner init mydocs --recipe document_qa   # scaffold a project
 # drop your PDFs/text into mydocs/, then:
