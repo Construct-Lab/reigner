@@ -42,10 +42,12 @@ loader of your choice.
 
 ## Observability
 
-`MetricsPlugin` turns the agent loop into OpenTelemetry spans: one span per tool
-call (tagged with the tool name, session id, and whether the result was
-truncated or cached), plus marker spans for compaction, errors, oracle
-escalations, and steering.
+`MetricsPlugin` turns the agent loop into OpenTelemetry spans: one span per
+*real* tool call (tagged with the tool name, session id, and whether the result
+was truncated or cached), plus marker spans for compaction, errors, oracle
+escalations, and steering. Loop-managed pseudo-tools (e.g. `register_citation`,
+`save_note`) emit no tool span; `escalate_to_oracle` and `stop` instead surface
+through their dedicated marker hooks.
 
 Reigner ships **only `opentelemetry-api`** — the interface, not an exporter. The
 plugin calls the global OpenTelemetry `TracerProvider`, so spans only go
