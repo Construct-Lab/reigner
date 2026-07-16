@@ -166,7 +166,8 @@ Then open the UI → **Traces** and filter on `service.name = my-reigner-app`.
   `final_answer.metadata.usage`, which doesn't pass through the tool-call hooks, so it
   never reaches telemetry yet. This will ride along with the root span.
 
-## Redacting PII
+## Related: redacting PII
 
-For redacting PII before it reaches the model or the final answer, see
-`reigner.plugins.PiiRedactPlugin`.
+Telemetry's sibling concern — scrubbing tool results and the final answer before they
+leave the loop — is handled by `PiiRedactPlugin`, covered in the
+[usage guide's plugins section](usage.md#built-in-plugins).
