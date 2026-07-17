@@ -2,7 +2,7 @@
 
 Your corpus is *uniform* — every document shares a shape — so one model call per
 document can compile the whole artifact. Subclass `LLMExtractor`, point `model`
-at your ingestion model, and fill in `PROMPT` to match your `schema.yaml`
+at your ingestion model, and refine `PROMPT` to match your `schema.yaml`
 (`document_summary`, `sections/*`, `insights/*`, `metadata.json`). The base
 class owns adapter wiring, retries, schema validation, and idempotency.
 
@@ -24,7 +24,7 @@ from reigner.ingestion import ExtractionResult, LLMExtractor
 
 
 class MyExtractor(LLMExtractor):
-    """One-call extractor over a uniform corpus; fill in the model and prompt."""
+    """One-call extractor over a uniform corpus; set the model and refine the prompt."""
 
     schema = ArtifactSchema.from_yaml("schema.yaml")
     model = "openai:gpt-5.5"  # TODO: your ingestion model, "provider:model_id"
