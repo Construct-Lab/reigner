@@ -19,6 +19,11 @@ The SDK and exporter are your choice, not part of the extra:
 uv add 'reigner[otel]' opentelemetry-sdk opentelemetry-exporter-otlp
 ```
 
+!!! note
+    Run `uv add` inside your own uv package. In a scaffold sharing another project's
+    venv, `uv run` re-syncs to that venv's lockfile and prunes these deps — you'll hit
+    `No module named 'opentelemetry.sdk'` at import.
+
 ## 2. Wire the plugin — and a provider
 
 Who sets the provider depends on who owns telemetry.
@@ -127,6 +132,17 @@ hardcoded in the sidecar:
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:5080/api/default/v1/traces
 export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Basic $(printf 'root@example.com:Complexpass#123' | base64)"
 ```
+
+Or put them in the project's `.env` — read from the config's directory, not your
+current one, so it works from anywhere:
+
+```dotenv
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:5080/api/default/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Basic <base64 of email:password>"
+```
+
+In `.env`, use the literal base64 string — `.env` is not a shell, so `$(… | base64)`
+command substitution does **not** work there.
 
 ### Add the sidecar and chat
 
