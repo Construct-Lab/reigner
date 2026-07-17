@@ -33,8 +33,6 @@ You meet the same agent core — the harness, the artifact store, and a single
 - **[Usage guide](guide/usage.md)** — hands-on, install → scaffold → ingest → chat, with
   a per-feature status flag on everything.
 - **[Observability](guide/observability.md)** — turn the agent loop into OpenTelemetry spans.
-- **[Design (spec)](design/spec.md)** — package layout, guardrails, API contracts, the
-  event protocol, configuration schema.
 - **[Principles](design/principles.md)** — the rationale behind each design decision.
 - **[API reference](reference.md)** — the typed public API.
 

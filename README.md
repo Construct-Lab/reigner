@@ -95,7 +95,6 @@ permissive-licensed loader of your choice.
 
 - **[Usage guide](https://construct-lab.github.io/reigner/guide/usage/)** — hands-on, install → scaffold → ingest → chat.
 - **[Observability](https://construct-lab.github.io/reigner/guide/observability/)** — OpenTelemetry spans for the agent loop.
-- **[Design (spec)](https://construct-lab.github.io/reigner/design/spec/)** — package layout, guardrails, API contracts, event protocol.
 - **[Principles](https://construct-lab.github.io/reigner/design/principles/)** — the rationale behind each design decision.
 - **[API reference](https://construct-lab.github.io/reigner/reference/)** — the typed public API.
 
