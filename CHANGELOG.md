@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-07-17
+
+### Bug Fixes
+
+- Correct CLI help tagline to match product tagline
+
+### Documentation
+
+- Update RELEASING.md for public repo and first-release TestPyPI check
+
 ## [0.8.0] - 2026-07-17
 
 ### Bug Fixes
@@ -25,6 +35,10 @@ All notable changes to this project will be documented in this file.
 - HtmlLoader for HTML document ingestion ([#119](https://github.com/Construct-Lab/reigner/issues/119))
 - SEC 10-K reference example ([#34](https://github.com/Construct-Lab/reigner/issues/34)) ([#120](https://github.com/Construct-Lab/reigner/issues/120))
 - Chat startup banner, /help, and slash-command completion ([#125](https://github.com/Construct-Lab/reigner/issues/125))
+
+### Miscellaneous Tasks
+
+- Release v0.8.0
 
 ### Refactor
 
