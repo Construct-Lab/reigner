@@ -1,284 +1,153 @@
 # Case study: SEC 10-K filings
 
-A worked example on a corpus that stresses every part of Reigner: **annual 10-K
-reports filed with the SEC.** They're a good showcase because they're demanding in
-exactly the ways a toy corpus isn't:
+Reigner's flagship example is a citation-faithful agent over real **SEC Form 10-K
+annual reports** — the hero use case, where getting the number *and its citation*
+right is the whole job. The complete, runnable project lives in the repo at
+[`examples/sec_10k/`](https://github.com/Construct-Lab/reigner/tree/main/examples/sec_10k);
+this page is the tour of what it demonstrates and why it's built the way it is.
 
-- **Large.** A single 10-K runs 100–300 pages — far past what one model call can
-  read, so extraction has to go through [`MapReduceExtractor`](usage.md#large--non-uniform-corpora).
-- **Uniform.** Every 10-K has the same skeleton (Business, Risk Factors, MD&A,
-  Financial Statements), so one schema fits the whole corpus — the assumption
-  Reigner's artifact model is built for.
-- **Numeric, and citations matter.** "R&D expenses in 2024" must resolve to a real
-  figure from a real filing, cited to the exact field — the precise thing
+10-Ks are a good showcase because they're demanding in the ways a toy corpus
+isn't:
+
+- **Large.** One filing is 1.5–10 MB of HTML — far past what a single model call
+  can read whole.
+- **Uniform.** Every 10-K has the same skeleton (Item 1 Business, Item 1A Risk
+  Factors, Item 7 MD&A, Item 8 financial statements), so one schema fits the whole
+  corpus — the assumption Reigner's artifact model is built for.
+- **Numeric, and citations matter.** "R&D expense in fiscal 2024" must resolve to
+  a real figure from a real filing, cited to the exact field — the precise thing
   Reigner's faithfulness guarantees exist for.
 
-The end state: ask *"What were Apple's R&D expenses in 2024?"* and get the number,
-grounded in a citation you can click back to the filing.
+**Corpus:** 15 filings — Apple, Microsoft, Alphabet, Amazon, NVIDIA × fiscal years
+2022–2024 — pulled from EDGAR. The filings are large and public, so they're **not
+committed**; you build the corpus once with the bundled fetch script.
 
-This page assumes you've done the [Quickstart](quickstart.md) and read the
-[large-corpus section](usage.md#large--non-uniform-corpora) of the usage guide.
+## Run it
 
-## 1. Scaffold and install
-
-Start from the `document_qa` recipe — 10-Ks are a uniform corpus, its home case —
-then add the loaders. 10-Ks are served as **HTML** on EDGAR, so `HtmlLoader`
-handles them with no PDF dependency:
+The example was scaffolded with `reigner init --recipe document_qa` and then
+customized (a real extractor, the SEC schema, the corpus builder, a 20-case eval).
+From `examples/sec_10k/`:
 
 ```bash
-reigner init sec-10k --recipe document_qa
-cd sec-10k
-uv add 'reigner[openai,ingestion]'
+cp .env.example .env          # add OPENAI_API_KEY
+python fetch_filings.py       # download the 15 filings from EDGAR → library/raw/
+uv run reigner ingest         # compile filings → library/artifacts/ + BM25 index
+uv run reigner chat           # ask questions, get cited answers
 ```
 
-## 2. Fetch the corpus (a script, not committed files)
+`fetch_filings.py` needs **no API key** — EDGAR filings are public domain; the
+script only asks for a descriptive `User-Agent` (edit the email at the top) and a
+polite request rate. It resolves each filing through EDGAR's JSON endpoints
+(ticker → CIK → submissions → primary document), so it's a reproducible,
+self-documenting record of exactly which filings the corpus is.
 
-Filings are large and not ours to redistribute, so the project ships a **fetch
-script**, not the documents — `library/raw/` stays empty in git (a `.gitkeep`
-holds the directory). The script walks the public EDGAR API: ticker → CIK →
-latest 10-K → primary document.
+## The compile step
 
-```python
-# scripts/fetch_10k.py — download the latest 10-K for a few tickers into library/raw/
-import json
-import time
-import urllib.request
-from pathlib import Path
+Ingestion turns each raw filing into a uniform artifact the agent can query — the
+agent never touches the raw HTML:
 
-# EDGAR requires a descriptive User-Agent with contact info.
-UA = {"User-Agent": "reigner-example youremail@example.com"}
-TICKERS = ["AAPL", "MSFT", "NVDA"]
-OUT = Path("library/raw")
-
-
-def get(url: str) -> bytes:
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req) as r:
-        return r.read()
-
-
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    # ticker → CIK, from SEC's published map
-    cik_map = json.loads(get("https://www.sec.gov/files/company_tickers.json"))
-    by_ticker = {row["ticker"]: row["cik_str"] for row in cik_map.values()}
-
-    for ticker in TICKERS:
-        cik = f"{by_ticker[ticker]:010d}"
-        subs = json.loads(get(f"https://data.sec.gov/submissions/CIK{cik}.json"))
-        recent = subs["filings"]["recent"]
-        # first 10-K in the recent list
-        i = recent["form"].index("10-K")
-        accession = recent["accessionNumber"][i].replace("-", "")
-        doc = recent["primaryDocument"][i]
-        url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{doc}"
-        dest = OUT / f"{ticker.lower()}-10k.html"
-        dest.write_bytes(get(url))
-        print(f"✓ {ticker} → {dest}")
-        time.sleep(0.5)  # be polite to EDGAR
-
-
-if __name__ == "__main__":
-    main()
+```text
+library/raw/aapl-2024.htm
+    │  HtmlLoader          reads bytes
+    ▼
+SecTenKExtractor          strips HTML (stdlib html.parser), slices to the
+    │                     Business / Risk Factors / financial-review text,
+    │                     one model call → sections + metadata.json
+    ▼
+library/artifacts/AAPL/2024/
+    ├── document_summary
+    ├── sections/{business,risk_factors,mdna}
+    └── metadata.json      { revenue, net_income, rnd_expense, ... }
 ```
+
+The **`metadata.json` artifact with named financial fields** is the linchpin.
+Figures are stored as strings, verbatim ("391,035" stays exactly as printed), so a
+number is citable as an exact field — `AAPL/2024/metadata.json#field=rnd_expense`
+— rather than buried in prose. The schema requires only the fields every filing
+has (`revenue`, `net_income`) and lets the rest be null when a company doesn't
+break them out.
+
+## Two extractor strategies
+
+The example ships **both**, and the contrast is the interesting part:
+
+| | Default: `SecTenKExtractor` | Alternative: `SecTenKMapReduce` |
+|---|---|---|
+| Model calls per filing | **one** | several (one per chunk + reduces) |
+| How it bounds the input | code slices to Items 1 / 1A / 7 / 8 (`_sec_html.py`) | reads the whole doc in chunks |
+| `metadata.json` figures | filled directly by the model | left null; agent cites them from `sections/mdna` |
+| Best when | sections live in known places (10-Ks do) | big or unpredictable documents |
+
+A 10-K's answers live in a few known places, so the **one-call** default is
+cheapest and fills the figures directly — its cost is the HTML slicing in
+`_sec_html.py`. When a corpus *doesn't* have that predictable structure, swap in
+[`MapReduceExtractor`](usage.md#large--non-uniform-corpora): it reads the whole
+document and lets the model find the sections, so you never write `extract()`. The
+example's `extractors/mapreduce_extractor.py` is a runnable version — import
+`SecTenKMapReduce` into `extractors/pipeline.py` to try it.
+
+## Ask, and get a cited figure
 
 ```console
-$ uv run python scripts/fetch_10k.py
-✓ AAPL → library/raw/aapl-10k.html
-✓ MSFT → library/raw/msft-10k.html
-✓ NVDA → library/raw/nvda-10k.html
+$ uv run reigner chat --print "What was Apple's research and development expense in fiscal 2024?"
+Apple reported research and development expense of $31,370 million for fiscal 2024.
+
+Sources
+ [1] AAPL/2024/metadata.json#field=rnd_expense
 ```
 
-Then gitignore the downloads so the corpus never lands in version control:
+The claim resolves through `get_json_field` to one field of one filing's compiled
+`metadata.json` — the citation points at the exact source, not a page of prose.
+Ask across filings ("compare R&D as a share of revenue for Apple, Microsoft, and
+Nvidia across 2022–2024") and the agent reads each entity's `metadata.json` in
+turn, citing each.
 
-```gitignore
-# .gitignore
-library/raw/*.html
-```
+The config leans into faithfulness: a low-temperature model, and the
+`citation_strict`, `clarify_when_ambiguous`, and `targeted_retrieval` skills wired
+in `reigner.yaml`.
 
-## 3. Shape the schema
+## Prove it with eval
 
-A 10-K's structure is stable, so declare it once. The key move is a
-**`metrics.json` artifact** with named numeric fields — that's what makes a
-figure citable as `AAPL/2024/metrics.json#field=research_and_development` instead
-of buried in prose:
-
-```yaml
-# schema.yaml
-entity_path: "{entity_id}/{version}"      # e.g. AAPL/2024 — ticker / fiscal year
-
-sections:
-  - name: document_summary
-    required: true
-    max_chars: 2000
-  - name: sections/business
-    max_chars: 6000
-  - name: sections/risk_factors
-    max_chars: 8000
-  - name: sections/mdna              # Management's Discussion & Analysis
-    max_chars: 8000
-
-json_artifacts:
-  - name: metrics.json
-    fields:
-      entity_id: str
-      fiscal_year: str
-      revenue: str
-      net_income: str
-      research_and_development: str
-```
-
-The numeric fields are `str`, not `float`, on purpose: a 10-K reports "$31,370
-million" or "31.4 billion", and you want to cite the figure *as filed* rather than
-coerce it and lose the units. The faithfulness check maps the claim to the field;
-it doesn't do arithmetic.
-
-## 4. Map-reduce extraction
-
-One 10-K won't fit a single call, so subclass `MapReduceExtractor` — it reads the
-filing in `chunk_chars`-capped windows, extracts per section, then reduces. The
-**deterministic-coverage** pattern earns its keep here: derive `metrics.json`
-completeness from which fields actually filled, so a filing that omits a line item
-is visible instead of hallucinated.
-
-```python
-# extractors/my_extractor.py
-from typing import Any
-
-from reigner.artifacts import ArtifactSchema
-from reigner.ingestion import MapReduceExtractor
-
-
-class MyExtractor(MapReduceExtractor):
-    schema = ArtifactSchema.from_yaml("schema.yaml")
-    model = "openai:gpt-5.5"
-    chunk_chars = 100_000
-    map_concurrency = 4          # a 10-K maps in ~6–9 windows; run them 4 at a time
-
-    MAP_EXCLUDE = frozenset({"document_summary"})   # synthesized in summarize()
-
-    MAP_PROMPT = (
-        "Extract per-section content from THIS part of a 10-K. {section_spec} "
-        "For metrics.json, pull only figures stated verbatim in this part — never "
-        "infer or compute. Leave a field absent if it isn't here."
-    )
-    REDUCE_PROMPT = "Merge the fragments for {section}, keep under {max_chars}."
-    SUMMARY_PROMPT = "Write a faithful overview grounded only in these sections."
-
-    def prompt_context(self, meta: dict[str, Any]) -> dict[str, Any]:
-        return {"filename": meta.get("filename", "unknown")}
-
-    async def summarize(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, str]:
-        compiled = "\n\n".join(f"## {n}\n{b}" for n, b in sections.items())
-        resp = await self.call_model(self.SUMMARY_PROMPT, compiled[: self.reduce_input_chars])
-        return {"document_summary": str(resp.get("summary", "")).strip()}
-
-    def post_process(self, sections: dict[str, str], meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
-        # coverage computed from what filled — can't be hallucinated
-        filled = [n for n, body in sections.items() if body.strip()]
-        return {"metrics.json": {"sections_filled": len(filled)}}
-```
-
-Name entities by ticker + fiscal year so citations read `AAPL/2024`. In
-`extractors/pipeline.py`, that's the one line to own:
-
-```python
-def derive_identifiers(loaded) -> dict[str, str]:
-    # aapl-10k.html → ("aapl", "2024"); parse the year from the filing in practice
-    stem = loaded.meta["filename"].split("-")[0]
-    return {"entity_id": stem.upper(), "version": "2024"}
-```
-
-And swap the loader for HTML in the pipeline's `loaders=[...]` — `HtmlLoader()` in
-place of the default markdown loader.
-
-## 5. Ingest — with the map cache on
-
-10-Ks are expensive to extract, and you'll iterate on the reduce prompt. Turn on
-the [chunk-level map cache](usage.md#caching-ingestion) so editing `REDUCE_PROMPT`
-re-pays only the reduce calls, not the whole map:
-
-```python
-class MyExtractor(MapReduceExtractor):
-    ...
-    map_cache_dir = Path("./.reigner/ingest-cache")   # enables the cache
-```
-
-```console
-$ reigner ingest
-# representative output
-✓ loaded 3 documents
-✓ extracted 3 entities → library/artifacts/
-✓ built BM25 index → search-index/documents.json
-```
-
-Add a fourth filing later and re-run: the document-level skip compiles only the
-new one, the other three are untouched.
-
-## 6. Ask, and get a cited figure
-
-```console
-$ reigner chat --print "What were Apple's R&D expenses in fiscal 2024?"
-# representative output
-Apple reported $31.4 billion in research and development expenses for fiscal
-2024. [1]
-
-[1] AAPL/2024/metrics.json#field=research_and_development
-```
-
-The answer resolves through `get_json_field` to a single field of a single
-filing's compiled `metrics.json` — the citation points at the exact source, not a
-page of prose. Ask across filings ("compare R&D as a share of revenue for Apple,
-Microsoft, and Nvidia") and the agent reads each entity's `metrics.json` in turn,
-citing each.
-
-## 7. Prove it with eval
-
-The faithfulness story is only worth as much as its regression test. Encode the
-question as an eval case that asserts the *citation*, not just the wording:
+The faithfulness story is only worth its regression test. The suite is **20 cases
+across six buckets** — single-fact numeric (7), cross-year trend (3), cross-entity
+comparison (3), qualitative/section (3), ambiguity/entity-resolution (3), and one
+out-of-corpus hallucination trap. Cases assert the *citation*, not the wording:
 
 ```yaml
 # eval/cases.yaml
-cases:
-  - id: apple_rnd_2024
-    query: "What were Apple's R&D expenses in 2024?"
-    expected_citations:
-      - "AAPL/2024/metrics.json#field=research_and_development"
-    forbidden_phrases: ["I think", "approximately"]
-    max_tokens: 20000
+- id: aapl_fy2024_rnd
+  query: "What was Apple's research and development expense in fiscal 2024?"
+  expected_citations:
+    - "AAPL/2024/metadata.json#field=rnd_expense"
+  max_tokens: 20000
 ```
 
-```console
-$ reigner eval --case apple_rnd_2024
-# representative output
-| Case | faithfulness | repeated_calls | coverage | latency_cost |
-|---|---|---|---|---|
-| apple_rnd_2024 | ✓ | ✓ | ✓ | ✓ (8.1k tok · 1.2s) |
-
-1 case · 1 passed · 0 failed
+```bash
+uv run reigner eval --profile read_only   # read_only so ambiguity cases can clarify
 ```
 
-`coverage` confirms the expected citation was actually retrieved; `faithfulness`
-confirms the numeric claim maps to a registered citation. Together they turn "the
-answer looked right" into "the answer is grounded, and CI will catch it if that
-ever stops being true."
+`coverage` confirms the expected artifact was actually retrieved; `faithfulness`
+confirms every number in the answer traces to a registered citation (and flags any
+that doesn't — including the hallucination-trap case). The example's acceptance
+targets (SPEC section 21): ingest + chat on a clean checkout in under five minutes,
+18+ of 20 cases correct with valid citations, and faithfulness flagging every
+hallucinated number.
 
 ## What this exercises
 
 | Reigner feature | Where it shows up here |
 |---|---|
-| `MapReduceExtractor` | reading a 100+ page filing that won't fit one call (§4) |
-| `map_concurrency` | mapping ~9 windows per filing, 4 at a time (§4) |
-| Map cache | cheap reduce-prompt iteration on an expensive corpus (§5) |
-| Deterministic coverage | `metrics.json` completeness computed, not asked (§4) |
-| Field-level citations | `get_json_field` → `metrics.json#field=…` (§6) |
-| Eval faithfulness / coverage | asserting the citation, not the phrasing (§7) |
+| Uniform artifact schema | one shape across 15 filings enables cross-company/-year comparison |
+| Field-level citations | `get_json_field` → `metadata.json#field=…` |
+| Extractor choice | one-call HTML slicing vs. `MapReduceExtractor` for the whole doc |
+| On-demand skills | `citation_strict` / `clarify_when_ambiguous` / `targeted_retrieval` |
+| Eval faithfulness / coverage | 20 cases asserting the citation, not the phrasing |
 
 ## Next steps
 
-- **[Large or mixed corpora](usage.md#large--non-uniform-corpora)** — the full
-  map-reduce contract and the uniform-vs-mixed decision.
-- **[Caching ingestion](usage.md#caching-ingestion)** — how the two caches
-  compose, and the reduce-side-code footgun.
+- **[`examples/sec_10k/`](https://github.com/Construct-Lab/reigner/tree/main/examples/sec_10k)**
+  — the full runnable project and its README.
+- **[Large or mixed corpora](usage.md#large--non-uniform-corpora)** — the
+  `MapReduceExtractor` contract, for corpora without predictable structure.
 - **[Evaluate your agent](usage.md#38-evaluate-your-agent--reigner-eval)** — every
   built-in check and the report format.
