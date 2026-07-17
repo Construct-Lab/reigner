@@ -43,7 +43,7 @@ $ reigner version
 0.6.0
 ```
 
-### Mental model (one paragraph)
+### Mental model
 
 A Reigner project is a **directory you scaffold once**. You drop raw documents
 into it and run a one-time **ingestion** step that *compiles* them into bounded,
@@ -51,8 +51,7 @@ schema-aware **artifacts** plus a search index. The agent never touches your raw
 files — at `chat` time it queries the compiled artifacts through a small set of
 **read-only, self-describing tools**, and is steered by a single instruction
 file, `REIGNER.md`. Everything the agent does is streamed as typed events and
-saved to a durable, forkable **session** on disk. That's the whole loop:
-*compile knowledge once, query it faithfully, with citations.*
+saved to a durable, forkable **session** on disk.
 
 ---
 
@@ -354,7 +353,7 @@ library/raw/security.md   # a security blurb
 **Step 2 — wire the pipeline.** The blank scaffold ships `extractors/pipeline.py`
 and `extractors/my_extractor.py` **fully commented out**, and `schema.yaml`
 empty. A bare `reigner ingest` against the untouched scaffold therefore fails
-loudly — by design, not silently:
+loudly, not silently:
 
 ```console
 $ reigner ingest --dry-run
@@ -541,8 +540,8 @@ three independent axes. Identify which before reaching for a tool:
 `200_000`); the default `overflow_mode="warn"` **shouts a warning but still sends
 the whole text** — it never silently drops the tail (`"error"` raises
 `InputOverflowError`; `"truncate"` cuts to the cap and warns how much went). That
-guard is how you *discover* a document is too big — the smoke alarm telling you
-to escape the single-shot path. When a document must be read in full but doesn't
+guard is how you *discover* a document is too big. When a document must be read in
+full but doesn't
 fit one call, subclass `MapReduceExtractor`. It opts out of the single-shot guard
 (`max_input_chars = None`) because chunking already bounds every `call_model`
 call — your subclass inherits that, nothing to set. It MAPs the text in
@@ -611,9 +610,9 @@ class MyExtractor(MapReduceExtractor):
         return {"metadata.json": {"sections_filled": len(filled)}}
 ```
 
-The **deterministic-coverage trick** is the part worth copying: `post_process`
-derives JSON artifacts (coverage flags, metadata) from *which sections got real
-content*, rather than asking the model "what did you cover?" A computed flag
+The **deterministic-coverage** pattern: `post_process` derives JSON artifacts
+(coverage flags, metadata) from *which sections got real content*, rather than
+asking the model "what did you cover?" A computed flag
 can't be hallucinated and can't dead-letter on a partial document. Every other
 knob (`chunk_chars`, `reduce_input_chars`, the `reduce()` and `prompt_context()`
 seams) is documented on the `MapReduceExtractor` class itself — see the API
@@ -956,8 +955,8 @@ environment / `./.env` and bills against it:
 # re-run round 1 against the configured ROLE:
 reigner session replay 2536 --at-turn 1
 
-# A/B the same round against a different ROLE without touching the original
-# (the headline feature) — point --with-role at an edited copy:
+# A/B the same round against a different ROLE without touching the original —
+# point --with-role at an edited copy:
 cp REIGNER.md ALT.md            # edit ALT.md, then:
 reigner session replay 2536 --at-turn 1 --with-role ALT.md
 ```
@@ -1087,7 +1086,7 @@ plugins:
   - myproject.observability:redactor        # parameterized → module:instance
 ```
 
-> Caveat worth stating loudly: regex catches **structured** PII (SSNs, emails,
+> Caveat: regex catches **structured** PII (SSNs, emails,
 > card numbers) but not names or addresses. Treat `PiiRedactPlugin` as a
 > backstop, not a guarantee.
 
@@ -1434,8 +1433,8 @@ Ask two questions back to back and compare the traces in `reigner chat`:
    `--json` / `--verbose`), its body enters history, and the answer follows the
    method.
 
-That contrast is the whole point: question 1 pays nothing for a skill it doesn't
-need, and question 2 pulls the guidance in exactly when it applies.
+Question 1 pays nothing for a skill it doesn't need; question 2 pulls the guidance
+in exactly when it applies.
 
 ---
 
@@ -1564,7 +1563,7 @@ eval:                       # optional · used by `reigner eval` (§3.8)
                             #    coverage, latency_cost). --check overrides this.
 ```
 
-Three footguns the schema enforces, worth calling out:
+Three footguns the schema enforces:
 
 - **`oracle.model` vs `model.name`** — the main model block names the model under
   `name:`, but the oracle block uses `model:`. They are deliberately asymmetric;
