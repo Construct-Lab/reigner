@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-07-17
+
+### Bug Fixes
+
+- Dedup citations on (source, locator, value) ([#123](https://github.com/Construct-Lab/reigner/issues/123))
+
+### Documentation
+
+- Mark REIGNER.md loader and skills tasks complete (merged in #113)
+- Add T-117 HtmlLoader in TASKS.md ([#118](https://github.com/Construct-Lab/reigner/issues/118))
+- Add plain-language one-liner to README
+- Clarify MetricsPlugin emits spans for real tool calls only ([#131](https://github.com/Construct-Lab/reigner/issues/131))
+- MkDocs Material site + lean README for OSS release ([#76](https://github.com/Construct-Lab/reigner/issues/76)) ([#128](https://github.com/Construct-Lab/reigner/issues/128))
+- Absolute asset URLs in README + drop stale session diff ref ([#133](https://github.com/Construct-Lab/reigner/issues/133))
+
+### Features
+
+- REIGNER.md loader + skill composition ([#113](https://github.com/Construct-Lab/reigner/issues/113))
+- Add document_qa recipe scaffold ([#115](https://github.com/Construct-Lab/reigner/issues/115))
+- Code_navigator recipe with multi-root FsTools ([#116](https://github.com/Construct-Lab/reigner/issues/116))
+- HtmlLoader for HTML document ingestion ([#119](https://github.com/Construct-Lab/reigner/issues/119))
+- SEC 10-K reference example ([#34](https://github.com/Construct-Lab/reigner/issues/34)) ([#120](https://github.com/Construct-Lab/reigner/issues/120))
+- Chat startup banner, /help, and slash-command completion ([#125](https://github.com/Construct-Lab/reigner/issues/125))
+
+### Refactor
+
+- Unify adapter builder helpers behind build_adapter ([#114](https://github.com/Construct-Lab/reigner/issues/114))
+
 ## [0.7.0] - 2026-07-06
 
 ### Bug Fixes
@@ -22,6 +50,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Ignore .env file
+- Release v0.7.0
 
 ## [0.6.0] - 2026-06-26
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reigner"
-version = "0.7.0"
+version = "0.8.0"
 description = "A single agent that answers from your compiled corpus — every claim cited."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -65,6 +65,15 @@ docs = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["reigner"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["reigner", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml"]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
 
 [tool.ruff]
 line-length = 100
