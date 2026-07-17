@@ -190,7 +190,7 @@ acme-docs/
 Next:
   cd acme-docs
   cp .env.example .env   # add your API key
-  # edit extractors/my_extractor.py — write the extraction prompt
+  # edit extractors/my_extractor.py — refine the extraction prompt
   # edit extractors/pipeline.py — name your entities
   reigner ingest
   reigner chat
