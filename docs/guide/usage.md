@@ -204,13 +204,14 @@ Same tree as `--blank`, but the files are **filled in, not stubbed**:
 | `REIGNER.md` | ✅ Targeted-retrieval instructions over the real tool grammar |
 | `schema.yaml` | ✅ The `document_qa` artifact shape (`document_summary`, `sections/*`, `insights/*`, `metadata.json`) |
 | `extractors/pipeline.py` | ✅ Runnable pipeline wired to the recipe schema — one marked TODO is the entity-naming rule |
-| `extractors/my_extractor.py` | ✍️ A single-call `LLMExtractor` — you write the extraction **prompt** for your documents |
+| `extractors/my_extractor.py` | ✅ A single-call `LLMExtractor` with a working generic prompt — **refine** it for your documents (only the `model` line is a TODO) |
 
 A recipe is **init-time data, not runtime code**: after `init` the copied files
 *are* your project, and the recipe is never referenced again (no cascade — see
 [`REIGNER.md`](#reignermd)). So the only **required** work before `ingest` is
-domain-specific: drop your documents in `library/raw/`, add an API key, and write
-the extraction prompt. The pipeline and schema run on their defaults; edit them
+domain-specific: drop your documents in `library/raw/` and add an API key. The
+pipeline, schema, and a generic extraction prompt run on their defaults — refine
+the prompt for better extraction on your corpus, and edit the pipeline or schema
 only to change how entities are named or what shape you extract.
 
 An unknown recipe name fails loudly with what's available:
