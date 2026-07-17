@@ -4,6 +4,10 @@ This guide walks through Reigner end to end — install, scaffold a project, ing
 documents, and chat with cited answers — using the commands as they ship today.
 Every feature in the [status table](#2-feature-status) is marked with where it stands.
 
+> Just want a first cited answer fast? Start with the
+> [Quickstart](quickstart.md) — the five-minute path on the `document_qa` recipe.
+> This guide is the comprehensive reference.
+
 > **Status legend**
 > - ✅ **shipped** — works today.
 > - 🟡 **partial** — usable but incomplete; caveats noted inline.

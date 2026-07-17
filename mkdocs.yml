@@ -72,6 +72,7 @@ exclude_docs: |
 nav:
   - Overview: index.md
   - Guide:
+      - Quickstart: guide/quickstart.md
       - Usage: guide/usage.md
       - Observability: guide/observability.md
   - Design:
