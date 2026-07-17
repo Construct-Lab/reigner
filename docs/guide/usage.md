@@ -530,6 +530,10 @@ them. The failure surfaces late, at ingest, not at schema-authoring time.
 scaffolds accordingly; if you answered *mixed*, this is what it generated for you
 and why. If you're building a pipeline by hand, this is the playbook.
 
+> For an end-to-end worked example of this path on a real corpus — 100+ page SEC
+> 10-K filings, map-reduce extraction, field-level citations — see the
+> [SEC 10-K case study](sec-10k.md).
+
 **Diagnose your axis.** A large or awkward corpus is usually failing on one of
 three independent axes. Identify which before reaching for a tool:
 
