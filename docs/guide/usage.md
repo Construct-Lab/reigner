@@ -1,23 +1,21 @@
-# Reigner — usage guide
+# Usage guide
 
-A **living, hands-on guide to what Reigner actually does today** — written so a
-dev who has never seen the internals can go *install → scaffold → ingest → chat*
-by following it top to bottom.
+This guide walks through Reigner end to end — install, scaffold a project, ingest
+documents, and chat with cited answers — using the commands as they ship today.
+Every feature in the [status table](#2-feature-status) is marked with where it stands.
 
-It's derived from the shipped code and CLI: every feature carries a status flag,
-and the flags were verified by **running the commands**, not by reading docs or
-task lists.
+> Just want a first cited answer fast? Start with the
+> [Quickstart](quickstart.md) — the five-minute path on the `document_qa` recipe.
+> This guide is the comprehensive reference.
 
 > **Status legend**
-> - ✅ **shipped** — works today, exercised below.
-> - 🟡 **partial** — usable but incomplete; caveats called out inline.
-> - ⏳ **planned** — scaffolding exists, behavior does not yet. Linked to its issue.
+> - ✅ **shipped** — works today.
+> - 🟡 **partial** — usable but incomplete; caveats noted inline.
+> - ⏳ **planned** — scaffolded but not yet functional; linked to its tracking issue.
 
-A note on the examples: commands that run **offline** (`init`, `ingest
---dry-run`, `inspect`, `serve`) show **real, pasted output**. Commands that need
-a live model and would spend tokens (`chat`, a full `ingest` extraction) show
-the exact command plus a **representative** output block, clearly marked
-`# representative output`.
+Output shown for offline commands (`init`, `ingest --dry-run`, `inspect`, `serve`)
+is real. Commands that call a model (`chat`, a full `ingest`) show a representative
+output block marked `# representative output`.
 
 ---
 
@@ -38,7 +36,7 @@ Reigner ships a thin core; each capability is an opt-in extra:
 | `reigner[gemini]` | Google GenAI SDK | `chat`/ingest with Gemini models |
 | `reigner[server]` | FastAPI + uvicorn | `reigner serve --http` |
 | `reigner[mcp]` | MCP libs | MCP export (⏳ not wired yet) |
-| `reigner[ingestion]` | PyMuPDF loaders | PDF/URL ingestion (**AGPL** — see README) |
+| `reigner[ingestion]` | PyMuPDF loaders | PDF/URL ingestion (PyMuPDF is **AGPL-3.0**) |
 | `reigner[otel]` | OpenTelemetry API | the metrics plugin |
 | `reigner[all]` | everything above | kitchen sink |
 
@@ -49,7 +47,7 @@ $ reigner version
 0.6.0
 ```
 
-### Mental model (one paragraph)
+### Mental model
 
 A Reigner project is a **directory you scaffold once**. You drop raw documents
 into it and run a one-time **ingestion** step that *compiles* them into bounded,
@@ -57,8 +55,7 @@ schema-aware **artifacts** plus a search index. The agent never touches your raw
 files — at `chat` time it queries the compiled artifacts through a small set of
 **read-only, self-describing tools**, and is steered by a single instruction
 file, `REIGNER.md`. Everything the agent does is streamed as typed events and
-saved to a durable, forkable **session** on disk. That's the whole loop:
-*compile knowledge once, query it faithfully, with citations.*
+saved to a durable, forkable **session** on disk.
 
 ---
 
@@ -193,7 +190,7 @@ acme-docs/
 Next:
   cd acme-docs
   cp .env.example .env   # add your API key
-  # edit extractors/my_extractor.py — write the extraction prompt
+  # edit extractors/my_extractor.py — refine the extraction prompt
   # edit extractors/pipeline.py — name your entities
   reigner ingest
   reigner chat
@@ -207,13 +204,14 @@ Same tree as `--blank`, but the files are **filled in, not stubbed**:
 | `REIGNER.md` | ✅ Targeted-retrieval instructions over the real tool grammar |
 | `schema.yaml` | ✅ The `document_qa` artifact shape (`document_summary`, `sections/*`, `insights/*`, `metadata.json`) |
 | `extractors/pipeline.py` | ✅ Runnable pipeline wired to the recipe schema — one marked TODO is the entity-naming rule |
-| `extractors/my_extractor.py` | ✍️ A single-call `LLMExtractor` — you write the extraction **prompt** for your documents |
+| `extractors/my_extractor.py` | ✅ A single-call `LLMExtractor` with a working generic prompt — **refine** it for your documents (only the `model` line is a TODO) |
 
 A recipe is **init-time data, not runtime code**: after `init` the copied files
 *are* your project, and the recipe is never referenced again (no cascade — see
 [`REIGNER.md`](#reignermd)). So the only **required** work before `ingest` is
-domain-specific: drop your documents in `library/raw/`, add an API key, and write
-the extraction prompt. The pipeline and schema run on their defaults; edit them
+domain-specific: drop your documents in `library/raw/` and add an API key. The
+pipeline, schema, and a generic extraction prompt run on their defaults — refine
+the prompt for better extraction on your corpus, and edit the pipeline or schema
 only to change how entities are named or what shape you extract.
 
 An unknown recipe name fails loudly with what's available:
@@ -360,7 +358,7 @@ library/raw/security.md   # a security blurb
 **Step 2 — wire the pipeline.** The blank scaffold ships `extractors/pipeline.py`
 and `extractors/my_extractor.py` **fully commented out**, and `schema.yaml`
 empty. A bare `reigner ingest` against the untouched scaffold therefore fails
-loudly — by design, not silently:
+loudly, not silently:
 
 ```console
 $ reigner ingest --dry-run
@@ -397,7 +395,7 @@ You need three small edits before ingesting:
 
    class MyExtractor(LLMExtractor):
        schema = ArtifactSchema.from_yaml("schema.yaml")
-       model = "openai:gpt-4o"
+       model = "openai:gpt-5.5"
        PROMPT = "Summarize this document in one line."
 
        async def extract(self, raw: bytes, meta: dict) -> ExtractionResult:
@@ -533,6 +531,10 @@ them. The failure surfaces late, at ingest, not at schema-authoring time.
 scaffolds accordingly; if you answered *mixed*, this is what it generated for you
 and why. If you're building a pipeline by hand, this is the playbook.
 
+> For an end-to-end worked example of this path on a real corpus — 100+ page SEC
+> 10-K filings, map-reduce extraction, field-level citations — see the
+> [SEC 10-K case study](sec-10k.md).
+
 **Diagnose your axis.** A large or awkward corpus is usually failing on one of
 three independent axes. Identify which before reaching for a tool:
 
@@ -547,8 +549,8 @@ three independent axes. Identify which before reaching for a tool:
 `200_000`); the default `overflow_mode="warn"` **shouts a warning but still sends
 the whole text** — it never silently drops the tail (`"error"` raises
 `InputOverflowError`; `"truncate"` cuts to the cap and warns how much went). That
-guard is how you *discover* a document is too big — the smoke alarm telling you
-to escape the single-shot path. When a document must be read in full but doesn't
+guard is how you *discover* a document is too big. When a document must be read in
+full but doesn't
 fit one call, subclass `MapReduceExtractor`. It opts out of the single-shot guard
 (`max_input_chars = None`) because chunking already bounds every `call_model`
 call — your subclass inherits that, nothing to set. It MAPs the text in
@@ -617,9 +619,9 @@ class MyExtractor(MapReduceExtractor):
         return {"metadata.json": {"sections_filled": len(filled)}}
 ```
 
-The **deterministic-coverage trick** is the part worth copying: `post_process`
-derives JSON artifacts (coverage flags, metadata) from *which sections got real
-content*, rather than asking the model "what did you cover?" A computed flag
+The **deterministic-coverage** pattern: `post_process` derives JSON artifacts
+(coverage flags, metadata) from *which sections got real content*, rather than
+asking the model "what did you cover?" A computed flag
 can't be hallucinated and can't dead-letter on a partial document. Every other
 knob (`chunk_chars`, `reduce_input_chars`, the `reduce()` and `prompt_context()`
 seams) is documented on the `MapReduceExtractor` class itself — see the API
@@ -839,7 +841,7 @@ $ reigner inspect config
 mydocs  v0.1.0
 config: /path/to/mydocs/reigner.yaml
 
-model: openai:gpt-4o  (temp=0.2)
+model: openai:gpt-5.5  (temp=0.2)
 role.file: REIGNER.md
 sessions.store_path: ./.reigner/sessions
 
@@ -962,8 +964,8 @@ environment / `./.env` and bills against it:
 # re-run round 1 against the configured ROLE:
 reigner session replay 2536 --at-turn 1
 
-# A/B the same round against a different ROLE without touching the original
-# (the headline feature) — point --with-role at an edited copy:
+# A/B the same round against a different ROLE without touching the original —
+# point --with-role at an edited copy:
 cp REIGNER.md ALT.md            # edit ALT.md, then:
 reigner session replay 2536 --at-turn 1 --with-role ALT.md
 ```
@@ -1071,7 +1073,7 @@ Two ship in the box, one of each reference style:
   oracle escalation, steering). Needs the `otel` extra **and** an OTel
   provider configured in *your* app — a missing `otel` dependency raises at
   construction rather than degrading to a silent no-op. Zero-arg, so reference
-  the class directly. See the README's Observability section.
+  the class directly. See the [Observability guide](observability.md).
 - **`PiiRedactPlugin`** (`reigner.plugins.pii_redact`) — regex redaction of tool
   results (before they reach the model) **and** the final answer (before it
   reaches the user). No extra dependency. It requires `patterns`, so it **cannot**
@@ -1093,7 +1095,7 @@ plugins:
   - myproject.observability:redactor        # parameterized → module:instance
 ```
 
-> Caveat worth stating loudly: regex catches **structured** PII (SSNs, emails,
+> Caveat: regex catches **structured** PII (SSNs, emails,
 > card numbers) but not names or addresses. Treat `PiiRedactPlugin` as a
 > backstop, not a guarantee.
 
@@ -1142,7 +1144,7 @@ With that provider live and `MetricsPlugin` wired, each tool call prints a span:
 `SimpleSpanProcessor` + `ConsoleSpanExporter` is for local sanity checks — it
 exports synchronously and is noisy. For real backends (Langfuse, Tempo,
 Honeycomb, Jaeger, …) swap in a `BatchSpanProcessor` with an OTLP exporter; the
-README's **Observability** section has that production setup, plus the
+[Observability guide](observability.md) has that production setup, plus the
 `opentelemetry-instrument` env-var alternative.
 
 #### Writing a custom plugin
@@ -1440,8 +1442,8 @@ Ask two questions back to back and compare the traces in `reigner chat`:
    `--json` / `--verbose`), its body enters history, and the answer follows the
    method.
 
-That contrast is the whole point: question 1 pays nothing for a skill it doesn't
-need, and question 2 pulls the guidance in exactly when it applies.
+Question 1 pays nothing for a skill it doesn't need; question 2 pulls the guidance
+in exactly when it applies.
 
 ---
 
@@ -1458,7 +1460,7 @@ version: 0.1.0
 
 model:                       # the agent's model
   provider: openai
-  name: gpt-4o
+  name: gpt-5.5
   temperature: 0.2
 
 # oracle:                    # optional single-turn escalation
@@ -1516,7 +1518,7 @@ version: 0.1.0              # str · default "0.1.0"
 
 model:                      # required — the main-loop LLM
   provider: openai          # openai | anthropic | gemini
-  name: gpt-4o              # str, non-empty
+  name: gpt-5.5              # str, non-empty
   temperature: 0.2          # float · default 0.2
 
 oracle:                     # optional · single-turn escalation (SPEC §5.5)
@@ -1570,7 +1572,7 @@ eval:                       # optional · used by `reigner eval` (§3.8)
                             #    coverage, latency_cost). --check overrides this.
 ```
 
-Three footguns the schema enforces, worth calling out:
+Three footguns the schema enforces:
 
 - **`oracle.model` vs `model.name`** — the main model block names the model under
   `name:`, but the oracle block uses `model:`. They are deliberately asymmetric;

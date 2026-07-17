@@ -1,0 +1,83 @@
+site_name: Reigner
+site_description: A single agent that answers from your compiled corpus — every claim cited.
+site_url: https://construct-lab.github.io/reigner/
+repo_url: https://github.com/Construct-Lab/reigner
+repo_name: Construct-Lab/reigner
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/reigner-icon-dark.svg
+  favicon: assets/favicon.svg
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+
+# docs_dir stays ./docs — keep the generated HTML (plans, reviews, walkthroughs)
+# out of the build rather than moving it. See issue #76.
+exclude_docs: |
+  *.html
+  plan/
+  review/
+  teach/
+
+nav:
+  - Overview: index.md
+  - Guide:
+      - Quickstart: guide/quickstart.md
+      - Usage: guide/usage.md
+      - Observability: guide/observability.md
+  - Case study:
+      - SEC 10-K filings: guide/sec-10k.md
+  - Design:
+      - Spec: design/spec.md
+      - Principles: design/principles.md
+  - API reference: reference.md

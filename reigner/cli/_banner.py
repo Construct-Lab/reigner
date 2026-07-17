@@ -15,17 +15,19 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+import reigner
 from reigner.config import ReignerConfig
 from reigner.harness.agent import Session
 
-# A crowned box — three gems in the band. Aligned to a fixed 13-column width so
-# the block stays rectangular next to the info column regardless of glyph.
+# The brand crown (assets/reigner-icon-*.svg): five spikes — tall centre, near-tall
+# outers, shorter mids — a diamond in the body, and a dotted band below. Aligned to
+# a fixed 17-column width so the block stays rectangular next to the info column.
 _CROWN = (
-    " ♦    ♦    ♦ ",
-    "  ╲   ╿   ╱  ",
-    " ▛▀▀▀▀▀▀▀▀▀▜ ",
-    " ▌ ◈  ◈  ◈ ▐ ",
-    " ▙▄▄▄▄▄▄▄▄▄▟ ",
+    "  ▙     ▲     ▟  ",
+    "  █▙ ▲ ▟█▙ ▲ ▟█  ",
+    "  ██▙▟██◈██▙▟██  ",
+    "  ▌ • • • • • ▐  ",
+    "  ▙▄▄▄▄▄▄▄▄▄▄▄▟  ",
 )
 
 
@@ -50,13 +52,14 @@ def render_banner(console: Console, session: Session, config_path: Path) -> None
 
     logo = Text()
     for i, line in enumerate(_CROWN):
-        logo.append(line + "\n", style="gold1" if i < 2 else "yellow")
+        logo.append(line + "\n", style="gold1" if i < 3 else "yellow")
 
     info = Text()
     info.append("reigner", style="bold magenta")
-    info.append(f"  v{cfg.version}\n", style="dim")
+    info.append(f"  v{reigner.__version__}\n", style="dim")
 
     info.append(cfg.name, style="bold white")
+    info.append(f"  v{cfg.version}", style="dim")
     if role_exists:
         info.append(f"  ·  {cfg.role.file}", style="dim")
     else:

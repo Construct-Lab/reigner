@@ -390,7 +390,7 @@ def _print_success(target: Path, *, mode: str = "blank") -> None:
     if mode.endswith("recipe"):
         if (target / "extractors").is_dir():
             last = (
-                "  [dim]# edit extractors/my_extractor.py — write the extraction prompt[/dim]\n"
+                "  [dim]# edit extractors/my_extractor.py — refine the extraction prompt[/dim]\n"
                 "  [dim]# edit extractors/pipeline.py — name your entities[/dim]\n"
                 "  reigner ingest\n"
                 "  reigner chat"

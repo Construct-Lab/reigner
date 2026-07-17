@@ -1,8 +1,8 @@
 # Reigner — Design Principles
 
-This document captures the *why* behind Reigner's design. SPEC.md tells you **what to build**; this tells you **why decisions were made the way they were**, so they don't get quietly undone during refactoring or when adding new features.
+This document captures the *why* behind Reigner's design. The spec tells you **what to build**; this tells you **why decisions were made the way they were**, so they don't get quietly undone during refactoring or when adding new features.
 
-When SPEC.md and PRINCIPLES.md disagree, treat it as a bug and surface it. They should always agree.
+When the spec and these principles disagree, treat it as a bug and surface it. They should always agree.
 
 ---
 
@@ -16,17 +16,17 @@ Concrete consequence: every API decision should be evaluated against the questio
 
 ---
 
-## 2. Build fresh, reference after
+## 2. Build fresh, don't port
 
-Reigner is downstream of prior work (an internal system called ApolloScope), but its tools, contracts, and abstractions are written from scratch against a generic problem, not ported.
+Reigner's tools, contracts, and abstractions are written from scratch against a generic retrieval problem — not ported from a domain-specific predecessor.
 
 The reasoning: contracts written for one domain carry assumptions that don't survive contact with other domains. A grep tool tuned for one corpus may have made the wrong default for another. Re-deriving forces those assumptions into the open and lets each one be evaluated deliberately.
 
-The discipline: when implementing a tool, draft it, test it against the reference corpus, *then* compare to prior work. The comparison is for catching missed lessons, not for sourcing the contract. The order matters — reading prior work before drafting anchors you to it; reading after lets you see clearly what's load-bearing vs accidental.
+The discipline: when implementing a tool, draft it, test it against the reference corpus, *then* compare to prior art. The comparison is for catching missed lessons, not for sourcing the contract. The order matters — reading prior work before drafting anchors you to it; reading after lets you see clearly what's load-bearing vs accidental.
 
-What this rules out: importing code from ApolloScope, copy-pasting contracts, treating ApolloScope's parameter defaults as authoritative.
+What this rules out: copy-pasting contracts from a prior system, or treating a predecessor's parameter defaults as authoritative.
 
-What it preserves: the right to look at ApolloScope after a draft exists and ask "what did they decide here, and was it right for the generic case?"
+What it preserves: the right to look at prior art after a draft exists and ask "what did they decide here, and was it right for the generic case?"
 
 ---
 
@@ -71,7 +71,7 @@ Concrete consequences:
 - The event protocol has a dedicated `CitationEvent` type from day one.
 - Tools that return facts include enough provenance to register a citation (file path, locator, value).
 - The eval suite includes a `faithfulness` check that fails if any numeric claim in the final answer lacks a registered citation.
-- The default ROLE includes a `citation_strict` skill that teaches the model to refuse making numeric claims without citations.
+- The default `REIGNER.md` includes a `citation_strict` skill that teaches the model to refuse making numeric claims without citations.
 
 What this rules out: treating citations as a UI feature, retrofitting citation chains after the loop is built, allowing tools to return values without provenance.
 
@@ -105,7 +105,7 @@ What this means in practice: a developer writes `@tool` once, gets a Python call
 
 ## 8. Convention by default, override when needed
 
-Reigner ships opinionated defaults: an artifact layout, an ROLE cascade order, truncation budgets, compaction thresholds, parallel-read execution, ten-match grep caps. These reflect what worked in production for the predecessor system.
+Reigner ships opinionated defaults: an artifact layout, truncation budgets, compaction thresholds, parallel-read execution, ten-match grep caps. These reflect what held up under real production queries.
 
 Defaults are explicit and overridable, but the bar for *changing* a default is high — defaults get tuned by running real queries and watching what breaks, not by individual preference.
 
@@ -141,7 +141,7 @@ What this rules out: TUI-as-primary-surface (Pi, OpenCode), CLI-only configurati
 
 ## 11. Out of scope is a feature
 
-The most important thing in SPEC.md §19 is the list of things Reigner deliberately doesn't do. That list isn't a roadmap — it's a contract.
+The most important part of the spec is the list of things Reigner deliberately doesn't do. That list isn't a roadmap — it's a contract.
 
 Why: every framework that tried to do everything ended up doing nothing well. Reigner's value comes from being sharp about its niche. Multi-agent orchestration, sandboxing, hosted services, vector stores, LLM extractors, frontends — these are all reasonable things to build, but not in Reigner.
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "reigner"
 version = "0.7.0"
-description = "Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge."
+description = "A single agent that answers from your compiled corpus — every claim cited."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -54,6 +54,13 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-pyyaml>=6.0",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+    "mkdocs-include-markdown-plugin>=6.2",
+    "mike>=2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
