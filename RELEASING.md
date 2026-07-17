@@ -5,17 +5,13 @@ This document describes the release process for maintainers.
 Reigner releases follow Conventional Commits → `git-cliff` (CHANGELOG) →
 `uv version` (bump) → tag → push → GitHub Release → `uv publish` (PyPI).
 
-> The repo is currently **private**. Tag internally to build CHANGELOG
-> history, but **do not run `uv publish`** until the public-flip day
-> (~`v0.5.0`).
-
 ## Prerequisites
 
 - [`uv`](https://docs.astral.sh/uv/) installed
 - [`git-cliff`](https://git-cliff.org/) installed (`brew install git-cliff`)
 - [`gh`](https://cli.github.com/) (GitHub CLI) installed and authenticated
   (`gh auth login`)
-- PyPI credentials configured for `uv publish` (deferred — see step 5)
+- A PyPI API token (and a TestPyPI token for the dry-run) — see step 5
 
 All commits on `main` must follow
 [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`,
@@ -82,19 +78,36 @@ Or open the GitHub UI: **Releases → Draft a new release → pick the tag**.
 
 ### 5. Publish to PyPI
 
-> **Deferred until public-flip day (~`v0.5.0`).** While the repo is
-> private, skip this step — internal tags and GitHub Releases are enough.
-
 ```bash
 uv build
-uv publish
+uv publish --token pypi-<pypi-token>
 ```
 
-To publish to TestPyPI first (configured in `pyproject.toml`):
+`uv build` writes the sdist + wheel to `dist/`; `uv publish` uploads them.
+The `[tool.hatch.build.targets.sdist]` config keeps the sdist limited to the
+`reigner` package plus `README.md`, `LICENSE`, and `CHANGELOG.md` — untracked
+local projects in the repo root are never bundled.
 
-```bash
-uv publish --index testpypi
-```
+Instead of `--token` you can export `UV_PUBLISH_TOKEN=pypi-...` for the shell
+session. Get tokens at <https://pypi.org/manage/account/token/>.
+
+> **First release only:** the first public release was smoke-tested against
+> TestPyPI before the real upload. That's a one-time check — routine releases
+> go straight to PyPI. To repeat it, use the `testpypi` index configured in
+> `pyproject.toml` with a **TestPyPI** token:
+>
+> ```bash
+> uv publish --index testpypi --token pypi-<testpypi-token>
+> ```
+>
+> TestPyPI lacks the runtime deps, so verify an install by letting them
+> resolve from real PyPI:
+>
+> ```bash
+> uv run --no-project --python 3.12 \
+>   --index https://test.pypi.org/simple/ --index-strategy unsafe-best-match \
+>   --with 'reigner[anthropic,ingestion]' reigner --help
+> ```
 
 ## Version numbering
 
