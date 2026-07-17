@@ -9,7 +9,7 @@ from reigner.cli import eval as eval_cmd
 
 app = typer.Typer(
     name="reigner",
-    help="Single-agent, retrieval-shaped, citation-faithful agents over compiled knowledge.",
+    help="A single agent that answers from your compiled corpus — every claim cited.",
     no_args_is_help=True,
 )
 
