@@ -70,7 +70,9 @@ def render_banner(console: Console, session: Session, config_path: Path) -> None
 
     info.append(cfg.model.provider, style="cyan")
     info.append(f":{cfg.model.name}", style="bold cyan")
-    info.append(f"  ·  temp {cfg.model.temperature}", style="dim")
+    info.append(f"  ·  effort {cfg.model.effort}", style="dim")
+    if cfg.model.temperature is not None:
+        info.append(f"  ·  temp {cfg.model.temperature}", style="dim")
     if cfg.oracle is not None:
         info.append(f"  ·  oracle {cfg.oracle.model}", style="dim")
     info.append("\n")

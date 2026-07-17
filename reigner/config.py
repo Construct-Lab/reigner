@@ -31,7 +31,7 @@ from pydantic import (
     model_validator,
 )
 
-from reigner.types import ConfigError, DottedPath, ProviderName
+from reigner.types import ConfigError, DottedPath, EffortLevel, ProviderName
 
 # ---------------------------------------------------------------------------
 # Leaf models
@@ -45,7 +45,11 @@ class ModelConfig(BaseModel):
 
     provider: ProviderName
     name: str
-    temperature: float = 0.2
+    effort: EffortLevel = "medium"
+    # Opt-in only: sent to a provider solely when explicitly set, and never on
+    # the reasoning/effort path (frontier models reject it with a 400). Left
+    # unset it is not emitted at all.
+    temperature: float | None = None
 
     @field_validator("name")
     @classmethod
@@ -379,7 +383,7 @@ version: 0.1.0
 model:
   provider: openai
   name: gpt-4o
-  temperature: 0.2
+  effort: medium
 
 # oracle: optional single-turn escalation
 # oracle:

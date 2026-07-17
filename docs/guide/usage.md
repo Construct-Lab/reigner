@@ -841,7 +841,7 @@ $ reigner inspect config
 mydocs  v0.1.0
 config: /path/to/mydocs/reigner.yaml
 
-model: openai:gpt-5.5  (temp=0.2)
+model: openai:gpt-5.5  (effort=medium)
 role.file: REIGNER.md
 sessions.store_path: ./.reigner/sessions
 
@@ -1461,7 +1461,7 @@ version: 0.1.0
 model:                       # the agent's model
   provider: openai
   name: gpt-5.5
-  temperature: 0.2
+  effort: medium
 
 # oracle:                    # optional single-turn escalation
 #   provider: anthropic
@@ -1519,7 +1519,9 @@ version: 0.1.0              # str · default "0.1.0"
 model:                      # required — the main-loop LLM
   provider: openai          # openai | anthropic | gemini
   name: gpt-5.5              # str, non-empty
-  temperature: 0.2          # float · default 0.2
+  effort: medium            # low | medium | high | xhigh | max · default medium
+  # temperature: 0.4        # float · opt-in; only sent to models that accept it
+  #                         # (older chat models), never on the effort path
 
 oracle:                     # optional · single-turn escalation (SPEC §5.5)
   provider: anthropic       # openai | anthropic | gemini

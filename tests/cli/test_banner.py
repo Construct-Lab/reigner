@@ -39,7 +39,8 @@ def test_banner_carries_the_loaded_summary(
     assert "reigner" in out
     assert "sec-10k-qa" in out  # project name
     assert "openai:gpt-4o" in out  # provider:model
-    assert "temp 0.3" in out
+    assert "effort medium" in out  # default effort, always shown
+    assert "temp 0.3" in out  # temperature shown only because set here
     assert "0 tools" in out  # empty registry on the fake session
     assert "reigner.yaml" in out
     assert "REIGNER.md" in out

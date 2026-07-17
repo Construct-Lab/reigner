@@ -6,11 +6,11 @@
 name: code_navigator
 version: 0.1.0
 
-# Code reading rewards a strong, low-temperature model.
+# Code reading rewards a strong model with steady, moderate reasoning.
 model:
   provider: openai
   name: gpt-5.5
-  temperature: 0.2
+  effort: medium
 
 settings:
   max_iterations: 25

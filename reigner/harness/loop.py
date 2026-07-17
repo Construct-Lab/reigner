@@ -112,6 +112,18 @@ def _content_for_history(value: Any) -> str:
     return json.dumps(value, default=str)
 
 
+def _record_tool_call(tc: ToolCall) -> dict[str, Any]:
+    """Turn a ToolCall into the history dict adapters replay from.
+
+    ``signature`` is only included when set (Gemini 3.x), so turns from other
+    providers keep their original three-key shape.
+    """
+    d: dict[str, Any] = {"id": tc.id, "name": tc.name, "args": tc.args}
+    if tc.signature is not None:
+        d["signature"] = tc.signature
+    return d
+
+
 async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
     state: AgentState,
     *,
@@ -297,9 +309,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
             Turn(
                 role="assistant",
                 content=action.text or "",
-                tool_calls=[
-                    {"id": tc.id, "name": tc.name, "args": tc.args} for tc in action.tool_calls
-                ],
+                tool_calls=[_record_tool_call(tc) for tc in action.tool_calls],
             )
         )
 
@@ -347,6 +357,7 @@ async def run_loop(  # noqa: C901, PLR0912, PLR0915 — legibility > splitting
                         session_id=session_id,
                         next_seq=next_seq,
                         plugins=plugins,
+                        run_usage=run_usage,
                     ):
                         yield ev
                 except PluginHookError as exc:
@@ -433,6 +444,7 @@ async def _dispatch_pseudo(
     session_id: str,
     next_seq: Any,
     plugins: PluginHost,
+    run_usage: TokenUsage,
 ) -> AsyncIterator[Event]:
     """Handle a pseudo-tool call. May set ``state.done``.
 
@@ -545,7 +557,9 @@ async def _dispatch_pseudo(
             session_id=session_id,
             turn=state.iterations,
             text=str(tc.args.get("reason", "")),
-            metadata={"stop": True},
+            # Carry accumulated usage like the plain-text terminals, so cost and
+            # token counts render when a model ends via the `stop` pseudo-tool.
+            metadata={"stop": True, "usage": asdict(run_usage), "stop_reason": "stop"},
         )
         final = await plugins.on_final_answer(final, state)
         state.append_turn(Turn(role="assistant", content=final.text))
