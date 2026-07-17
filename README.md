@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/reigner-logo-dark.svg">
-    <img alt="reigner" src="assets/reigner-logo-light.svg" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Construct-Lab/reigner/main/assets/reigner-logo-dark.svg">
+    <img alt="reigner" src="https://raw.githubusercontent.com/Construct-Lab/reigner/main/assets/reigner-logo-light.svg" width="360">
   </picture>
 </p>
 
@@ -27,8 +27,8 @@ You meet the same agent core — the harness, the artifact store, and a single
 
 - **Build** — define a per-project agent as a library: a schema, `@tool`s, an
   extractor, a recipe, plugins. This is what you ship.
-- **Test** — iterate from the CLI: `ingest`, `chat`, then `session fork` / `replay` /
-  `diff` and `eval` to A/B/C variants of your `REIGNER.md`, tools, or model.
+- **Test** — iterate from the CLI: `ingest`, `chat`, then `session fork` / `replay`
+  and `eval` to A/B/C variants of your `REIGNER.md`, tools, or model.
 - **Ship** — serve the same agent over HTTP (FastAPI + SSE) so your apps consume it
   with no rewrite. (MCP export is planned; see status below.)
 
@@ -58,7 +58,7 @@ reigner ingest                             # compile documents into artifacts
 reigner chat                               # ask questions, get cited answers
 ```
 
-![reigner chat answering a question with per-claim citations](docs/assets/demo.gif)
+![reigner chat answering a question with per-claim citations](https://raw.githubusercontent.com/Construct-Lab/reigner/main/docs/assets/demo.gif)
 
 The full walkthrough — every command with real output and a per-feature status flag —
 is in the [usage guide](https://construct-lab.github.io/reigner/guide/usage/).
