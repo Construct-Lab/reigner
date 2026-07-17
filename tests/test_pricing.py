@@ -56,5 +56,26 @@ def test_all_families_present() -> None:
         "gpt-5.5",
         "gemini-3-pro",
         "gemini-3-flash",
+        "gemini-3.5-flash",
     ):
         assert model in PRICES
+
+
+def test_gemini_3_5_flash_priced() -> None:
+    # 1M fresh input + 1M output at $1.50 / $9.00.
+    usage = TokenUsage(prompt=1_000_000, completion=1_000_000, total=2_000_000)
+    assert cost_usd(usage, "gemini-3.5-flash") == pytest.approx(1.5 + 9.0)
+
+
+def test_prefix_match_resolves_provider_suffixes() -> None:
+    # The API reports full ids like `gemini-3-flash-preview`; these must price at
+    # their base rate, not fall through to None.
+    usage = TokenUsage(prompt=1_000_000, total=1_000_000)
+    assert cost_usd(usage, "gemini-3-flash-preview") == pytest.approx(0.5)
+    assert cost_usd(usage, "gemini-3.5-flash-preview-latest") == pytest.approx(1.5)
+
+
+def test_prefix_match_prefers_longest_key() -> None:
+    # `gemini-3.5-flash` must not be shadowed by the shorter `gemini-3-flash`.
+    usage = TokenUsage(prompt=1_000_000, total=1_000_000)
+    assert cost_usd(usage, "gemini-3.5-flash") == pytest.approx(1.5)  # not 0.5
