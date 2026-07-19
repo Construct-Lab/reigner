@@ -83,6 +83,7 @@ output in Section 3 is marked representative.
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
 | Skills (on-demand modules) | ✅ | `role.skills:` in `reigner.yaml` | [Section 3.9](#39-skills--on-demand-instruction-modules) |
+| Custom tools (`@tool`) | ✅ | `tools.custom:` in `reigner.yaml` | [Section 3.10](#310-custom-tools--tool) |
 | Eval — scorecard / report | ✅ | `reigner eval [--report]` | [Section 3.8](#38-evaluate-your-agent--reigner-eval) |
 
 ---
@@ -1445,6 +1446,103 @@ Ask two questions back to back and compare the traces in `reigner chat`:
 Question 1 pays nothing for a skill it doesn't need; question 2 pulls the guidance
 in exactly when it applies.
 
+### 3.10 Custom tools — `@tool`
+
+Tools are what the agent can actually *do* — search the store, read a section,
+register a citation. Reigner ships built-in tools (artifacts, search, fs), but
+you can add your own: any `@tool`-decorated async function, wired in through
+`tools.custom` in `reigner.yaml`. This is the most direct way to extend an agent
+— you give it a new capability, and the model can call it like any built-in.
+
+#### Write the function
+
+A tool is an `async def` decorated with `@tool`. The decorator validates the
+signature at import time (so mistakes surface early, not mid-run) and generates
+the JSON Schema the model sees from your type hints and docstring.
+
+```python
+# myproject/tools.py
+from reigner.tools import tool, ToolResult
+
+
+@tool(readonly=True)
+async def working_days_between(start: str, end: str) -> ToolResult:
+    """Count working days (Mon–Fri) between two ISO dates, inclusive.
+
+    Args:
+        start: ISO date, e.g. "2026-01-01".
+        end: ISO date, e.g. "2026-01-31".
+    """
+    from datetime import date, timedelta
+
+    d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+    if d1 < d0:
+        return {"error": "end is before start", "days": 0}
+    days = sum(
+        1
+        for i in range((d1 - d0).days + 1)
+        if (d0 + timedelta(days=i)).weekday() < 5
+    )
+    return {"days": days, "start": start, "end": end}
+```
+
+The docstring is not decoration — its summary and `Args:` become the tool
+description and parameter docs the model reads to decide when and how to call it.
+Write it for the model.
+
+#### The contract (enforced at decoration time)
+
+`@tool` rejects anything that wouldn't survive as a clean, MCP-exportable tool.
+Every rule is checked when the module is imported:
+
+| Rule | Why |
+|---|---|
+| Must be `async def` | The loop awaits every tool; sync tools are rejected. |
+| Every parameter typed | Types drive the generated JSON Schema — an untyped param is an error. |
+| Keyword-only calling | No `*args`, no positional-only params — tools are always called by name. |
+| Returns a `ToolResult` (a `dict`) | So results are structured and self-describing (see below). |
+
+Return values should be **bounded and self-describing** — the same discipline the
+built-in tools follow. If a result can be large or partial, say so in the payload
+with fields like `has_more`, `truncated`, `available_keys`, or a count, so the
+model knows whether it got everything and can ask for more without guessing. The
+`ToolResult` alias is a plain `dict[str, Any]`; the shape is yours to choose per
+tool.
+
+The decorator flags tune loop behavior:
+
+| Flag | Effect |
+|---|---|
+| `readonly=True` | Declares the tool has no side effects — makes it eligible for result caching and parallel execution with other reads in a turn. Use it for anything that only reads. |
+| `cache=True` | Opt-in result caching keyed on the tool name + arguments. |
+| `truncate_chars=N` | Override the per-tool truncation budget for this tool's result. |
+| `description="…"` | Override the docstring as the tool description. |
+
+#### Wire it in
+
+List the dotted path to your function under `tools.custom` in `reigner.yaml`.
+Both the explicit `module:function` separator and the plain `module.function`
+form work:
+
+```yaml
+tools:
+  custom:
+    - myproject.tools:working_days_between
+```
+
+On the next `reigner chat` / `reigner serve`, the tool is imported, registered
+alongside the built-ins, and offered to the model. Confirm it's live with:
+
+```bash
+reigner inspect tools
+```
+
+Your tool appears in the list with its generated schema. From there the model
+calls it whenever its description fits the question — no other wiring needed.
+
+> **Note:** dotted paths in `tools.custom` are imported and trusted as-is — the
+> code runs in your agent's process. Only list tools you control.
+
 ---
 
 ## 4. Configuration reference
@@ -1559,7 +1657,7 @@ tools:                      # every sub-block optional; omit one to leave that s
     #   backend: ../api     #   each name becomes a top-level dir; names match [A-Za-z0-9_-]+
     #   frontend: ~/code/web  # paths may be relative (to config), absolute, or ~/…
     write_enabled: false    # bool · default false — read-only is the safe default
-  custom: []                # list[dotted-path] · default [] · extra @tool surfaces to register
+  custom: []                # list[dotted-path] · default [] · your own @tool functions (§3.10)
 
 sessions:
   store_path: ./.reigner/sessions  # str · default "./.reigner/sessions"
