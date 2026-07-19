@@ -61,7 +61,9 @@ folder at every step.
   coverage, and repeated-call efficiency; iterate on `REIGNER.md`, tools, or model with numbers.
 - **Forkable sessions** — durable JSONL sessions on disk that you can fork and replay
   to compare variants without re-running from scratch.
-- **One typed event protocol** — CLI, HTTP, and MCP all consume the same typed events.
+- **Write your UI once** — the CLI, HTTP server, and MCP all emit the same typed events
+  (tool calls, citations, status), so an interface, logger, or integration you build against
+  one surface works unchanged against the others.
 - **Provider-agnostic** — Anthropic, OpenAI, and Gemini adapters behind one interface.
 
 ## Quickstart
