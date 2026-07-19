@@ -552,6 +552,13 @@ async def _dispatch_pseudo(
         return
 
     if tc.name == "stop":
+        # Answer the stop `tool_use` with a matching tool result before the
+        # final assistant turn. Without it, history ends on a dangling tool
+        # call; a follow-up query replays that transcript and providers that
+        # require every tool_use to be paired (Anthropic) reject it with a 400.
+        state.append_turn(
+            Turn(role="tool", content=_content_for_history({"ok": True}), tool_call_id=tc.id)
+        )
         final = FinalAnswerEvent(
             seq=next_seq(),
             session_id=session_id,
