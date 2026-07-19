@@ -6,6 +6,19 @@ When the spec and these principles disagree, treat it as a bug and surface it. T
 
 ---
 
+## Why Reigner exists
+
+Reigner started from two motivations: to learn harness engineering firsthand, and to shortcut the recurring work of standing up domain-specific knowledge agents for real users — 0 to 1, fast.
+
+The second goal kept surfacing the same hard problem, which became the first goal's subject: **the harness itself.** How do you keep a *single* agent efficient and cheap as its context grows over a long run? Most of the interesting engineering in Reigner is the answer to that — a legible agent loop with explicit guardrails: bounded, self-describing tool results; pressure-driven history compaction; parallel-read coalescing with a per-session cache; and an *oracle* escalation that spends a frontier model only on the turns that genuinely need one, while a cheaper model drives the rest.
+
+Two consequences follow, and they explain a lot of the principles below:
+
+- **Efficiency and cost are first-class design targets, not afterthoughts.** A retrieval agent that is trustworthy but ruinously expensive doesn't get shipped. Guardrails that bound context and steer spend are part of the product, not optimizations bolted on later. This runs through the principles that follow — *Bounded outputs are the discipline* and *The loop is small on purpose*.
+- **It is a library, built for the developer standing up an agent** — with an eval battery to measure a specific agent against its own compiled corpus, and the same agent exposed over both a CLI and an HTTP server. The developer is the user these decisions serve; their end-users only ever meet the shipped agent.
+
+---
+
 ## 1. Reigner is for question-answering over compiled knowledge, not for autonomous action
 
 Reigner exists to make a specific shape of agent reliable: an agent that answers questions about a corpus the developer has prepared, with citations that trace back to source artifacts.

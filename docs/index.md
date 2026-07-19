@@ -3,25 +3,31 @@
 **A single agent that answers from your compiled corpus — every claim cited.**
 
 Reigner is a toolkit for building **citation-faithful question-answering agents over a
-knowledge corpus.** You compile your sources into bounded, schema-aware artifacts once,
-then a single retrieval agent answers over them — every factual claim traced back to its
-source. It is a library first: not a chat app, not a coding-agent harness, not a
-multi-agent orchestrator.
+knowledge corpus.** First you *ingest* your sources — a one-time compile step that reads
+your raw documents (PDF, text, HTML) and extracts the facts you care about into a
+structured store, its *artifacts*. A single retrieval agent then answers questions over
+that store — never touching your raw files at query time — with every factual claim traced
+back to its source. It is a library first: not a chat app, not a coding-agent harness, not
+a multi-agent orchestrator.
 
 ![reigner chat answering a question with per-claim citations](assets/demo.gif)
 
 ## One core, three surfaces
 
-You meet the same agent core — the harness, the artifact store, and a single
-`REIGNER.md` instruction file — at three points in its lifecycle:
+Reigner is a library: you write **one** agent and reach it three ways as it grows
+from an idea to a running service. The agent is a small project folder — a
+`REIGNER.md` of instructions, a schema, and your tools — and it stays the same
+folder at every step.
 
-- **Build** — define a per-project agent as a library: a schema, `@tool`s, an extractor,
-  a recipe, plugins. This is what you ship.
-- **Test** — iterate from the CLI: [`ingest`](guide/usage.md), `chat`, then
-  `session fork` / `replay` / `export` and `eval` to A/B/C variants of your `REIGNER.md`,
-  tools, or model.
-- **Ship** — serve the same agent over HTTP (FastAPI + SSE) so your apps consume it with
-  no rewrite.
+- **Build** — Write your agent as code. `reigner init` scaffolds the project folder
+  for you: the `REIGNER.md` instructions, a schema and extractor (how your documents
+  become searchable), plus any `@tool`s or plugins you add. This folder *is* your agent.
+- **Test** — Run it from your terminal. [`ingest`](guide/usage.md) compiles your
+  documents, `chat` asks questions, and `session fork` / `replay` / `export` / `eval`
+  let you A/B/C different instructions, tools, or models — so you tune without starting
+  over.
+- **Ship** — Serve it over HTTP. `serve` exposes that same folder through a FastAPI + SSE
+  endpoint, so your apps consume it with no rewrite.
 
 !!! note "MCP export is planned"
     `reigner serve --http` works today. `reigner serve --mcp` is scaffolded but not yet
@@ -32,6 +38,8 @@ You meet the same agent core — the harness, the artifact store, and a single
 
 - **[Usage guide](guide/usage.md)** — hands-on, install → scaffold → ingest → chat, with
   a per-feature status flag on everything.
+- **[Architecture](guide/architecture.md)** — the harness: the agent loop, oracle
+  escalation, and the G1–G11 context-management guardrails.
 - **[Observability](guide/observability.md)** — turn the agent loop into OpenTelemetry spans.
 - **[Principles](design/principles.md)** — the rationale behind each design decision.
 - **[API reference](reference.md)** — the typed public API.
