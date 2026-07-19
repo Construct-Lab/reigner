@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-07-20
+
+### Changed
+
+- **Model tuning is now controlled by `effort` (`low`…`max`, default `medium`) instead of `temperature`.** Frontier models that previously ran at their provider-default effort (often `high`) now default to `medium`. `temperature` is kept but opt-in: it is sent only when explicitly set, and only to models that accept it (never on the reasoning/effort path). Update `reigner.yaml` files that set `temperature:` to use `effort:` — see the config reference in `docs/guide/usage.md`.
+
+### Features
+
+- Replace temperature knob with first-class effort control ([#136](https://github.com/Construct-Lab/reigner/issues/136)) ([#138](https://github.com/Construct-Lab/reigner/issues/138))
+
+### Documentation
+
+- Remove SPEC from docs site and trim internal planning from it ([#137](https://github.com/Construct-Lab/reigner/issues/137))
+
 ## [0.8.1] - 2026-07-17
 
 ### Bug Fixes
@@ -11,6 +25,10 @@ All notable changes to this project will be documented in this file.
 ### Documentation
 
 - Update RELEASING.md for public repo and first-release TestPyPI check
+
+### Miscellaneous Tasks
+
+- Release v0.8.1
 
 ## [0.8.0] - 2026-07-17
 
