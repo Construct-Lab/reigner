@@ -10,6 +10,12 @@ that store — never touching your raw files at query time — with every factua
 back to its source. It is a library first: not a chat app, not a coding-agent harness, not
 a multi-agent orchestrator.
 
+Reach for Reigner when you want a Q&A agent shaped to *your* corpus and use case — not a
+fixed product. It's a library you tune end to end: the instructions, the tools, the schema,
+the model are all yours to change. Within that flexibility it keeps two things hard —
+citation-faithfulness is a testable property (the eval fails uncited claims), and a cheap
+model handles the routine work so cost stays bounded.
+
 ![reigner chat answering a question with per-claim citations](assets/demo.gif)
 
 ## One core, three surfaces
@@ -41,7 +47,7 @@ folder at every step.
 - **[Architecture](guide/architecture.md)** — the harness: the agent loop, oracle
   escalation, and the G1–G11 context-management guardrails.
 - **[Observability](guide/observability.md)** — turn the agent loop into OpenTelemetry spans.
-- **[Principles](design/principles.md)** — the rationale behind each design decision.
+- **[Principles](design/principles.md)** — why Reigner exists and the rationale behind each design decision.
 - **[API reference](reference.md)** — the typed public API.
 
 ## Install
