@@ -15,8 +15,10 @@
 📚 **Documentation:** https://construct-lab.github.io/reigner/
 
 Reigner is a toolkit for building **citation-faithful question-answering agents over a knowledge corpus.**
-You compile your sources into bounded, schema-aware artifacts once, then a single
-retrieval agent answers over them — every factual claim traced back to its source.
+First you *ingest* your sources — a one-time compile step that reads your raw documents
+(PDF, text, HTML) and extracts the facts you care about into a structured store, its
+*artifacts*. A single retrieval agent then answers questions over that store — never
+touching your raw files at query time — with every factual claim traced back to its source.
 It is a library first: not a chat app, not a coding-agent harness, not a multi-agent
 orchestrator.
 
@@ -33,8 +35,9 @@ folder at every step.
 - **Test** — Run it from your terminal. `ingest` compiles your documents, `chat` asks
   questions, and `session fork` / `replay` / `eval` let you A/B/C different instructions,
   tools, or models — so you tune without starting over.
-- **Ship** — Serve it over HTTP. `serve` exposes that same folder through a FastAPI + SSE
-  endpoint, so your apps consume it with no rewrite. (MCP export is planned; see status below.)
+- **Ship** — Serve it over HTTP. `serve` exposes that same folder through a FastAPI endpoint
+  that streams over Server-Sent Events (SSE), so your apps consume it with no rewrite.
+  (MCP — Model Context Protocol — export is planned; see status below.)
 
 ## Features
 
@@ -49,9 +52,9 @@ folder at every step.
   `escalate_to_oracle` only when a question needs deeper reasoning; that single turn is
   served by a stronger model, then it reverts. You pay frontier prices for the hard steps,
   not the routine ones.
-- **Context stays bounded under pressure** — a legible agent loop with numbered guardrails
-  (G1–G11): pressure-driven history compaction, per-tool result truncation, and a
-  scratchpad whose notes survive compaction — so long runs don't blow the context budget.
+- **Context stays bounded under pressure** — a legible agent loop with numbered guardrails:
+  pressure-driven history compaction, per-tool result truncation, and a scratchpad whose
+  notes survive compaction — so long runs don't blow the context budget.
 - **Parallel, cached reads** — read-only tool calls in a turn run concurrently and hit a
   per-session cache, cutting both latency and duplicate model-driven calls.
 - **An eval battery** — score your agent against your own compiled corpus for faithfulness,

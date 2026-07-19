@@ -3,10 +3,12 @@
 **A single agent that answers from your compiled corpus — every claim cited.**
 
 Reigner is a toolkit for building **citation-faithful question-answering agents over a
-knowledge corpus.** You compile your sources into bounded, schema-aware artifacts once,
-then a single retrieval agent answers over them — every factual claim traced back to its
-source. It is a library first: not a chat app, not a coding-agent harness, not a
-multi-agent orchestrator.
+knowledge corpus.** First you *ingest* your sources — a one-time compile step that reads
+your raw documents (PDF, text, HTML) and extracts the facts you care about into a
+structured store, its *artifacts*. A single retrieval agent then answers questions over
+that store — never touching your raw files at query time — with every factual claim traced
+back to its source. It is a library first: not a chat app, not a coding-agent harness, not
+a multi-agent orchestrator.
 
 ![reigner chat answering a question with per-claim citations](assets/demo.gif)
 
