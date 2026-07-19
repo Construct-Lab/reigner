@@ -42,11 +42,19 @@ class ToolCall:
 
     `id` is the provider-supplied call identifier (used to thread the matching
     tool result back in the next turn). `args` is already JSON-decoded.
+
+    `signature` is an opaque, provider-specific token that must be replayed
+    verbatim when this call is sent back in a later request. Gemini 3.x returns
+    a `thought_signature` on each function-call part and rejects the follow-up
+    turn (HTTP 400) if it is missing. Stored base64-encoded so it survives the
+    JSON turn/session round-trip; the adapter decodes it at the wire boundary.
+    Providers that don't use it leave it ``None``.
     """
 
     id: str
     name: str
     args: dict[str, Any]
+    signature: str | None = None
 
 
 @dataclass(kw_only=True, frozen=True)

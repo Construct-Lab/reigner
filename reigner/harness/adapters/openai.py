@@ -29,9 +29,28 @@ from reigner.harness.adapters.base import (
     render_tool_for_openai,
 )
 from reigner.harness.state import Prompt, ToolSpec, Turn
+from reigner.types import EffortLevel
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
+
+# reasoning.effort caps at "high"; reigner's higher tiers clamp down.
+_EFFORT: dict[EffortLevel, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "high",
+    "max": "high",
+}
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """True for OpenAI reasoning models that take ``reasoning.effort``.
+
+    o-series (o1, o3, o4, …) and GPT-5. These reject ``temperature``; older
+    chat models (gpt-4o, gpt-4.1, …) return False and take temperature instead.
+    """
+    return model.startswith(("o1", "o3", "o4", "gpt-5"))
 
 
 @dataclass
@@ -45,6 +64,8 @@ class OpenAIAdapter:
     model: str = "gpt-4o-mini"
     api_key: str | None = None
     base_url: str | None = None
+    effort: EffortLevel = "medium"
+    temperature: float | None = None
     name: str = "openai"
     supports_prompt_caching: bool = True
 
@@ -83,6 +104,12 @@ class OpenAIAdapter:
             "instructions": prompt.stable,
             "input": _turns_to_input(prompt.messages),
         }
+        if _is_reasoning_model(self.model):
+            # Reasoning models take reasoning.effort and reject temperature.
+            payload["reasoning"] = {"effort": _EFFORT[self.effort]}
+        elif self.temperature is not None:
+            # Chat models: temperature only, and only when explicitly set.
+            payload["temperature"] = self.temperature
         if tools:
             payload["tools"] = [render_tool_for_openai(t) for t in tools]
             payload["tool_choice"] = "auto"

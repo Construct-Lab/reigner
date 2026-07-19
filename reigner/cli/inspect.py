@@ -471,7 +471,9 @@ def _inspect_config(
     console.print()
 
     # model
-    model_line = f"model: {cfg.model.provider}:{cfg.model.name}  (temp={cfg.model.temperature})"
+    model_line = f"model: {cfg.model.provider}:{cfg.model.name}  (effort={cfg.model.effort})"
+    if cfg.model.temperature is not None:
+        model_line += f"  (temp={cfg.model.temperature})"
     console.print(model_line)
     if cfg.oracle is not None:
         console.print(f"oracle: {cfg.oracle.provider}:{cfg.oracle.model}")

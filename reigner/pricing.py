@@ -49,9 +49,31 @@ PRICES: dict[str, Rates] = {
     # -- OpenAI (published pricing, checked 2026-07) --
     "gpt-5.5": Rates(input=5.0, output=30.0, cache_read=0.5, cache_write=0.0),
     # -- Google (Gemini API pricing, checked 2026-07) --
+    # Pro ≤200k-token tier; the >200k tier ($4/$18) is not date/size-branched here.
     "gemini-3-pro": Rates(input=2.0, output=12.0, cache_read=0.2, cache_write=0.0),
     "gemini-3-flash": Rates(input=0.5, output=3.0, cache_read=0.05, cache_write=0.0),
+    "gemini-3.5-flash": Rates(input=1.5, output=9.0, cache_read=0.15, cache_write=0.0),
 }
+
+
+def rates_for(model_id: str) -> Rates | None:
+    """Resolve a model id to its :class:`Rates`, or ``None`` if unknown.
+
+    Exact match first, then the *longest* table key that ``model_id`` starts
+    with. Providers append suffixes to a base model (``gemini-3-flash-preview``,
+    ``claude-opus-4-7-extended``, dated ids), and the API reports the full id;
+    prefix matching prices those at their base rate instead of silently
+    returning ``None``. Longest-prefix wins so a more specific key (e.g.
+    ``gemini-3.5-flash``) is never shadowed by a shorter one.
+    """
+    exact = PRICES.get(model_id)
+    if exact is not None:
+        return exact
+    best_key = ""
+    for key in PRICES:
+        if model_id.startswith(key) and len(key) > len(best_key):
+            best_key = key
+    return PRICES[best_key] if best_key else None
 
 
 def cost_usd(usage: TokenUsage, model_id: str) -> float | None:
@@ -61,7 +83,7 @@ def cost_usd(usage: TokenUsage, model_id: str) -> float | None:
     billed separately at their own rates (see the adapters, which normalise
     every provider onto this split). Zeroed usage costs ``0.0``.
     """
-    rates = PRICES.get(model_id)
+    rates = rates_for(model_id)
     if rates is None:
         return None
     return (
@@ -72,4 +94,4 @@ def cost_usd(usage: TokenUsage, model_id: str) -> float | None:
     ) / 1_000_000
 
 
-__all__ = ["PRICES", "Rates", "cost_usd"]
+__all__ = ["PRICES", "Rates", "cost_usd", "rates_for"]

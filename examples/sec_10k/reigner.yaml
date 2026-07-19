@@ -6,11 +6,11 @@
 name: sec_10k
 version: 0.1.0
 
-# Retrieval workloads reward a strong, low-temperature model.
+# Retrieval workloads reward a strong model with steady, moderate reasoning.
 model:
   provider: openai
   name: gpt-5.5
-  temperature: 0.2
+  effort: medium
 
 # Single-turn escalation. The agent can call `escalate_to_oracle` to get a
 # fresh-context second opinion on a hard question. Same tier as the main loop —

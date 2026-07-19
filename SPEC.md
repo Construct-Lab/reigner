@@ -1007,7 +1007,7 @@ version: 0.1.0
 model:
   provider: anthropic
   name: claude-opus-4-7
-  temperature: 0.2
+  effort: medium
 
 oracle:
   provider: anthropic
