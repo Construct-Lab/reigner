@@ -19,6 +19,33 @@ All commits on `main` must follow
 `revert:`). Both the changelog grouping and the bump choice depend on the
 prefix.
 
+### Flagging a behavioural change
+
+A generated bullet says what you did, not what it means for a user —
+"add an effort knob to the oracle block" does not tell anyone their
+per-escalation cost went up. When a change alters a default, a cost, or
+runtime behaviour for an existing project, add a `CHANGED:` footer to the
+commit body:
+
+```
+feat: add an effort knob to the oracle block
+
+<the usual explanation of the change>
+
+CHANGED: projects with an existing `oracle:` block move from medium to
+high effort on their next run. Set `effort: medium` under `oracle:` to
+keep the previous behaviour.
+```
+
+git-cliff hoists that paragraph into a `### Changed` section at the top of
+the release. Write it for a user reading the changelog to decide whether
+to upgrade, not for a reviewer reading the diff. A standard
+`BREAKING CHANGE:` footer is picked up the same way; prefer `CHANGED:` for
+behavioural changes that are not API breaks.
+
+Put this in the commit, never directly in `CHANGELOG.md` — the file is
+generated, and only what lives in the commit is guaranteed to survive.
+
 ## Steps
 
 ### 1. Ensure the main branch is clean and tests pass
