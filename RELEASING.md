@@ -78,9 +78,16 @@ The script will:
 - Validate the bump type
 - Check the working tree is clean
 - Run `uv version --bump <type>`
-- Regenerate `CHANGELOG.md` using `git-cliff`
+- Prepend the new section to `CHANGELOG.md` using `git-cliff` (past
+  sections are left untouched)
 - Commit `pyproject.toml`, `uv.lock`, and `CHANGELOG.md` together
 - Create an annotated `v<version>` git tag
+
+Read the generated `CHANGELOG.md` section before moving on. It is the source
+for the GitHub Release body in step 4, and a `CHANGED:` footer written for a
+reviewer rather than a user tends to read badly here. To correct it, amend
+the release commit and re-tag (`git tag -f -a v<version> -m "v<version>"`) —
+nothing has been pushed yet, and `--prepend` means the edit is permanent.
 
 The script does **not** infer the bump — you pick based on what's in the
 unreleased commit list. See [Version numbering](#version-numbering) below.
@@ -93,13 +100,19 @@ git push --follow-tags
 
 ### 4. Create a GitHub Release
 
-Use `git-cliff` to extract just the latest release notes for the GitHub
-Release body:
+Take the release body from the top section of `CHANGELOG.md` — the text you
+just reviewed in step 2:
 
 ```bash
 gh release create v<version> --title "v<version>" \
-  --notes-file <(git cliff --latest --strip all)
+  --notes-file <(./scripts/release-notes.sh)
 ```
+
+Do **not** use `git cliff --latest` here. It regenerates from commits at the
+moment you run it, while the changelog was written earlier in step 2 and may
+carry edits made since — so the published notes can silently disagree with
+the file that shipped. It also runs after the release commit exists, which
+is a second source of drift.
 
 Or open the GitHub UI: **Releases → Draft a new release → pick the tag**.
 
