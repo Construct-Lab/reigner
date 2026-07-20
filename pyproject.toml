@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reigner"
-version = "0.9.0"
+version = "0.10.0"
 description = "A single agent that answers from your compiled corpus — every claim cited."
 readme = "README.md"
 requires-python = ">=3.12"

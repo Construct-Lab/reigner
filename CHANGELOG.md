@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-07-20
+
+### Changed
+
+- **The oracle now runs at `high` effort by default.** `oracle:` gains an `effort:` key (`low`…`max`). Previously the oracle adapter was built without an effort argument at all, so every escalation ran at `medium` and did not inherit `model.effort` — a project running the main loop at `high` escalated *downward*. Projects with an existing `oracle:` block get a more capable but more expensive escalation on their next run; set `effort: medium` under `oracle:` to keep the previous behaviour.
+
+### Documentation
+
+- Surface the harness — oracle mode, context guardrails, and the why ([#139](https://github.com/Construct-Lab/reigner/issues/139))
+- Add a 'when to reach for Reigner' positioning line ([#140](https://github.com/Construct-Lab/reigner/issues/140))
+- Add a 'Custom tools' section to the usage guide ([#141](https://github.com/Construct-Lab/reigner/issues/141))
+
+### Features
+
+- Add an effort knob to the oracle block ([#142](https://github.com/Construct-Lab/reigner/issues/142))
+
+### Miscellaneous Tasks
+
+- Keep behavioural-change notes in the changelog across releases ([#143](https://github.com/Construct-Lab/reigner/issues/143))
+
 ## [0.9.0] - 2026-07-20
 
 ### Changed
