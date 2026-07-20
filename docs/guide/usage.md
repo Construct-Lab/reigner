@@ -1624,6 +1624,8 @@ model:                      # required — the main-loop LLM
 oracle:                     # optional · single-turn escalation (SPEC §5.5)
   provider: anthropic       # openai | anthropic | gemini
   model: claude-opus-4-7    # NOTE: key is `model`, not `name` (asymmetric with model:)
+  effort: high              # low | medium | high | xhigh | max · default high
+  #                         # independent of model.effort — not inherited
 
 settings:                   # all optional — these defaults are the source of truth
   max_iterations: 25            # int>0 · default 25 · loop iteration cap

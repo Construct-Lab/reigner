@@ -129,7 +129,9 @@ class Harness:
             temperature=cfg.model.temperature,
         )
         oracle_adapter = (
-            build_adapter(cfg.oracle.provider, cfg.oracle.model) if cfg.oracle is not None else None
+            build_adapter(cfg.oracle.provider, cfg.oracle.model, effort=cfg.oracle.effort)
+            if cfg.oracle is not None
+            else None
         )
 
         # Resolve configured skills and compose their menu into the ROLE. Only

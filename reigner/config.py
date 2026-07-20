@@ -66,6 +66,10 @@ class OracleConfig(BaseModel):
 
     provider: ProviderName
     model: str
+    # Defaults higher than the main loop: escalation exists to reason harder,
+    # so inheriting `medium` would let the oracle think less than the model
+    # that escalated to it.
+    effort: EffortLevel = "high"
 
     @field_validator("model")
     @classmethod
