@@ -15,22 +15,35 @@
 📚 **Documentation:** https://construct-lab.github.io/reigner/
 
 Reigner is a toolkit for building **citation-faithful question-answering agents over a knowledge corpus.**
-You compile your sources into bounded, schema-aware artifacts once, then a single
-retrieval agent answers over them — every factual claim traced back to its source.
+First you *ingest* your sources — a one-time compile step that reads your raw documents
+(PDF, text, HTML) and extracts the facts you care about into a structured store, its
+*artifacts*. A single retrieval agent then answers questions over that store — never
+touching your raw files at query time — with every factual claim traced back to its source.
 It is a library first: not a chat app, not a coding-agent harness, not a multi-agent
 orchestrator.
 
+Reach for Reigner when you want a Q&A agent shaped to *your* corpus and use case — not a
+fixed product. It's a library you tune end to end: the instructions, the tools, the schema,
+the model are all yours to change. Within that flexibility it keeps two things hard —
+citation-faithfulness is a testable property (the eval fails uncited claims), and a cheap
+model handles the routine work so cost stays bounded.
+
 ## One core, three surfaces
 
-You meet the same agent core — the harness, the artifact store, and a single
-`REIGNER.md` instruction file — at three points in its lifecycle:
+Reigner is a library: you write **one** agent and reach it three ways as it grows
+from an idea to a running service. The agent is a small project folder — a
+`REIGNER.md` of instructions, a schema, and your tools — and it stays the same
+folder at every step.
 
-- **Build** — define a per-project agent as a library: a schema, `@tool`s, an
-  extractor, a recipe, plugins. This is what you ship.
-- **Test** — iterate from the CLI: `ingest`, `chat`, then `session fork` / `replay`
-  and `eval` to A/B/C variants of your `REIGNER.md`, tools, or model.
-- **Ship** — serve the same agent over HTTP (FastAPI + SSE) so your apps consume it
-  with no rewrite. (MCP export is planned; see status below.)
+- **Build** — Write your agent as code. `reigner init` scaffolds the project folder
+  for you: the `REIGNER.md` instructions, a schema and extractor (how your documents
+  become searchable), plus any `@tool`s or plugins you add. This folder *is* your agent.
+- **Test** — Run it from your terminal. `ingest` compiles your documents, `chat` asks
+  questions, and `session fork` / `replay` / `eval` let you A/B/C different instructions,
+  tools, or models — so you tune without starting over.
+- **Ship** — Serve it over HTTP. `serve` exposes that same folder through a FastAPI endpoint
+  that streams over Server-Sent Events (SSE), so your apps consume it with no rewrite.
+  (MCP — Model Context Protocol — export is planned; see status below.)
 
 ## Features
 
@@ -41,9 +54,22 @@ You meet the same agent core — the harness, the artifact store, and a single
   it got everything.
 - **Citations are first-class** — numeric and factual claims register a
   `CitationEvent` with provenance; the eval suite fails answers that make uncited claims.
+- **Oracle escalation** — a cheap default model runs the loop and calls
+  `escalate_to_oracle` only when a question needs deeper reasoning; that single turn is
+  served by a stronger model, then it reverts. You pay frontier prices for the hard steps,
+  not the routine ones.
+- **Context stays bounded under pressure** — a legible agent loop with numbered guardrails:
+  pressure-driven history compaction, per-tool result truncation, and a scratchpad whose
+  notes survive compaction — so long runs don't blow the context budget.
+- **Parallel, cached reads** — read-only tool calls in a turn run concurrently and hit a
+  per-session cache, cutting both latency and duplicate model-driven calls.
+- **An eval battery** — score your agent against your own compiled corpus for faithfulness,
+  coverage, and repeated-call efficiency; iterate on `REIGNER.md`, tools, or model with numbers.
 - **Forkable sessions** — durable JSONL sessions on disk that you can fork and replay
   to compare variants without re-running from scratch.
-- **One typed event protocol** — CLI, HTTP, and MCP all consume the same typed events.
+- **Write your UI once** — the CLI, HTTP server, and MCP all emit the same typed events
+  (tool calls, citations, status), so an interface, logger, or integration you build against
+  one surface works unchanged against the others.
 - **Provider-agnostic** — Anthropic, OpenAI, and Gemini adapters behind one interface.
 
 ## Quickstart
@@ -94,9 +120,9 @@ permissive-licensed loader of your choice.
 ## Learn more
 
 - **[Usage guide](https://construct-lab.github.io/reigner/guide/usage/)** — hands-on, install → scaffold → ingest → chat.
+- **[Architecture](https://construct-lab.github.io/reigner/guide/architecture/)** — the harness: agent loop, oracle escalation, and the G1–G11 context guardrails.
 - **[Observability](https://construct-lab.github.io/reigner/guide/observability/)** — OpenTelemetry spans for the agent loop.
-- **[Design (spec)](https://construct-lab.github.io/reigner/design/spec/)** — package layout, guardrails, API contracts, event protocol.
-- **[Principles](https://construct-lab.github.io/reigner/design/principles/)** — the rationale behind each design decision.
+- **[Principles](https://construct-lab.github.io/reigner/design/principles/)** — why Reigner exists and the rationale behind each design decision.
 - **[API reference](https://construct-lab.github.io/reigner/reference/)** — the typed public API.
 
 ## Development

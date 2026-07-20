@@ -31,8 +31,9 @@ fi
 uv version --bump "$BUMP"
 VERSION=$(uv version --short)
 
-# Regenerate the full CHANGELOG with the new tag at the top
-git cliff --tag "v$VERSION" -o CHANGELOG.md
+# Prepend the new section. NOT `-o`, which rebuilds the whole file from
+# commit subjects and silently drops any prose hand-added to past releases.
+git cliff --tag "v$VERSION" --unreleased --prepend CHANGELOG.md
 
 git add pyproject.toml uv.lock CHANGELOG.md
 git commit -m "chore: release v$VERSION"
@@ -42,7 +43,8 @@ echo ""
 echo "Version bumped to $VERSION and tagged v$VERSION."
 echo ""
 echo "Next steps:"
+echo "  # review the new CHANGELOG.md section — it is the release body below"
 echo "  git push --follow-tags"
 echo "  gh release create v$VERSION --title \"v$VERSION\" \\"
-echo "    --notes-file <(git cliff --latest --strip all)"
+echo "    --notes-file <(./scripts/release-notes.sh)"
 echo "  uv build && uv publish"

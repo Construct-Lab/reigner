@@ -15,6 +15,12 @@ from typing import Any, Literal
 ProviderName = Literal["openai", "anthropic", "gemini"]
 """LLM provider id accepted in ``reigner.yaml`` and used to pick an adapter."""
 
+EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+"""Reasoning effort for the main loop, mapped per-provider by the adapters:
+Anthropic ``output_config.effort``, OpenAI ``reasoning.effort``, Gemini
+``thinking_level``. Levels above a provider's ceiling clamp down (e.g. OpenAI
+and Gemini have no tier above ``high``)."""
+
 DottedPath = str
 """Doc-only alias for a Python import path.
 
@@ -90,6 +96,7 @@ def ensure_importable(root: str | Path | None) -> None:
 __all__ = [
     "ConfigError",
     "DottedPath",
+    "EffortLevel",
     "Profile",
     "ProviderName",
     "ensure_importable",

@@ -22,9 +22,20 @@ from reigner.harness.adapters.base import (
     render_tool_for_anthropic,
 )
 from reigner.harness.state import Prompt, ToolSpec, Turn
+from reigner.types import EffortLevel
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
+
+
+def _supports_effort(model: str) -> bool:
+    """True for frontier Claude models that take ``output_config.effort``.
+
+    These same models reject ``temperature``/``top_p``/``top_k`` with a 400, so
+    this predicate also gates temperature off. Older chat models (Sonnet 4.5,
+    Haiku 4.5, …) return False: no effort, temperature allowed if set.
+    """
+    return model.startswith(("claude-opus-4", "claude-sonnet-5", "claude-fable-5"))
 
 
 @dataclass
@@ -34,6 +45,8 @@ class AnthropicAdapter:
     model: str = "claude-opus-4-7"
     api_key: str | None = None
     max_tokens: int = 4096
+    effort: EffortLevel = "medium"
+    temperature: float | None = None
     name: str = "anthropic"
     supports_prompt_caching: bool = True
 
@@ -77,6 +90,12 @@ class AnthropicAdapter:
             ],
             "messages": _turns_to_messages(prompt.messages),
         }
+        if _supports_effort(self.model):
+            # Frontier models take effort + adaptive thinking; temperature 400s.
+            payload["output_config"] = {"effort": self.effort}
+        elif self.temperature is not None:
+            # Older chat models: temperature only, and only when explicitly set.
+            payload["temperature"] = self.temperature
         if tools:
             payload["tools"] = [render_tool_for_anthropic(t) for t in tools]
 

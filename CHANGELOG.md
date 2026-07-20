@@ -2,6 +2,86 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-07-20
+
+### Changed
+
+- **The oracle now runs at `high` effort by default.** `oracle:` gains an `effort:` key (`low`…`max`). Previously the oracle adapter was built without an effort argument at all, so every escalation ran at `medium` and did not inherit `model.effort` — a project running the main loop at `high` escalated *downward*. Projects with an existing `oracle:` block get a more capable but more expensive escalation on their next run; set `effort: medium` under `oracle:` to keep the previous behaviour.
+
+### Documentation
+
+- Surface the harness — oracle mode, context guardrails, and the why ([#139](https://github.com/Construct-Lab/reigner/issues/139))
+- Add a 'when to reach for Reigner' positioning line ([#140](https://github.com/Construct-Lab/reigner/issues/140))
+- Add a 'Custom tools' section to the usage guide ([#141](https://github.com/Construct-Lab/reigner/issues/141))
+
+### Features
+
+- Add an effort knob to the oracle block ([#142](https://github.com/Construct-Lab/reigner/issues/142))
+
+### Miscellaneous Tasks
+
+- Keep behavioural-change notes in the changelog across releases ([#143](https://github.com/Construct-Lab/reigner/issues/143))
+
+## [0.9.0] - 2026-07-20
+
+### Changed
+
+- **Model tuning is now controlled by `effort` (`low`…`max`, default `medium`) instead of `temperature`.** Frontier models that previously ran at their provider-default effort (often `high`) now default to `medium`. `temperature` is kept but opt-in: it is sent only when explicitly set, and only to models that accept it (never on the reasoning/effort path). Update `reigner.yaml` files that set `temperature:` to use `effort:` — see the config reference in `docs/guide/usage.md`.
+
+### Features
+
+- Replace temperature knob with first-class effort control ([#136](https://github.com/Construct-Lab/reigner/issues/136)) ([#138](https://github.com/Construct-Lab/reigner/issues/138))
+
+### Documentation
+
+- Remove SPEC from docs site and trim internal planning from it ([#137](https://github.com/Construct-Lab/reigner/issues/137))
+
+## [0.8.1] - 2026-07-17
+
+### Bug Fixes
+
+- Correct CLI help tagline to match product tagline
+
+### Documentation
+
+- Update RELEASING.md for public repo and first-release TestPyPI check
+
+### Miscellaneous Tasks
+
+- Release v0.8.1
+
+## [0.8.0] - 2026-07-17
+
+### Bug Fixes
+
+- Dedup citations on (source, locator, value) ([#123](https://github.com/Construct-Lab/reigner/issues/123))
+
+### Documentation
+
+- Mark REIGNER.md loader and skills tasks complete (merged in #113)
+- Add T-117 HtmlLoader in TASKS.md ([#118](https://github.com/Construct-Lab/reigner/issues/118))
+- Add plain-language one-liner to README
+- Clarify MetricsPlugin emits spans for real tool calls only ([#131](https://github.com/Construct-Lab/reigner/issues/131))
+- MkDocs Material site + lean README for OSS release ([#76](https://github.com/Construct-Lab/reigner/issues/76)) ([#128](https://github.com/Construct-Lab/reigner/issues/128))
+- Absolute asset URLs in README + drop stale session diff ref ([#133](https://github.com/Construct-Lab/reigner/issues/133))
+
+### Features
+
+- REIGNER.md loader + skill composition ([#113](https://github.com/Construct-Lab/reigner/issues/113))
+- Add document_qa recipe scaffold ([#115](https://github.com/Construct-Lab/reigner/issues/115))
+- Code_navigator recipe with multi-root FsTools ([#116](https://github.com/Construct-Lab/reigner/issues/116))
+- HtmlLoader for HTML document ingestion ([#119](https://github.com/Construct-Lab/reigner/issues/119))
+- SEC 10-K reference example ([#34](https://github.com/Construct-Lab/reigner/issues/34)) ([#120](https://github.com/Construct-Lab/reigner/issues/120))
+- Chat startup banner, /help, and slash-command completion ([#125](https://github.com/Construct-Lab/reigner/issues/125))
+
+### Miscellaneous Tasks
+
+- Release v0.8.0
+
+### Refactor
+
+- Unify adapter builder helpers behind build_adapter ([#114](https://github.com/Construct-Lab/reigner/issues/114))
+
 ## [0.7.0] - 2026-07-06
 
 ### Bug Fixes
@@ -22,6 +102,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Ignore .env file
+- Release v0.7.0
 
 ## [0.6.0] - 2026-06-26
 

@@ -17,10 +17,15 @@ from reigner.harness.adapters.base import (
     ToolCall,
     TransientAdapterError,
 )
-from reigner.types import ConfigError, ProviderName
+from reigner.types import ConfigError, EffortLevel, ProviderName
 
 
-def build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
+def build_adapter(
+    provider: ProviderName,
+    model: str,
+    effort: EffortLevel = "medium",
+    temperature: float | None = None,
+) -> ModelAdapter:
     """Resolve a provider literal to a concrete adapter instance.
 
     The single canonical builder: one place to add a provider, one place to
@@ -28,20 +33,25 @@ def build_adapter(provider: ProviderName, model: str) -> ModelAdapter:
     Lazy-imports the per-provider module so users only pay for the SDK they use;
     a missing optional dependency surfaces as a clear :class:`ConfigError` rather
     than an opaque ``ImportError`` deep in adapter code.
+
+    ``effort`` and ``temperature`` are threaded from :class:`ModelConfig`. Each
+    adapter maps ``effort`` to its provider's reasoning knob (behind a
+    model-capability guard) and emits ``temperature`` only when explicitly set
+    and accepted by the model — never on the frontier reasoning path.
     """
     try:
         if provider == "openai":
             from reigner.harness.adapters.openai import OpenAIAdapter
 
-            return OpenAIAdapter(model=model)
+            return OpenAIAdapter(model=model, effort=effort, temperature=temperature)
         if provider == "anthropic":
             from reigner.harness.adapters.anthropic import AnthropicAdapter
 
-            return AnthropicAdapter(model=model)
+            return AnthropicAdapter(model=model, effort=effort, temperature=temperature)
         if provider == "gemini":
             from reigner.harness.adapters.gemini import GeminiAdapter
 
-            return GeminiAdapter(model=model)
+            return GeminiAdapter(model=model, effort=effort, temperature=temperature)
     except ImportError as e:
         raise ConfigError(
             f"provider {provider!r} requires its optional dependency to be "

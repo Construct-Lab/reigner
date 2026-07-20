@@ -10,6 +10,7 @@ boundary cleanup lives in `base.render_tool_for_gemini`.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -25,9 +26,32 @@ from reigner.harness.adapters.base import (
     render_tool_for_gemini,
 )
 from reigner.harness.state import Prompt, ToolSpec, Turn
+from reigner.types import EffortLevel
 
 if TYPE_CHECKING:
     from google.genai import Client
+
+# thinking_level tops out at "high"; reigner's higher tiers clamp down. Gemini's
+# "minimal" has no reigner equivalent, so it is never emitted.
+_THINKING: dict[EffortLevel, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "high",
+    "max": "high",
+}
+
+
+def _supports_thinking(model: str) -> bool:
+    """True for Gemini models that take ``thinking_config.thinking_level``.
+
+    Only the 3.x/3.5 family accepts ``thinking_level`` on the ``generateContent``
+    API — Gemini 2.5 rejects it with a 400 ("Thinking level is not supported for
+    this model"; 2.5 uses the numeric ``thinking_budget``, which reigner does not
+    wire). 2.5 and older therefore get no effort and run at their provider
+    default; ``temperature`` may still be set on them (they accept it).
+    """
+    return model.startswith("gemini-3")
 
 
 @dataclass
@@ -36,6 +60,8 @@ class GeminiAdapter:
 
     model: str = "gemini-2.0-flash"
     api_key: str | None = None
+    effort: EffortLevel = "medium"
+    temperature: float | None = None
     name: str = "gemini"
     supports_prompt_caching: bool = False
 
@@ -68,6 +94,11 @@ class GeminiAdapter:
         """
         client = self._get_client()
         config: dict[str, Any] = {"system_instruction": prompt.stable}
+        if _supports_thinking(self.model):
+            config["thinking_config"] = {"thinking_level": _THINKING[self.effort]}
+        elif self.temperature is not None:
+            # Pre-2.5 models: temperature only, and only when explicitly set.
+            config["temperature"] = self.temperature
         if tools:
             config["tools"] = [
                 {"function_declarations": [render_tool_for_gemini(t) for t in tools]}
@@ -121,14 +152,18 @@ def _turns_to_contents(turns: list[Turn]) -> list[dict[str, Any]]:
             if t.content:
                 parts.append({"text": t.content})
             for call in t.tool_calls:
-                parts.append(
-                    {
-                        "function_call": {
-                            "name": call.get("name", ""),
-                            "args": call.get("args", {}),
-                        }
+                part: dict[str, Any] = {
+                    "function_call": {
+                        "name": call.get("name", ""),
+                        "args": call.get("args", {}),
                     }
-                )
+                }
+                # Echo the thought_signature back (decoded to bytes) so Gemini 3.x
+                # accepts the replayed function call.
+                sig = call.get("signature")
+                if sig:
+                    part["thought_signature"] = base64.b64decode(sig)
+                parts.append(part)
             contents.append({"role": "model", "parts": parts})
             continue
         role = "model" if t.role == "assistant" else "user"
@@ -167,11 +202,20 @@ def _parse_response(response: Any) -> ModelAction:
             fc = _attr(part, "function_call")
             if fc is not None:
                 args = _attr(fc, "args") or {}
+                # Gemini 3.x attaches a thought_signature (bytes) to the part; it
+                # must be replayed on the next request or the follow-up turn 400s.
+                raw_sig = _attr(part, "thought_signature")
+                signature = (
+                    base64.b64encode(raw_sig).decode("ascii")
+                    if isinstance(raw_sig, (bytes, bytearray))
+                    else None
+                )
                 tool_calls.append(
                     ToolCall(
                         id=_attr(fc, "id") or _synth_id(_attr(fc, "name") or ""),
                         name=_attr(fc, "name") or "",
                         args=dict(args) if isinstance(args, dict) else {"_value": args},
+                        signature=signature,
                     )
                 )
                 continue
@@ -230,7 +274,11 @@ def _extract_usage(response: Any) -> TokenUsage:
     if usage is None:
         return TokenUsage.empty()
     prompt_tokens = _attr(usage, "prompt_token_count") or 0
-    completion = _attr(usage, "candidates_token_count") or 0
+    visible = _attr(usage, "candidates_token_count") or 0
+    # Thinking tokens are billed at the output rate ("output including thinking")
+    # but reported separately, so fold them into completion or cost undercounts.
+    thoughts = _attr(usage, "thoughts_token_count") or 0
+    completion = visible + thoughts
     total = _attr(usage, "total_token_count") or (prompt_tokens + completion)
     cache_read = _attr(usage, "cached_content_token_count") or 0
     # Gemini's `prompt_token_count` includes cached content; subtract it so

@@ -122,9 +122,16 @@ class Harness:
         # (role.skills, tools.custom, plugins) resolve regardless of cwd.
         ensure_importable(cfg.config_path.parent if cfg.config_path else None)
 
-        adapter = build_adapter(cfg.model.provider, cfg.model.name)
+        adapter = build_adapter(
+            cfg.model.provider,
+            cfg.model.name,
+            effort=cfg.model.effort,
+            temperature=cfg.model.temperature,
+        )
         oracle_adapter = (
-            build_adapter(cfg.oracle.provider, cfg.oracle.model) if cfg.oracle is not None else None
+            build_adapter(cfg.oracle.provider, cfg.oracle.model, effort=cfg.oracle.effort)
+            if cfg.oracle is not None
+            else None
         )
 
         # Resolve configured skills and compose their menu into the ROLE. Only

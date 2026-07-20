@@ -14,11 +14,33 @@ body = """
 {% else %}\
     ## [Unreleased]
 {% endif %}\
+{# Behavioural changes are hoisted out of their type group into a leading    #}\
+{# "Changed" section: a bullet reading "add an effort knob" does not tell a  #}\
+{# user their costs moved. Sourced from the commit body so regeneration      #}\
+{# cannot lose it — either a `CHANGED:` footer or a standard Conventional    #}\
+{# Commits `BREAKING CHANGE:` footer / `!` marker.                           #}\
+{% set_global changed = [] %}\
+{% for commit in commits %}\
+    {% if commit.breaking and commit.breaking_description %}\
+        {% set_global changed = changed | concat(with=commit.breaking_description) %}\
+    {% endif %}\
+    {% for f in commit.footers %}\
+        {% if f.token == "CHANGED" %}\
+            {% set_global changed = changed | concat(with=f.value) %}\
+        {% endif %}\
+    {% endfor %}\
+{% endfor %}\
+{% if changed | length > 0 %}
+### Changed
+{% for c in changed %}
+- {{ c | replace(from="\n", to=" ") | trim | upper_first }}\
+{% endfor %}
+{% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
-    ### {{ group | upper_first }}
-    {% for commit in commits %}
-        - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}\
-    {% endfor %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
 {% endfor %}\n
 """
 footer = """
@@ -44,7 +66,10 @@ commit_parsers = [
     { message = "^refactor", group = "Refactor" },
     { message = "^style", group = "Styling" },
     { message = "^test", group = "Testing" },
+    # Both spellings: scripts/release.sh writes "chore: release vX.Y.Z", so the
+    # parenthesised form alone let the release commit into its own changelog.
     { message = "^chore\\(release\\):", skip = true },
+    { message = "^chore: release ", skip = true },
     { message = "^chore\\(deps.*\\)", skip = true },
     { message = "^chore\\(pr\\)", skip = true },
     { message = "^chore\\(pull\\)", skip = true },

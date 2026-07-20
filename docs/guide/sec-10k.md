@@ -102,7 +102,7 @@ Ask across filings ("compare R&D as a share of revenue for Apple, Microsoft, and
 Nvidia across 2022–2024") and the agent reads each entity's `metadata.json` in
 turn, citing each.
 
-The config leans into faithfulness: a low-temperature model, and the
+The config leans into faithfulness: a strong model at moderate reasoning effort, and the
 `citation_strict`, `clarify_when_ambiguous`, and `targeted_retrieval` skills wired
 in `reigner.yaml`.
 

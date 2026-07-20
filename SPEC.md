@@ -1007,7 +1007,7 @@ version: 0.1.0
 model:
   provider: anthropic
   name: claude-opus-4-7
-  temperature: 0.2
+  effort: medium
 
 oracle:
   provider: anthropic
@@ -1158,13 +1158,13 @@ results = await suite.run(harness, checks=["faithfulness", "repeated_calls"])
 `reigner eval` emits a markdown scorecard:
 
 ```
-## Eval results — 2026-05-06
+## Eval results
 
 | Case | Faithfulness | Repeated calls | Coverage | Cost |
 |---|---|---|---|---|
-| apple_rnd_2024 | ✓ | ✓ | ✓ | $0.018 |
-| ambiguous_revenue | ✓ (clarified) | ✓ | n/a | $0.004 |
-| msft_buyback_2023 | ✗ — claim "$67B" not cited | ✓ | ✓ | $0.022 |
+| example_case | ✓ | ✓ | ✓ | $0.02 |
+| ambiguous_query | ✓ (clarified) | ✓ | n/a | $0.00 |
+| uncited_claim | ✗ — numeric claim not cited | ✓ | ✓ | $0.02 |
 ```
 
 ---
@@ -1254,37 +1254,6 @@ Calling these out so they don't sneak back in during the build:
 - More than two recipes. `document_qa` and `code_navigator` only.
 - Concurrency control on a single session. The `Harness` is immutable and shared, so independent sessions run in parallel safely. But two in-flight runs resuming the *same* `session_id` both append to one JSONL via `auto_save` and race. v0 documents the contract as "one live run per `session_id` at a time"; a per-session lock (or rejecting a concurrent resume with HTTP 409) is a later hardening step. This surfaces first at the HTTP server (§16), where a retrying client or two tabs make it easy to trigger.
 - Per-request profile on a *resumed* session. New sessions honor their `profile` (§6.3), but `Session.load` currently rebuilds resumed sessions at `profile="full"` regardless of the requested profile. So a `read_only` request that carries a `session_id` silently runs with full tool access. v0 documents this; threading `profile` through `Session.load` (and fork/replay) is a follow-up if per-request gating on resumes is needed.
-
----
-
-## 20. Build order
-
-Reigner is layered so each stage builds on the one before it:
-
-1. **Harness core** — the loop, events, state, model adapters, and the `@tool` decorator, plus config. Enough to wire a test agent end-to-end.
-2. **Guardrails** — truncation, compaction, nudges, caching, parallel reads, oracle escalation: all of G1–G11, with tests.
-3. **Artifacts & retrieval** — the artifact tools, the write-side artifact store, and BM25 search.
-4. **The `document_qa` recipe** — the reference implementation over SEC 10-Ks, built on the layers above.
-5. **CLI & ingestion** — `init`, `chat`, `ingest`, `inspect`; the ingestion pipeline; the first skills.
-6. **Eval & the raw tier** — the eval suite (faithfulness, repeated calls, coverage), the `fs` tools, and the multi-repo `code_navigator` recipe.
-7. **Sessions, plugins & server** — fork / replay / tree, the plugin system, and the HTTP (SSE) server.
-
-Later stages depend on earlier ones; the MCP export is deferred to v1.
-
----
-
-## 21. What v0 delivers
-
-The v0 surface is defined by these guarantees:
-
-1. **Five-minute quickstart.** `pip install reigner && reigner init demo --recipe document_qa && cd demo && reigner ingest && reigner chat` works on a clean machine against the SEC 10-K example.
-2. **Faithful answers.** The `document_qa` recipe answers the great majority of its eval cases with valid citations, and the faithfulness check flags every uncited number.
-3. **Extensible without forking.** A developer can build a custom recipe — different schema, different `REIGNER.md` — without modifying Reigner's source.
-4. **Forkable sessions.** Sessions fork, replay, and export; a query replayed against a different model yields a diff-able answer.
-5. **Scriptable output.** The CLI emits `--json` as a valid event stream consumable by `jq`.
-6. **Documented surface.** Install, quickstart, the `document_qa` recipe, the artifact schema, writing your own tool, writing your own recipe, and evaluation are all covered.
-
-The MCP export (`reigner serve --mcp`, exposing `ask_<project>`) is planned; the HTTP server ships today.
 
 ---
 

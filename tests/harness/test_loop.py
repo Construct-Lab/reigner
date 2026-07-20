@@ -368,6 +368,29 @@ async def test_stop_pseudo_tool_terminates_with_final_answer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stop_pseudo_tool_records_tool_result_for_its_call() -> None:
+    # Regression: the stop call must be answered by a tool_result turn so a
+    # follow-up query replays well-formed history. Without it, providers that
+    # require every tool_use to be paired (Anthropic) 400 on the next turn.
+    adapter = FakeAdapter(
+        actions=[_tool_action(ToolCall(id="c1", name="stop", args={"reason": "done"}))]
+    )
+    session = _harness(adapter=adapter, tools=[]).session()
+    await _drain(session, "go")
+    history = session.history()
+    # The assistant tool_use turn carrying the stop call is followed by a tool
+    # turn keyed to the same call id — no dangling tool_use.
+    stop_turn = next(
+        t
+        for t in history
+        if t.role == "assistant" and any(c["name"] == "stop" for c in t.tool_calls)
+    )
+    idx = history.index(stop_turn)
+    assert history[idx + 1].role == "tool"
+    assert history[idx + 1].tool_call_id == "c1"
+
+
+@pytest.mark.asyncio
 async def test_oracle_escalation_emits_event_and_continues() -> None:
     adapter = FakeAdapter(
         actions=[

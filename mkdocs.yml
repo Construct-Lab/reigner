@@ -74,10 +74,10 @@ nav:
   - Guide:
       - Quickstart: guide/quickstart.md
       - Usage: guide/usage.md
+      - Architecture: guide/architecture.md
       - Observability: guide/observability.md
   - Case study:
       - SEC 10-K filings: guide/sec-10k.md
   - Design:
-      - Spec: design/spec.md
       - Principles: design/principles.md
   - API reference: reference.md
