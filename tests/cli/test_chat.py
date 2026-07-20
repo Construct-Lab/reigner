@@ -38,6 +38,28 @@ def test_print_plain_outputs_final_answer_only(patch_build_session) -> None:
     assert result.stdout.strip() == "the answer is 42"
 
 
+def test_print_plain_reports_fatal_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from reigner.cli import chat as chat_module
+    from reigner.harness.events import ErrorEvent
+
+    class ErrorSession:
+        async def run_stream(self, query):
+            yield ErrorEvent(
+                seq=1,
+                session_id="test",
+                turn=1,
+                error="adapter: openai package not installed",
+                recoverable=False,
+            )
+
+    monkeypatch.setattr(chat_module, "_build_session", lambda _path: ErrorSession())
+    result = runner.invoke(app, ["chat", "--print", "anything"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == "error: adapter: openai package not installed\n"
+
+
 def test_print_json_emits_nd_json_event_stream(patch_build_session) -> None:
     from tests.cli.conftest import _final
 

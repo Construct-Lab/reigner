@@ -236,7 +236,7 @@ async def _run_print(session: Session, query: str, *, json_output: bool) -> int:
     """Drive one query in headless mode. Returns the process exit code."""
     final: FinalAnswerEvent | None = None
     saw_clarification = False
-    saw_error = False
+    error_text: str | None = None
     async for event in session.run_stream(query):
         if json_output:
             print(to_json(event), flush=True)
@@ -245,7 +245,7 @@ async def _run_print(session: Session, query: str, *, json_output: bool) -> int:
         elif isinstance(event, ClarificationEvent):
             saw_clarification = True
         elif isinstance(event, ErrorEvent) and not event.recoverable:
-            saw_error = True
+            error_text = event.error
 
     if not json_output and final is not None:
         print(final.text)
@@ -259,7 +259,9 @@ async def _run_print(session: Session, query: str, *, json_output: bool) -> int:
                 err=True,
             )
         return EXIT_USAGE
-    if saw_error:
+    if error_text is not None:
+        if not json_output:
+            typer.echo(f"error: {error_text}", err=True)
         return EXIT_RUNTIME
     return EXIT_RUNTIME
 
