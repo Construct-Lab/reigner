@@ -52,6 +52,15 @@ def test_from_config_oracle_adapter(tmp_path: Path) -> None:
     assert h.oracle_adapter is not None
     assert h.oracle_adapter.name == "anthropic"
     assert h.oracle_adapter.model == "claude-opus-4-7"
+    # Defaults high, not the main loop's medium — escalation should not think less.
+    assert h.oracle_adapter.effort == "high"
+
+
+def test_from_config_oracle_effort_override(tmp_path: Path) -> None:
+    body = MINIMAL + "oracle:\n  provider: anthropic\n  model: claude-opus-4-7\n  effort: max\n"
+    h = Harness.from_config(_write(tmp_path, body))
+    assert h.oracle_adapter is not None
+    assert h.oracle_adapter.effort == "max"
 
 
 def test_from_config_artifacts_wires_six_tools(tmp_path: Path) -> None:
