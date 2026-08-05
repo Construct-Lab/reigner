@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.0] - 2026-08-05
+
+### Bug Fixes
+
+- Report fatal errors in plain print mode ([#135](https://github.com/Construct-Lab/reigner/issues/135))
+
+### Documentation
+
+- Lead with the harness problem, not the agent shape ([#146](https://github.com/Construct-Lab/reigner/issues/146))
+
+### Features
+
+- Read session history over HTTP ([#147](https://github.com/Construct-Lab/reigner/issues/147))
+
+### Miscellaneous Tasks
+
+- Source release notes from CHANGELOG.md, not a regeneration ([#144](https://github.com/Construct-Lab/reigner/issues/144))
+- Point the release script's next-steps at release-notes.sh ([#145](https://github.com/Construct-Lab/reigner/issues/145))
+
 ## [0.10.0] - 2026-07-20
 
 ### Changed
