@@ -11,7 +11,9 @@ Output docs/assets/demo.gif
 
 Set FontSize 15
 Set Width 1100
-Set Height 750
+# 820, not 750: the full exchange (banner through answer) has to land in the
+# last frame, and 750 clips the top banner line — the version string.
+Set Height 820
 Set Padding 16
 Set TypingSpeed 40ms
 Set WaitTimeout 300s
@@ -35,7 +37,10 @@ Enter
 Wait+Screen@60s /›/
 Sleep 1s
 
-Type "What are the main concerns about the rule of law? Answer briefly."
+# Bound the answer length: the whole exchange has to fit one screen, banner
+# included. An open-ended "answer briefly" scrolls the banner and the cost
+# line off the top on a verbose model.
+Type "What are the main concerns about the rule of law? Answer in 4 short bullets."
 Sleep 500ms
 Enter
 
