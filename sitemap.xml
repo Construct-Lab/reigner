@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://construct-lab.github.io/reigner/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/reference/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/design/principles/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/guide/architecture/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/guide/observability/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/guide/quickstart/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/guide/sec-10k/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+    <url>
+         <loc>https://construct-lab.github.io/reigner/guide/usage/</loc>
+         <lastmod>2026-08-05</lastmod>
+    </url>
+</urlset>
