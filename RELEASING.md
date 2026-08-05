@@ -119,14 +119,32 @@ Or open the GitHub UI: **Releases → Draft a new release → pick the tag**.
 ### 5. Publish to PyPI
 
 ```bash
+rm -rf dist
 uv build
 uv publish --token pypi-<pypi-token>
 ```
 
-`uv build` writes the sdist + wheel to `dist/`; `uv publish` uploads them.
+`uv build` writes the sdist + wheel to `dist/`; `uv publish` uploads
+**everything it finds there**, not just what the build you ran produced. A
+previous release's artifacts survive in `dist/` indefinitely, so skipping the
+`rm -rf` means re-uploading a version PyPI already has — which fails the whole
+command, after the new files have gone up. Deleting the directory is safe:
+`uv build` recreates it along with the `dist/.gitignore` it manages, and root
+`.gitignore` covers `dist/` regardless. Passing the two file paths to
+`uv publish` explicitly works too.
+
 The `[tool.hatch.build.targets.sdist]` config keeps the sdist limited to the
 `reigner` package plus `README.md`, `LICENSE`, and `CHANGELOG.md` — untracked
-local projects in the repo root are never bundled.
+local projects in the repo root are never bundled. Confirm that before the
+upload rather than after, since a bundled local project is unrecoverable once
+published:
+
+```bash
+tar tzf dist/reigner-<version>.tar.gz | awk -F/ '{print $2}' | sort -u
+```
+
+The top level should be exactly `reigner`, `README.md`, `LICENSE`,
+`CHANGELOG.md`, `pyproject.toml`, `PKG-INFO`, and `.gitignore`.
 
 Instead of `--token` you can export `UV_PUBLISH_TOKEN=pypi-...` for the shell
 session. Get tokens at <https://pypi.org/manage/account/token/>.
