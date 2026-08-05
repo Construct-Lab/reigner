@@ -1,5 +1,5 @@
 site_name: Reigner
-site_description: A single agent that answers from your compiled corpus — every claim cited.
+site_description: A harness for question-answering agents over your own documents — bounded context, bounded cost, every claim cited.
 site_url: https://construct-lab.github.io/reigner/
 repo_url: https://github.com/Construct-Lab/reigner
 repo_name: Construct-Lab/reigner
