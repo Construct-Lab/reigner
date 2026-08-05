@@ -10,6 +10,7 @@ exits with a clear "not yet implemented" message rather than pretending to run.
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
 import typer
@@ -100,5 +101,34 @@ def _run_http(cfg: ReignerConfig, harness: Harness, *, host: str, port: int) -> 
     app = create_app(harness, name=cfg.name, model=model)
 
     typer.echo(f"· reigner http server — {cfg.name} ({model})")
-    typer.echo(f"· listening on http://{host}:{port}  (POST /run · GET /health)")
+    if not _is_loopback(host):
+        typer.echo(
+            f"! bound to {host} with no auth, CORS, or rate limiting\n"
+            f"  — put a gateway in front before exposing this.",
+            err=True,
+        )
+    typer.echo(f"· listening on http://{host}:{port}")
+    typer.echo(f"  ({' · '.join(_ROUTES)})")
     uvicorn.run(app, host=host, port=port)
+
+
+_ROUTES = (
+    "POST /run",
+    "GET /sessions",
+    "GET /sessions/{id}/events",
+    "GET /health",
+)
+
+
+def _is_loopback(host: str) -> bool:
+    """Whether ``host`` keeps the server on this machine.
+
+    Anything else reaches the network, and the session endpoints serve every
+    stored transcript — so that bind earns a warning. Unparseable hosts (a
+    name, not an address) are treated as exposed: warning on a loopback alias
+    is cheap, staying quiet on a public bind is not.
+    """
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
