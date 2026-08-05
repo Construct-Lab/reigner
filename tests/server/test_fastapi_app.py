@@ -151,3 +151,145 @@ def test_mid_stream_failure_yields_terminal_error_frame(make_app: AppBuilder) ->
     assert name == "error"
     assert data["recoverable"] is False
     assert "boom" in data["error"]
+
+
+def test_malformed_session_id_is_404_not_500(make_app: AppBuilder) -> None:
+    # store.exists() validates the id before checking disk, so an id with path
+    # separators used to escape as InvalidSessionId -> 500.
+    client, _ = make_app()
+    resp = client.post("/run", json={"query": "hi", "session_id": "../etc/passwd"})
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /sessions
+# ---------------------------------------------------------------------------
+
+
+def _seed(client: TestClient, query: str = "q1") -> str:
+    """Run once through the API and return the session id it minted."""
+    resp = client.post("/run", json={"query": query})
+    session_id = _frames(resp.text)[0][1]["session_id"]
+    assert isinstance(session_id, str)
+    return session_id
+
+
+def test_sessions_lists_stored_metadata(make_app: AppBuilder) -> None:
+    client, _ = make_app([_final("a"), _final("b")])
+    first = _seed(client, "q1")
+    second = _seed(client, "q2")
+
+    resp = client.get("/sessions")
+    assert resp.status_code == 200
+    listed = resp.json()["sessions"]
+    assert {s["session_id"] for s in listed} == {first, second}
+    # The payload is SessionMeta verbatim — same shape as `session list --json`.
+    assert set(listed[0]) == {
+        "session_id",
+        "parent_id",
+        "title",
+        "created",
+        "last_updated",
+        "event_count",
+        "schema_version",
+    }
+    assert listed[0]["event_count"] > 0
+
+
+def test_sessions_is_empty_before_any_run(make_app: AppBuilder) -> None:
+    client, _ = make_app()
+    assert client.get("/sessions").json() == {"sessions": []}
+
+
+# ---------------------------------------------------------------------------
+# /sessions/{id}/events
+# ---------------------------------------------------------------------------
+
+
+def test_events_replays_the_stored_transcript(make_app: AppBuilder) -> None:
+    client, _ = make_app([_final("the answer is 42")])
+    session_id = _seed(client, "what is the answer?")
+
+    resp = client.get(f"/sessions/{session_id}/events")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["session_id"] == session_id
+    assert body["truncated"] is False
+    assert body["total"] == len(body["events"])
+    # Same envelopes /run frames carry, so they round-trip through from_json.
+    for event in body["events"]:
+        assert from_json(json.dumps(event)) is not None
+        assert event["session_id"] == session_id
+    assert body["events"][0]["type"] == "user_query"
+    assert body["events"][-1]["type"] == "final_answer"
+    assert body["events"][-1]["text"] == "the answer is 42"
+
+
+def test_events_matches_the_frames_run_streamed(make_app: AppBuilder) -> None:
+    # The point of the endpoint: a reloading client reconstructs exactly what it
+    # would have seen live.
+    client, _ = make_app([_final("done")])
+    streamed = client.post("/run", json={"query": "ping"})
+    frames = [data for _, data in _frames(streamed.text)]
+    session_id = frames[0]["session_id"]
+
+    replayed = client.get(f"/sessions/{session_id}/events").json()["events"]
+    assert replayed == frames
+
+
+def test_events_limit_returns_the_tail_in_write_order(make_app: AppBuilder) -> None:
+    client, _ = make_app([_final("done")])
+    session_id = _seed(client)
+    full = client.get(f"/sessions/{session_id}/events").json()
+
+    resp = client.get(f"/sessions/{session_id}/events", params={"limit": 1})
+    body = resp.json()
+    assert body["events"] == full["events"][-1:]
+    assert body["total"] == full["total"]  # total counts the transcript, not the window
+    assert body["truncated"] is True
+
+
+def test_events_limit_wider_than_the_session_is_not_truncated(make_app: AppBuilder) -> None:
+    client, _ = make_app([_final("done")])
+    session_id = _seed(client)
+
+    body = client.get(f"/sessions/{session_id}/events", params={"limit": 999}).json()
+    assert body["truncated"] is False
+    assert len(body["events"]) == body["total"]
+
+
+def test_events_limit_below_one_is_422(make_app: AppBuilder) -> None:
+    client, _ = make_app()
+    session_id = _seed(client)
+    assert client.get(f"/sessions/{session_id}/events", params={"limit": 0}).status_code == 422
+
+
+def test_events_unknown_session_is_404(make_app: AppBuilder) -> None:
+    client, _ = make_app()
+    resp = client.get("/sessions/does-not-exist/events")
+    assert resp.status_code == 404
+    assert "does-not-exist" in resp.json()["detail"]
+
+
+def test_events_malformed_session_id_is_404(make_app: AppBuilder) -> None:
+    # Must be caught before the read: load_events is a generator, so its id
+    # validation would otherwise fire inside the loop and read as a torn line.
+    client, _ = make_app()
+    assert client.get("/sessions/not.a.valid.id/events").status_code == 404
+
+
+def test_events_torn_transcript_is_422(make_app: AppBuilder) -> None:
+    client, harness = make_app([_final("done")])
+    session_id = _seed(client)
+    path = harness.store.root / f"{session_id}.jsonl"
+    path.write_text(
+        path.read_text(encoding="utf-8") + '{"type": "not_an_event"}\n',
+        encoding="utf-8",
+    )
+
+    resp = client.get(f"/sessions/{session_id}/events")
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert session_id in detail
+    assert "not_an_event" in detail

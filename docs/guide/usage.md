@@ -80,6 +80,7 @@ output in Section 3 is marked representative.
 | Inspect artifacts/index | ✅ | `reigner inspect {artifacts,index}` | [Section 3.4](#34-inspect-the-project--reigner-inspect) |
 | Sessions — list/show/tree/fork/replay | ✅ | `reigner session …` | [Section 3.5](#35-sessions-list--show--tree--fork--replay--reigner-session) |
 | Serve — HTTP / SSE | ✅ | `reigner serve --http` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
+| Serve — read session history | ✅ | `GET /sessions` · `GET /sessions/{id}/events` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Serve — MCP export | ⏳ | `reigner serve --mcp` | [Section 3.6](#36-serve-the-agent--reigner-serve) |
 | Plugins — metrics, PII redact | ✅ | `plugins:` in `reigner.yaml` | [Section 3.7](#37-plugins) |
 | Skills (on-demand modules) | ✅ | `role.skills:` in `reigner.yaml` | [Section 3.9](#39-skills--on-demand-instruction-modules) |
@@ -1028,18 +1029,43 @@ Expose the configured agent over HTTP with SSE streaming (needs
 ```console
 $ reigner serve --http
 # representative output
-· listening on http://127.0.0.1:8000  (POST /run · GET /health)
+· listening on http://127.0.0.1:8000
+  (POST /run · GET /sessions · GET /sessions/{id}/events · GET /health)
 ```
 
-Two endpoints:
+Four endpoints:
 
 - `GET /health` → `{"status": "ok", "name": ..., "model": ...}` — liveness +
   identity probe.
 - `POST /run` → an SSE stream of the same typed events as `chat --json`. Body:
   `{"query": "...", "session_id": "optional", "profile": "full"}`.
+- `GET /sessions` → `{"sessions": [...]}`, one entry per session in the store
+  with the same fields `reigner session list --json` emits (`session_id`,
+  `parent_id`, `title`, `created`, `last_updated`, `event_count`,
+  `schema_version`).
+- `GET /sessions/{id}/events` → `{"session_id", "total", "truncated", "events"}`
+  — a session's stored transcript, in write order, as the same event envelopes
+  `/run` streams. Add `?limit=N` for just the last N events; `total` still
+  counts the whole transcript so you can tell what you skipped.
 
 Flags: `--host` (defaults to loopback; set `0.0.0.0` to expose), `--port`
 (default `8000`), `-c` for a non-default config.
+
+Reading history back is what lets a browser client survive a reload: `POST /run`
+returns a `session_id` on every frame, and `GET /sessions/{id}/events` replays
+that thread later. Note that `EventSource` can't drive `/run` — it only issues
+GETs — so browser clients call `fetch()` and parse the stream themselves.
+
+Unknown and malformed session ids both answer `404`; a stored transcript that
+won't parse answers `422` rather than silently returning a short one.
+
+!!! warning "No auth, CORS, or rate limiting"
+
+    The server ships none of it, deliberately — put a gateway in front before
+    exposing it. The session endpoints raise the stakes: an exposed server
+    serves every transcript on disk, not just the ability to ask a question.
+    `reigner serve` prints a reminder to stderr whenever you bind to anything
+    other than loopback.
 
 ⏳ **MCP export is not implemented yet** — `--mcp` exits cleanly rather than
 pretending to work:
