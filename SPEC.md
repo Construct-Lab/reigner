@@ -1,6 +1,6 @@
 # Reigner — v0 Specification
 
-> A Python toolkit for building specialist agents over your own knowledge.
+> A Python harness for question-answering agents over your own knowledge.
 > Bring your `REIGNER.md`, your ingestion, and your domain tools.
 > Reigner brings the loop that doesn't lose its mind, the retrieval that doesn't blow up your context, the sessions you can fork, and the citations that survive into the final answer.
 
@@ -21,7 +21,7 @@
 
 ### Is
 
-A Python library for building **single-agent, retrieval-shaped, citation-faithful** agents over a developer's own corpus. Reigner ships:
+A Python harness for **single-agent, retrieval-shaped, citation-faithful** question-answering over a developer's own corpus. The hard problem it exists to solve is keeping one agent coherent and cheap as its context grows over a long run; everything else is in service of that. Reigner ships:
 
 - A disciplined agent loop with eleven baked-in guardrails for context economics, tool feedback, and graceful failure.
 - A bounded, schema-aware retrieval tool surface (`read_artifact_file`, `grep_artifact`, `get_json_field`) plus a 50-line BM25 index.

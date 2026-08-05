@@ -2,20 +2,21 @@
 
 ## Project Structure & Module Organization
 
-This repository currently contains the v0 planning documents for Reigner, a Python 3.12+ toolkit for retrieval-shaped, citation-faithful agents. Treat `SPEC.md` as the source of truth for the intended package design and `PRINCIPLES.md` as the rationale behind architectural choices.
+Reigner is a Python 3.12+ harness for retrieval-shaped, citation-faithful question-answering agents. Treat `SPEC.md` as the source of truth for the package design and `PRINCIPLES.md` as the rationale behind architectural choices.
 
-The planned source tree is `reigner/`, with core loop code under `reigner/harness/`, tool definitions under `reigner/tools/`, ingestion helpers under `reigner/ingestion/`, recipes under `reigner/recipes/`, CLI commands under `reigner/cli/`, and evaluation code under `reigner/eval/`. When implementation begins, tests should mirror the package layout under `tests/`, for example `tests/harness/test_loop.py`.
+The source tree is `reigner/`, with core loop code under `reigner/harness/`, tool definitions under `reigner/tools/`, ingestion helpers under `reigner/ingestion/`, recipes under `reigner/recipes/`, CLI commands under `reigner/cli/`, the HTTP server under `reigner/server/`, and evaluation code under `reigner/eval/`. Tests mirror the package layout under `tests/`, for example `tests/harness/test_loop.py`.
 
 ## Build, Test, and Development Commands
 
-No build system or package metadata has been added yet. Until `pyproject.toml` exists, review changes with normal Git and Markdown tooling:
+The project uses `uv`. Install with `uv sync --all-extras --group dev`, then:
 
-- `git status --short`: check changed and untracked files.
-- `git diff -- SPEC.md PRINCIPLES.md AGENTS.md`: review documentation edits.
-- `python -m pytest`: expected future test command once tests are introduced.
-- `python -m reigner.cli`: expected future CLI entry path based on the planned layout.
+- `uv run ruff check .`: lint.
+- `uv run ruff format --check .`: format check.
+- `uv run mypy reigner`: type check.
+- `uv run pytest`: full test suite. Pass a path to run one file.
+- `uv run reigner --help`: CLI entry point.
 
-When adding packaging, prefer `uv`-friendly Python packaging with a standard `pyproject.toml`.
+The first four are what CI runs; run them before opening a pull request.
 
 ## Coding Style & Naming Conventions
 
